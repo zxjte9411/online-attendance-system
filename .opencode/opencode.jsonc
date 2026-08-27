@@ -1,0 +1,40 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "external_directory": {
+      "/workspaces/blog-admin-system": "allow"
+    },
+    "edit": {
+      "/workspaces/blog-admin-system": "ask"
+    }
+  },
+  "mcp": {
+    "codegraph": {
+      "type": "local",
+      "command": [
+        "codegraph",
+        "serve",
+        "--mcp"
+      ],
+      "enabled": true
+    },
+    "chrome-devtools": {
+      "enabled": false,
+      "type": "local",
+      "command": [
+        "/bin/bash",
+        "/workspaces/online-attendance-system/.opencode/scripts/start-chrome-mcp.sh"
+      ],
+      "environment": {
+        "CHROME_TARGET_HOST": "host.docker.internal",
+        "CHROME_TARGET_PORT": "9222",
+        "CHROME_LOCAL_PORT": "9333"
+      }
+    },
+    "supabase": {
+      "type": "remote",
+      "url": "https://mcp.supabase.com/mcp?project_ref=dezaidpskjiqlqegpbdy&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching",
+      "enabled": false
+    }
+  }
+}

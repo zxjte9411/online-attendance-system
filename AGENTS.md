@@ -8,8 +8,6 @@
 - 根目錄有 `.codegraph/` 時，先用 CodeGraph MCP `codegraph_explore`（或 `codegraph explore "..."`）定位與理解程式碼，再讀取或搜尋；沒有就略過。
 - 修改後若 CodeGraph 顯示索引尚未同步，直接讀取列出的檔案確認內容。
 
-> 新專案，其餘規則待補充
-
 ## Agent skills
 
 ### Issue tracker
