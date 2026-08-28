@@ -48,3 +48,14 @@ After implementation and review pass:
 The Pull Request is not ready for human merge until required CI checks and deployment/preview checks associated with the change have completed successfully.
 
 If a required check needs human-only access or judgement, surface that requirement instead of representing the work as fully verified.
+
+## Parent specs
+
+When `/to-tickets` has split a parent specification into implementation tickets:
+
+* Each implementation Pull Request closes only its originating child ticket with `Closes #<ticket-number>`.
+* Do not close the parent specification from a child Pull Request.
+* The parent remains open while its implementation tickets are being completed.
+* After the child tickets have reached their final states, the maintainer performs the parent-level acceptance check and closes the parent specification when its overall outcome is satisfied.
+
+Completion of all child tickets is evidence for parent completion, not a substitute for the parent-level acceptance check.
