@@ -8,6 +8,7 @@ const router = useRouter()
 const isSigningOut = ref(false)
 const logoutError = ref('')
 const now = ref(new Date())
+let clockTimeout: ReturnType<typeof setTimeout> | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
 
 const navItems = [
@@ -35,15 +36,6 @@ const currentTimeLabel = computed(() => new Intl.DateTimeFormat('zh-TW', {
 
 const currentDateTime = computed(() => now.value.toISOString())
 
-const calendarClassification = computed(() => {
-  const weekday = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Taipei',
-    weekday: 'short',
-  }).format(now.value)
-
-  return weekday === 'Sat' || weekday === 'Sun' ? '週末' : '工作日'
-})
-
 const page = computed(() => {
   const current = navItems.find((item) => item.routeName === route.name)
 
@@ -52,9 +44,9 @@ const page = computed(() => {
       label: '出勤',
       title: '沿著時間軸，查看今天的出勤。',
       description: '先看見事件順序與目前狀態；這個工作面只提供讀取預覽。',
-      summary: '今天尚未有可供修改的出勤紀錄。',
+      summary: '預覽資料：今天不提供可供修改的出勤紀錄。',
       nextStep: '下一步：確認工作日後，再開始第一個打卡動作。',
-      previewStatus: '尚未記錄',
+      previewStatus: '預覽：尚未記錄',
     }
   }
 
@@ -63,9 +55,9 @@ const page = computed(() => {
       label: '日曆／狀態',
       title: '分開看日曆分類與當日狀態。',
       description: '日曆回答「這天是哪一類」；狀態回答「這天怎麼工作」。',
-      summary: '兩組資訊各自保留，避免把週末、假日與請假混在一起。',
+      summary: '預覽資料：兩組資訊各自保留，避免把週末、假日與請假混在一起。',
       nextStep: '下一步：先確認日曆分類，再檢視當天的工作狀態。',
-      previewStatus: '狀態分開呈現',
+      previewStatus: '預覽：狀態分開呈現',
     }
   }
 
@@ -74,9 +66,9 @@ const page = computed(() => {
       label: '報表',
       title: '用一個摘要，回顧工作日。',
       description: '把日期區間、紀錄概況與待確認事項放在同一個讀取畫面。',
-      summary: '目前顯示的是報表結構預覽，不代表已產生正式統計。',
+      summary: '預覽資料：目前顯示的是報表結構，不代表已產生正式統計。',
       nextStep: '下一步：選定報表區間後，再查看整理完成的出勤摘要。',
-      previewStatus: '摘要預覽',
+      previewStatus: '預覽：摘要',
     }
   }
 
@@ -85,9 +77,9 @@ const page = computed(() => {
       label: '設定',
       title: '先確認工作面的基本偏好。',
       description: '帳號、時區與狀態顯示集中在這裡；目前只呈現設定欄位。',
-      summary: '設定預覽不會更新帳號偏好或任何出勤資料。',
+      summary: '預覽資料：設定預覽不會更新帳號偏好或任何出勤資料。',
       nextStep: '下一步：確認時區與狀態顯示規則，再進入設定功能。',
-      previewStatus: '設定預覽',
+      previewStatus: '預覽：設定',
     }
   }
 
@@ -95,19 +87,25 @@ const page = computed(() => {
     label: '今日',
     title: '先看今天，再開始工作。',
     description: '把目前時間、出勤預覽與下一個打卡位置放在最前面。',
-    summary: '目前是只讀預覽；不會送出打卡，也不會建立出勤紀錄。',
+    summary: '預覽資料：目前是只讀預覽，不會送出打卡，也不會建立出勤紀錄。',
     nextStep: '下一步：確認今天的工作安排，再進行未來的打卡動作。',
-    previewStatus: '只讀預覽',
+    previewStatus: '預覽：只讀',
   }
 })
 
 onMounted(() => {
-  clockTimer = setInterval(() => {
+  const millisecondsToNextMinute = 60_000 - (Date.now() % 60_000)
+
+  clockTimeout = setTimeout(() => {
     now.value = new Date()
-  }, 60_000)
+    clockTimer = setInterval(() => {
+      now.value = new Date()
+    }, 60_000)
+  }, millisecondsToNextMinute)
 })
 
 onUnmounted(() => {
+  if (clockTimeout) clearTimeout(clockTimeout)
   if (clockTimer) clearInterval(clockTimer)
 })
 
@@ -232,7 +230,7 @@ async function handleSignOut() {
             <section v-if="route.name !== 'attendance' && route.name !== 'leave' && route.name !== 'reports' && route.name !== 'settings'" class="grid gap-6 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="today-preview-title">
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div class="grid gap-1">
-                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">今日出勤預覽</span>
+                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">今日出勤預覽資料</span>
                   <h2 id="today-preview-title" class="font-display text-[clamp(1.75rem,4vw,2.75rem)] font-semibold leading-tight tracking-[-0.05em]">先確認，再打卡</h2>
                 </div>
                 <div class="text-end">
@@ -243,12 +241,12 @@ async function handleSignOut() {
               <div class="grid gap-4 border-t border-line pt-5 sm:grid-cols-2">
                 <div class="grid gap-1">
                   <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">Calendar classification</span>
-                  <strong class="text-lg">{{ calendarClassification }}</strong>
+                  <strong class="text-lg">範例：工作日</strong>
                   <span class="text-[0.8125rem] text-muted">日曆分類，不等同工作狀態</span>
                 </div>
                 <div class="grid gap-1">
                   <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">Day Status</span>
-                  <strong class="text-lg">遠端</strong>
+                  <strong class="text-lg">範例：遠端</strong>
                   <span class="text-[0.8125rem] text-muted">工作安排狀態，獨立呈現</span>
                 </div>
               </div>
@@ -257,7 +255,7 @@ async function handleSignOut() {
                   <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">下一個動作</span>
                   <span class="font-mono text-[0.6875rem] font-bold tracking-[0.1em] text-accent">預覽 · 尚未啟用</span>
                 </div>
-                <strong class="font-display text-xl tracking-[-0.03em]">開始上班打卡</strong>
+                <strong class="font-display text-xl tracking-[-0.03em]">預覽：開始上班打卡</strong>
                 <p class="max-w-[48ch] text-[0.875rem] leading-relaxed text-muted">這裡只展示未來動作的位置，不會送出打卡或建立 Attendance Record。</p>
               </div>
             </section>
@@ -265,23 +263,23 @@ async function handleSignOut() {
             <section v-else-if="route.name === 'attendance'" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="attendance-preview-title">
               <div class="flex items-start justify-between gap-4 border-b border-line pb-5">
                 <div class="grid gap-1">
-                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">出勤時間軸</span>
+                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">出勤時間軸 · 預覽資料</span>
                   <h2 id="attendance-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">今日事件順序</h2>
                 </div>
-                <span class="rounded-[0.375rem] border border-line px-2 py-1 font-mono text-[0.6875rem] font-bold text-muted">讀取</span>
+                <span class="rounded-[0.375rem] border border-line px-2 py-1 font-mono text-[0.6875rem] font-bold text-muted">只讀預覽</span>
               </div>
               <ol class="grid divide-y divide-line">
                 <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4 first:pt-0 last:pb-0">
-                  <time class="font-mono text-sm font-bold tabular-nums text-accent">09:00</time>
-                  <div class="grid gap-0.5"><strong>開始工作</strong><span class="text-[0.8125rem] text-muted">預覽事件，尚未記錄</span></div>
+                  <time class="font-mono text-sm font-bold tabular-nums text-accent" datetime="09:00">範例：09:00</time>
+                  <div class="grid gap-0.5"><strong>範例事件：開始工作</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
                 </li>
                 <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4">
-                  <time class="font-mono text-sm font-bold tabular-nums text-muted">12:30</time>
-                  <div class="grid gap-0.5"><strong>午間休息</strong><span class="text-[0.8125rem] text-muted">工作流程中的下一段</span></div>
+                  <time class="font-mono text-sm font-bold tabular-nums text-muted" datetime="12:30">範例：12:30</time>
+                  <div class="grid gap-0.5"><strong>範例事件：午間休息</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
                 </li>
                 <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4 first:pt-0 last:pb-0">
-                  <time class="font-mono text-sm font-bold tabular-nums text-muted">18:00</time>
-                  <div class="grid gap-0.5"><strong>結束工作</strong><span class="text-[0.8125rem] text-muted">預覽事件，尚未記錄</span></div>
+                  <time class="font-mono text-sm font-bold tabular-nums text-muted" datetime="18:00">範例：18:00</time>
+                  <div class="grid gap-0.5"><strong>範例事件：結束工作</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
                 </li>
               </ol>
             </section>
@@ -294,9 +292,9 @@ async function handleSignOut() {
                   <p class="text-[0.8125rem] text-muted">回答這一天是哪一類。</p>
                 </div>
                 <dl class="grid divide-y divide-line">
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">本日</dt><dd class="font-semibold">{{ calendarClassification }}</dd></div>
-                  <div class="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">週末</dt><dd class="font-semibold">週六、週日</dd></div>
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">假日</dt><dd class="font-semibold">未標記</dd></div>
+                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">本日</dt><dd class="font-semibold">範例：工作日</dd></div>
+                  <div class="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">週末</dt><dd class="font-semibold">範例：週六、週日</dd></div>
+                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">假日</dt><dd class="font-semibold">範例：未標記</dd></div>
                 </dl>
               </section>
               <section class="grid gap-5 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-7 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="day-status-title">
@@ -306,8 +304,8 @@ async function handleSignOut() {
                   <p class="text-[0.8125rem] text-muted">回答這一天怎麼工作。</p>
                 </div>
                 <dl class="grid divide-y divide-line">
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">目前狀態</dt><dd class="font-semibold text-accent">遠端</dd></div>
-                  <div class="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">請假</dt><dd class="font-semibold">未設定</dd></div>
+                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">目前狀態</dt><dd class="font-semibold text-accent">範例：遠端</dd></div>
+                  <div class="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">請假</dt><dd class="font-semibold">範例：未設定</dd></div>
                   <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">資料用途</dt><dd class="font-semibold">只讀預覽</dd></div>
                 </dl>
               </section>
@@ -316,12 +314,12 @@ async function handleSignOut() {
             <section v-else-if="route.name === 'reports'" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="reports-preview-title">
               <div class="grid gap-1 border-b border-line pb-5">
                 <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">報表摘要</span>
-                <h2 id="reports-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">本週工作日概況</h2>
+                <h2 id="reports-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">本週工作日概況 · 預覽資料</h2>
               </div>
               <dl class="grid gap-3 sm:grid-cols-3">
                 <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">日期區間</dt><dd class="font-semibold">本週預覽</dd></div>
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">工作日</dt><dd class="font-mono text-2xl font-bold tabular-nums">5 日</dd></div>
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">已記錄</dt><dd class="font-mono text-2xl font-bold tabular-nums">0 筆</dd></div>
+                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">工作日</dt><dd class="font-mono text-2xl font-bold tabular-nums">範例：5 日</dd></div>
+                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">已記錄</dt><dd class="font-mono text-2xl font-bold tabular-nums">範例：0 筆</dd></div>
               </dl>
               <p class="border-s-4 border-accent ps-4 text-[0.875rem] leading-relaxed text-muted">這是報表結構預覽，不代表已產生正式統計，也不會修改任何資料。</p>
             </section>
@@ -332,8 +330,8 @@ async function handleSignOut() {
                 <h2 id="settings-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作面的基本偏好</h2>
               </div>
               <dl class="grid divide-y divide-line">
-                <div class="grid gap-1 py-4 first:pt-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">登入方式</dt><dd class="font-semibold">Google 帳號</dd></div>
-                <div class="grid gap-1 py-4 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">時區</dt><dd class="font-mono text-sm font-semibold">Asia/Taipei</dd></div>
+                <div class="grid gap-1 py-4 first:pt-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">登入方式</dt><dd class="font-semibold">範例：Google 帳號</dd></div>
+                <div class="grid gap-1 py-4 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">時區</dt><dd class="font-mono text-sm font-semibold">預覽：Asia/Taipei</dd></div>
                 <div class="grid gap-1 py-4 last:pb-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">狀態顯示</dt><dd class="font-semibold">日曆分類與 Day Status 分開</dd></div>
               </dl>
               <p class="rounded-[0.625rem] border border-line bg-surface-soft p-4 text-[0.875rem] leading-relaxed text-muted forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]">以上欄位僅供預覽。尚未提供可寫入的設定控制。</p>
