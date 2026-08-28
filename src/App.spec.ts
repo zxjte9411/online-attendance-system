@@ -17,6 +17,17 @@ function mockAuth(session: object | null = null): AuthAdapter {
   } as unknown as AuthAdapter
 }
 
+type ExchangeResult = Awaited<ReturnType<AuthAdapter['exchangeCodeForSession']>>
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+
+  return { promise, resolve }
+}
+
 function createTestRouter(auth: AuthAdapter) {
   return createAppRouter({ auth, history: createMemoryHistory() })
 }
@@ -54,12 +65,35 @@ describe('認證路由核心', () => {
 
   it('OAuth callback 以 code 換取 session 後回到原請求', async () => {
     const auth = mockAuth({ user: { id: 'user-1' } })
+    const exchange = deferred<ExchangeResult>()
+    auth.exchangeCodeForSession = vi.fn(() => exchange.promise) as unknown as AuthAdapter['exchangeCodeForSession']
+    const router = createTestRouter(auth)
+
+    const navigation = router.push('/auth/callback?code=oauth-code&redirect=/reports?month=2026-08')
+    await navigation
+
+    expect(auth.exchangeCodeForSession).toHaveBeenCalledWith('oauth-code')
+    expect(router.currentRoute.value.fullPath).toBe('/auth/callback?code=oauth-code&redirect=/reports?month=2026-08')
+
+    exchange.resolve({ data: { session: { user: { id: 'user-1' } } }, error: null } as ExchangeResult)
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/reports?month=2026-08'))
+  })
+
+  it('OAuth callback exchange 尚未完成時離開，完成後不回到 callback 目的地', async () => {
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    const exchange = deferred<ExchangeResult>()
+    auth.exchangeCodeForSession = vi.fn(() => exchange.promise) as unknown as AuthAdapter['exchangeCodeForSession']
     const router = createTestRouter(auth)
 
     await router.push('/auth/callback?code=oauth-code&redirect=/reports?month=2026-08')
+    await router.push('/privacy')
 
-    expect(auth.exchangeCodeForSession).toHaveBeenCalledWith('oauth-code')
-    expect(router.currentRoute.value.fullPath).toBe('/reports?month=2026-08')
+    expect(router.currentRoute.value.fullPath).toBe('/privacy')
+
+    exchange.resolve({ data: { session: { user: { id: 'user-1' } } }, error: null } as ExchangeResult)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(router.currentRoute.value.fullPath).toBe('/privacy')
   })
 
   it('OAuth callback 沒有 code 時停留在錯誤狀態並保留安全 redirect', async () => {
@@ -82,6 +116,7 @@ describe('認證路由核心', () => {
 
     await router.push('/auth/callback?code=bad-code&redirect=/settings?section=account')
 
+    await vi.waitFor(() => expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed'))
     expect(router.currentRoute.value.name).toBe('auth-callback')
     expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed')
     expect(router.currentRoute.value.query.redirect).toBe('/settings?section=account')
@@ -96,6 +131,7 @@ describe('認證路由核心', () => {
 
     await router.push('/auth/callback?code=network-error&redirect=/attendance/calendar')
 
+    await vi.waitFor(() => expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed'))
     expect(router.currentRoute.value.name).toBe('auth-callback')
     expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed')
   })
