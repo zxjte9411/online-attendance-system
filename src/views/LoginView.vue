@@ -88,7 +88,7 @@ async function handleGoogleSignIn() {
 
         <button
           v-if="isSupabaseConfigured"
-          class="google-button mt-2 inline-flex min-h-[3.25rem] w-full items-center justify-center gap-3 rounded-[0.625rem] border border-accent bg-accent px-4 py-3 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none"
+          class="google-button mt-2 inline-flex min-h-[3.25rem] w-full items-center justify-center gap-3 rounded-[0.625rem] border border-accent bg-accent px-4 py-3 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68]"
           type="button"
           :disabled="isSigningIn"
           :aria-busy="isSigningIn"
