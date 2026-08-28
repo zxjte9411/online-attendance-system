@@ -30,20 +30,34 @@ Preserve existing behavior that already satisfies the Issue. Prefer extending ex
 
 Use the repository-defined verification seam during implementation.
 
-`/implement` owns the implementation/test/review loop. A blocking Standards or Spec finding from `/code-review` must be corrected on the same branch and reviewed again before delivery.
+Commits on the implementation branch are review candidates, not evidence that the work is complete. `/implement` owns the implementation/test/review loop.
+
+After the implementation passes repository verification:
+
+1. Commit the reviewable implementation to the dedicated branch.
+2. Run `/code-review` against the originating `master` fixed point.
+3. If `/code-review` reports a blocking Standards or Spec finding, correct it on the same branch, verify the correction, commit it, and run `/code-review` again.
+4. Continue until no blocking Standards or Spec findings remain.
 
 Judgement-call smells alone do not require speculative refactoring.
 
-## Pull request
+Review completion is a delivery gate, not the end of the implementation workflow.
 
-After implementation and review pass:
+## Pull request delivery
 
-* Push the dedicated branch.
+After `/code-review` passes, continue directly to delivery:
+
+* Push the dedicated implementation branch to the remote.
 * Open a Pull Request targeting `master`.
 * When the work originated from `/implement #<issue-number>`, include `Closes #<issue-number>` in the Pull Request body.
 * Keep the Issue as the authoritative work item; the Pull Request is the delivery and review artifact.
-* Do not manually close the Issue before merge when the Pull Request is expected to complete it.
-* Do not merge the Pull Request unless explicitly authorized by the user.
+* Leave the Pull Request unmerged for the maintainer unless the user explicitly authorizes the merge.
+
+An `/implement #<issue-number>` run is not complete merely because implementation, verification, commits, or `/code-review` have completed.
+
+Completion criterion: the reviewed branch has been pushed and a Pull Request targeting `master` exists with the originating Issue correctly linked.
+
+If branch push or Pull Request creation cannot be performed because of credentials, permissions, or another external blocker, report that blocker explicitly as the incomplete delivery step.
 
 The Pull Request is not ready for human merge until required CI checks and deployment/preview checks associated with the change have completed successfully.
 
