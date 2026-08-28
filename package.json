@@ -11,6 +11,7 @@
     "verify": "bun run typecheck && bun run test:unit && bun run build"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1"
   },
