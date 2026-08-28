@@ -9,10 +9,14 @@ import { createSupabaseAuth, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
 import AuthCallbackView from './views/AuthCallbackView.vue'
 import LoginView from './views/LoginView.vue'
+import PrivacyView from './views/PrivacyView.vue'
+import SupportView from './views/SupportView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView },
   { path: '/auth/callback', name: 'auth-callback', component: AuthCallbackView },
+  { path: '/privacy', name: 'privacy', component: PrivacyView },
+  { path: '/support', name: 'support', component: SupportView },
   { path: '/', name: 'today', component: AppShell, meta: { requiresAuth: true } },
   { path: '/attendance/:pathMatch(.*)*', name: 'attendance', component: AppShell, meta: { requiresAuth: true } },
   { path: '/leave/:pathMatch(.*)*', name: 'leave', component: AppShell, meta: { requiresAuth: true } },

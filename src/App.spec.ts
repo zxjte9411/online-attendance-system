@@ -22,6 +22,15 @@ function createTestRouter(auth: AuthAdapter) {
 }
 
 describe('認證路由核心', () => {
+  it('未登入可抵達公開靜態頁', async () => {
+    const router = createTestRouter(mockAuth())
+
+    for (const path of ['/privacy', '/support']) {
+      await router.push(path)
+      expect(router.currentRoute.value.fullPath).toBe(path)
+    }
+  })
+
   it('未登入時將既有路由導向登入，並保留完整路徑與 query', async () => {
     const router = createTestRouter(mockAuth())
 
