@@ -22,6 +22,18 @@ function createTestRouter(auth: AuthAdapter) {
 }
 
 describe('認證路由核心', () => {
+  it('未設定 Supabase 時未注入 auth 也可抵達公開路由', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+
+    const router = createAppRouter({ history: createMemoryHistory() })
+
+    for (const path of ['/privacy', '/support', '/login']) {
+      await router.push(path)
+      expect(router.currentRoute.value.fullPath).toBe(path)
+    }
+  })
+
   it('未登入可抵達公開靜態頁', async () => {
     const router = createTestRouter(mockAuth())
 

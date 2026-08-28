@@ -43,7 +43,14 @@ function callbackErrorLocation(redirect: unknown) {
 }
 
 export function createAppRouter(options: AppRouterOptions = {}) {
-  const auth = options.auth ?? createSupabaseAuth()
+  let auth = options.auth
+  const hasAuthConfig = Boolean(
+    import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY,
+  )
+  const getAuth = () => {
+    if (!auth) auth = createSupabaseAuth()
+    return auth
+  }
   const history = options.history ?? (typeof window === 'undefined'
     ? createMemoryHistory()
     : createWebHistory())
@@ -65,7 +72,7 @@ export function createAppRouter(options: AppRouterOptions = {}) {
       }
 
       try {
-        const { data, error } = await auth.exchangeCodeForSession(code)
+        const { data, error } = await getAuth().exchangeCodeForSession(code)
 
         if (error || !data.session) {
           return callbackErrorLocation(to.query.redirect)
@@ -77,8 +84,23 @@ export function createAppRouter(options: AppRouterOptions = {}) {
       return safeRedirect(to.query.redirect)
     }
 
-    const { data } = await auth.getSession()
-    const isLoggedIn = Boolean(data.session)
+    if (to.name !== 'login' && !to.meta.requiresAuth) return true
+
+    if (!options.auth && !hasAuthConfig) {
+      return to.name === 'login'
+        ? true
+        : { name: 'login', query: { redirect: safeRedirect(to.fullPath) } }
+    }
+
+    let isLoggedIn = false
+    try {
+      const { data } = await getAuth().getSession()
+      isLoggedIn = Boolean(data.session)
+    } catch {
+      return to.name === 'login'
+        ? true
+        : { name: 'login', query: { redirect: safeRedirect(to.fullPath) } }
+    }
 
     if (to.name === 'login') {
       return isLoggedIn ? safeRedirect(to.query.redirect) : true
