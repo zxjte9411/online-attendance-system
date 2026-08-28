@@ -32,4 +32,4 @@ This repo uses a single-context layout. See `docs/agents/domain.md`.
 
 ## Development workflow
 
-Implementation work follows the repository branch-and-review workflow. Before modifying code for an issue or ticket, read `docs/agents/development-workflow.md` and follow it through final review.
+Implementation work follows the repository branch-to-PR workflow. Before modifying code for an issue or ticket, read `docs/agents/development-workflow.md` and follow it through Pull Request delivery.
