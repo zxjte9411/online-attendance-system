@@ -72,48 +72,6 @@
   }
 }
 
-@layer components {
-  .skip-link {
-    position: fixed;
-    z-index: 1;
-    inset-block-start: 0.75rem;
-    inset-inline-start: 0.75rem;
-    padding-block: 0.5rem;
-    padding-inline: 0.75rem;
-    border-radius: 0.5rem;
-    background: var(--ink);
-    color: var(--surface);
-    transform: translateY(-180%);
-    transition: transform 180ms ease;
-  }
-
-  .skip-link:focus-visible {
-    transform: translateY(0);
-  }
-
-  .wordmark {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.625rem;
-    font-family: var(--display-font);
-    font-size: 1.125rem;
-    font-weight: 700;
-    letter-spacing: -0.035em;
-  }
-
-  .wordmark-mark {
-    display: grid;
-    place-items: center;
-    inline-size: 2rem;
-    block-size: 2rem;
-    border-radius: 0.625rem;
-    background: var(--accent);
-    color: var(--surface);
-    font-size: 0.875rem;
-    letter-spacing: 0;
-  }
-}
-
 @layer theme {
   :root {
     --error-surface: #f9e8e5;
@@ -135,10 +93,6 @@
     scroll-behavior: auto;
   }
 
-  .skip-link,
-  .google-button {
-    transition: none;
-  }
 }
 
 @media (forced-colors: active) {
@@ -147,23 +101,4 @@
     outline-offset: 0.25rem;
   }
 
-  .google-button {
-    forced-color-adjust: none;
-    border-color: ButtonText !important;
-    background: ButtonFace !important;
-    color: ButtonText !important;
-  }
-
-  .google-mark {
-    border: 1px solid ButtonText;
-    background: ButtonFace !important;
-    color: ButtonText !important;
-  }
-
-  .login-preview-state {
-    border-color: ButtonText !important;
-    border-inline-start-color: Highlight !important;
-    background: Canvas !important;
-    color: CanvasText !important;
-  }
 }
