@@ -1,16 +1,35 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { safeRedirect } from '../lib/redirect'
 
 const route = useRoute()
 
 const failed = computed(() => route.query.error === 'oauth_callback_failed')
+const mainRegion = ref<HTMLElement | null>(null)
+const errorRegion = ref<HTMLElement | null>(null)
 const redirect = computed(() => safeRedirect(route.query.redirect))
 const loginTarget = computed(() => ({
   name: 'login',
   query: redirect.value === '/' ? undefined : { redirect: redirect.value },
 }))
+
+onMounted(async () => {
+  await nextTick()
+  mainRegion.value?.focus()
+
+  if (failed.value) {
+    await nextTick()
+    errorRegion.value?.focus()
+  }
+})
+
+watch(failed, async (isFailed) => {
+  if (!isFailed) return
+
+  await nextTick()
+  errorRegion.value?.focus()
+})
 </script>
 
 <template>
@@ -25,12 +44,12 @@ const loginTarget = computed(() => ({
       <span class="text-[0.75rem] font-bold tracking-[0.08em] text-muted">登入驗證</span>
     </header>
 
-    <main id="callback-main" tabindex="-1" class="mx-auto grid w-full max-w-[68rem] flex-1 place-items-center py-12 sm:py-16 lg:py-20">
+    <main ref="mainRegion" id="callback-main" tabindex="-1" class="mx-auto grid w-full max-w-[68rem] flex-1 place-items-center py-12 sm:py-16 lg:py-20">
       <section v-if="failed" class="grid w-full max-w-[32rem] gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="callback-error-title">
         <p class="text-[0.75rem] font-bold tracking-[0.12em] text-accent">登入驗證</p>
         <h1 id="callback-error-title" class="max-w-[16ch] font-display text-[clamp(1.75rem,4vw,2.5rem)] font-semibold leading-[1.12] tracking-[-0.05em] text-balance">登入沒有完成。</h1>
         <p class="text-[0.9375rem] leading-relaxed text-muted text-pretty">Google 沒有成功回傳登入結果，請回到登入頁重新嘗試。</p>
-        <p class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-[0.875rem] text-[var(--error-ink)] forced-colors:border-[ButtonText] forced-colors:bg-[Canvas] forced-colors:text-[CanvasText]" role="alert">oauth_callback_failed</p>
+        <p ref="errorRegion" tabindex="-1" class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-[0.875rem] text-[var(--error-ink)] forced-colors:border-[ButtonText] forced-colors:bg-[Canvas] forced-colors:text-[CanvasText]" role="alert">oauth_callback_failed</p>
         <RouterLink class="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" :to="loginTarget">回到登入頁</RouterLink>
       </section>
 
