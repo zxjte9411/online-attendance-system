@@ -1,6 +1,6 @@
 import { createMemoryHistory } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import { signInWithGoogle, signOut, type AuthAdapter } from './lib/auth'
+import { signInWithGoogle, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
 import { createAppRouter } from './router'
 
@@ -96,15 +96,6 @@ describe('認證路由核心', () => {
         redirectTo: 'http://localhost:5173/auth/callback?redirect=%2Fleave%3Fmonth%3D2026-08',
       },
     })
-  })
-
-  it('登出 helper await 並傳遞 Supabase Auth 的結果', async () => {
-    const auth = mockAuth()
-
-    const result = await signOut(auth)
-
-    expect(auth.signOut).toHaveBeenCalledOnce()
-    expect(result).toEqual({ error: null })
   })
 
   it('safeRedirect 只接受站內絕對路徑', () => {

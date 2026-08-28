@@ -5,8 +5,6 @@ export type AuthAdapter = Pick<
   'getSession' | 'signInWithOAuth' | 'exchangeCodeForSession' | 'signOut'
 >
 
-export type SignOutResult = Awaited<ReturnType<AuthAdapter['signOut']>>
-
 export function createSupabaseAuth(): AuthAdapter {
   const url = import.meta.env.VITE_SUPABASE_URL
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -36,8 +34,4 @@ export function signInWithGoogle(
     provider: 'google',
     options: { redirectTo: authCallbackUrl(redirect, origin) },
   })
-}
-
-export async function signOut(auth: AuthAdapter): Promise<SignOutResult> {
-  return await auth.signOut()
 }
