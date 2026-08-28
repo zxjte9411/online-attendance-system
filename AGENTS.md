@@ -29,3 +29,7 @@ Uses the default five canonical triage labels. See `docs/agents/triage-labels.md
 ### Domain docs
 
 This repo uses a single-context layout. See `docs/agents/domain.md`.
+
+## Development workflow
+
+Implementation work follows the repository branch-and-review workflow. Before modifying code for an issue or ticket, read `docs/agents/development-workflow.md` and follow it through final review.
