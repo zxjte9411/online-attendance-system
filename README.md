@@ -1,34 +1,70 @@
-# 線上出勤時數表部署安全設定
+# 線上出勤時數表
 
-## Cloudflare Pages
+個人使用的出勤記錄系統，以每日一筆出勤與可追溯的工時計算為核心。
 
-- Production branch 使用 `master`，建置命令使用 `bun run build`，輸出目錄為 `dist`。
-- 只在 Production environment 設定 `VITE_SUPABASE_URL` 與 `VITE_SUPABASE_ANON_KEY`；兩者皆使用 Supabase 正式專案值。
-- 可開啟 PR preview 供檢視，但 Preview environment **不可設定** `VITE_SUPABASE_URL` 或 `VITE_SUPABASE_ANON_KEY`，也不可為 preview 放寬 Supabase callback allowlist。
-- 尚未取得 Cloudflare credentials 前，不新增 GitHub deployment workflow；部署以 Cloudflare Pages 手動設定為準。
+## 技術堆疊與工作流
 
-## DNS
+- **前端**：Vue 3、TypeScript、Vite、Vue Router、Vitest
+- **套件管理與執行工具**：Bun（唯一依賴鎖定檔為 `bun.lock`）
+- **認證與後端平台**：Supabase（Auth、PostgreSQL、Storage、RLS）
+- **託管平台**：Cloudflare Pages（生產網址：`https://attendance.nhb.pp.ua`）
 
-- Cloudflare Pages production custom domain 使用 `attendance.nhb.pp.ua`，依 Pages 顯示的目標建立對應 DNS record。
-- **不可修改 `nhb.pp.ua` 既有 VM mapping**，也不可將 root domain 或既有 VM record 改指向 Cloudflare Pages。
+### 本機開發與驗證
 
-## Supabase Auth
+```sh
+# 安裝相依套件
+bun install --frozen-lockfile
 
-- Authentication 的 Site URL 設為 `https://attendance.nhb.pp.ua`。
-- Redirect URL allowlist 只保留 `https://attendance.nhb.pp.ua/auth/callback`；移除 localhost、preview 及其他寬鬆規則。
-- Google provider 的 client ID/secret 以正式專案設定為準，不把 secret 寫入 repository。
+# 啟動本機開發伺服器（預設 http://localhost:5173）
+bun run dev
 
-## Google OAuth
+# 執行單一完整驗證 Seam（包含型別檢查、單元測試、生產建置）
+bun run verify
+```
 
-- Google Cloud OAuth client 的 Authorized JavaScript origins 設為 `https://attendance.nhb.pp.ua`。
-- Authorized redirect URI 使用 Supabase 專案的正式 callback：`https://<project-ref>.supabase.co/auth/v1/callback`。
-- 不加入 PR preview origin 或 callback；變更正式網域時同步檢查 Cloudflare、Supabase 與 Google 三處設定。
+## 環境與設定責任
+
+專案清晰區分四種環境的責任邊界，避免本機 CLI 設定與雲端專案設定混淆：
+
+| 環境 | 角色與用途 | 設定來源與權限 |
+| --- | --- | --- |
+| **Local Supabase** | 本機開發與 Migration 工作流。 | 由 Supabase CLI 讀取 `supabase/config.toml`。Site URL 設為 `http://localhost:5173`，允許本機 callback 重導。 |
+| **Dev Supabase** | 遠端真實整合與 Google OAuth 測試。 | 位於 Supabase Cloud 新加坡 Dev 專案控制台手動設定，不將 Secret 寫入版本庫。 |
+| **Production Supabase** | 正式生產環境資料與認證後端。 | 位於 Supabase Cloud 新加坡 Production 專案控制台。Site URL 設為 `https://attendance.nhb.pp.ua`，Redirect allowlist 僅允許正式 callback。 |
+| **Cloudflare Pages Preview** | PR 預覽建置，供介面與版面審查。 | 不注入 `VITE_SUPABASE_*` 環境變數，不擴張正式 OAuth callback allowlist。登入頁安全呈現預覽狀態。 |
+
+## 外部雲端服務設定指引
+
+### Cloudflare Pages
+
+- Production branch 使用 `master`，建置命令為 `bun run build`，輸出目錄為 `dist`。
+- SPA Deep Link 重導已由 `public/_redirects`（`/* /index.html 200`）處理。
+- 只在 Production environment 設定公開變數 `VITE_SUPABASE_URL` 與 `VITE_SUPABASE_ANON_KEY`。
+- PR preview 保持未注入 Supabase 金鑰狀態，不為 preview 擴張 OAuth allowlist。
+- 尚未取得 Cloudflare credentials 前，不新增 GitHub deployment workflow，部署以 Cloudflare Pages 控制台為準。
+
+### DNS
+
+- Cloudflare Pages production custom domain 使用 `attendance.nhb.pp.ua`。
+- **不可修改 `nhb.pp.ua` 既有 VM mapping**，亦不可將 root domain 或既有 VM record 指向 Cloudflare Pages。
+
+### Supabase Auth（正式專案控制台）
+
+- Authentication Site URL 設為 `https://attendance.nhb.pp.ua`。
+- Redirect URL allowlist 僅設定 `https://attendance.nhb.pp.ua/auth/callback`；移除 localhost、preview 及寬鬆萬用字元規則。
+- Google provider Client ID / Secret 由 Google Cloud Console 取得並在 Supabase 控制台設定，嚴禁寫入 Git 或前端環境變數。
+
+### Google Cloud OAuth Client（正式設定）
+
+- Authorized JavaScript origins 設為 `https://attendance.nhb.pp.ua`。
+- Authorized redirect URI 使用 Supabase 正式專案 callback：`https://<project-ref>.supabase.co/auth/v1/callback`。
+- 不加入 PR preview origin 或 callback；網域變更時同步檢查 Cloudflare、Supabase 與 Google 三處。
 
 ## 部署後驗證清單
 
 - [ ] Production DNS 與 HTTPS 正常，且 `nhb.pp.ua` VM mapping 未被修改。
 - [ ] 未登入可直接開啟 `/privacy` 與 `/support`，不會被導向登入頁。
-- [ ] 未登入進入 `/`、`/attendance`、`/leave`、`/reports`、`/settings` 會導向登入，並保留 redirect。
-- [ ] Production 的 Google 登入可完成 callback，且登入後回到原請求頁面。
+- [ ] 未登入進入 `/`、`/attendance`、`/leave`、`/reports`、`/settings` 會導向登入頁並保留 safe redirect query。
+- [ ] Production 的 Google 登入可完成 PKCE callback，且登入後安全回到原請求頁面。
 - [ ] Supabase redirect allowlist 僅有 production callback，沒有 localhost 或 preview URL。
-- [ ] PR preview 可載入靜態內容，但未注入 `VITE_SUPABASE_*`，不以 preview 驗證正式登入流程。
+- [ ] PR preview 可正常載入靜態頁面與 SPA 介面，但未注入 `VITE_SUPABASE_*`，登入頁明確呈現預覽狀態。
