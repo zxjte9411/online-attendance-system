@@ -49,13 +49,37 @@ After `/code-review` passes, continue directly to delivery:
 
 * Push the dedicated implementation branch to the remote.
 * Open a Pull Request targeting `master`.
-* When the work originated from `/implement #<issue-number>`, include `Closes #<issue-number>` in the Pull Request body.
 * Keep the Issue as the authoritative work item; the Pull Request is the delivery and review artifact.
 * Leave the Pull Request unmerged for the maintainer unless the user explicitly authorizes the merge.
 
+### Pull Request body
+
+Use `.github/pull_request_template.md` as the structure for every implementation Pull Request.
+
+Fill it from the actual reviewed diff and verification results:
+
+* **Summary** contains 2–4 meaningful bullets describing the delivered outcome or user-observable behavior. It complements the Issue instead of repeating it.
+* **Changes** records the important implementation, behavioral, architectural, or contract changes that a reviewer needs to understand. It describes changes rather than listing files.
+* **Verification** lists only checks that were actually run and passed, including the repository verification seam, relevant focused/manual checks, and `/code-review` when applicable.
+* **Review notes** records UI/Preview details, migrations, risks, compatibility concerns, manual verification points, or other reviewer context when relevant. Remove this optional section when there is genuinely nothing to add.
+* **Related issue** uses `Closes #<issue-number>` for the originating implementation ticket when the work came from `/implement #<issue-number>`.
+
+Every applicable section must contain meaningful content. A Pull Request with only an Issue reference, placeholder content, empty required sections, or a token summary does not satisfy delivery.
+
+When creating or editing a Pull Request from a shell, prepare the body as a Markdown file and pass that file to the GitHub CLI instead of embedding a multiline body directly in a shell argument. This keeps headings, lists, code spans, and line breaks intact.
+
+After creating or updating the Pull Request, read it back and verify all of the following before reporting completion:
+
+* the base branch is `master`;
+* the title describes the delivered change;
+* Summary, Changes, and Verification render as complete sections with meaningful content;
+* optional Review notes are either meaningful or removed;
+* `Closes #<issue-number>` points to the originating implementation ticket;
+* no template comments, placeholders, broken Markdown, or malformed line breaks remain in the submitted body.
+
 An `/implement #<issue-number>` run is not complete merely because implementation, verification, commits, or `/code-review` have completed.
 
-Completion criterion: the reviewed branch has been pushed and a Pull Request targeting `master` exists with the originating Issue correctly linked.
+Completion criterion: the reviewed branch has been pushed and a Pull Request targeting `master` exists, follows the repository template, renders cleanly, and correctly links the originating Issue.
 
 If branch push or Pull Request creation cannot be performed because of credentials, permissions, or another external blocker, report that blocker explicitly as the incomplete delivery step.
 
