@@ -1,0 +1,1 @@
+-- Initial migration placeholder. Product schema is intentionally deferred.
