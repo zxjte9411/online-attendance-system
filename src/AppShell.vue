@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { createSupabaseAuth, signOut } from './lib/auth'
+import { createSupabaseAuth } from './lib/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,7 +69,7 @@ async function handleSignOut() {
   logoutError.value = ''
 
   try {
-    const { error } = await signOut(createSupabaseAuth())
+    const { error } = await createSupabaseAuth().signOut()
 
     if (error) {
       logoutError.value = error.message || '登出失敗，請稍後再試。'
