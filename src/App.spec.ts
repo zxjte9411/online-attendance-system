@@ -1,8 +1,12 @@
 import { createMemoryHistory } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import { signInWithGoogle, type AuthAdapter } from './lib/auth'
+import { createSupabaseAuth, signInWithGoogle, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
 import { createAppRouter } from './router'
+
+const { createClient } = vi.hoisted(() => ({ createClient: vi.fn() }))
+
+vi.mock('@supabase/supabase-js', () => ({ createClient }))
 
 function mockAuth(session: object | null = null): AuthAdapter {
   return {
@@ -96,6 +100,21 @@ describe('認證路由核心', () => {
         redirectTo: 'http://localhost:5173/auth/callback?redirect=%2Fleave%3Fmonth%3D2026-08',
       },
     })
+  })
+
+  it('建立 Supabase client 時停用 URL 自動交換，保留 router 手動 callback exchange', () => {
+    const auth = mockAuth()
+    createClient.mockReturnValue({ auth })
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+
+    createSupabaseAuth()
+
+    expect(createClient).toHaveBeenCalledWith(
+      'https://project.supabase.co',
+      'anon-key',
+      { auth: { flowType: 'pkce', detectSessionInUrl: false } },
+    )
   })
 
   it('safeRedirect 只接受站內絕對路徑', () => {

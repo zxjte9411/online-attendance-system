@@ -13,7 +13,9 @@ export function createSupabaseAuth(): AuthAdapter {
     throw new Error('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required')
   }
 
-  return createClient(url, anonKey, { auth: { flowType: 'pkce' } }).auth
+  return createClient(url, anonKey, {
+    auth: { flowType: 'pkce', detectSessionInUrl: false },
+  }).auth
 }
 
 export function authCallbackUrl(
