@@ -75,10 +75,10 @@ const page = computed(() => {
   if (current?.routeName === 'settings') {
     return {
       label: '設定',
-      title: '先確認工作面的基本偏好。',
-      description: '帳號、時區與狀態顯示集中在這裡；目前只呈現設定欄位。',
-      summary: '預覽資料：設定預覽不會更新帳號偏好或任何出勤資料。',
-      nextStep: '下一步：確認時區與狀態顯示規則，再進入設定功能。',
+      title: '先確認系統固定的工作環境。',
+      description: '這裡只顯示系統固定值與狀態規則，不提供可變更的偏好。',
+      summary: '預覽資料：系統時區固定，不會更新帳號、狀態顯示或任何出勤資料。',
+      nextStep: '下一步：查看系統時區與狀態顯示規則；目前沒有可設定的偏好。',
       previewStatus: '預覽：設定',
     }
   }
@@ -273,10 +273,6 @@ async function handleSignOut() {
                   <time class="font-mono text-sm font-bold tabular-nums text-accent" datetime="09:00">範例：09:00</time>
                   <div class="grid gap-0.5"><strong>範例事件：開始工作</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
                 </li>
-                <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4">
-                  <time class="font-mono text-sm font-bold tabular-nums text-muted" datetime="12:30">範例：12:30</time>
-                  <div class="grid gap-0.5"><strong>範例事件：午間休息</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
-                </li>
                 <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4 first:pt-0 last:pb-0">
                   <time class="font-mono text-sm font-bold tabular-nums text-muted" datetime="18:00">範例：18:00</time>
                   <div class="grid gap-0.5"><strong>範例事件：結束工作</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
@@ -327,14 +323,14 @@ async function handleSignOut() {
             <section v-else class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="settings-preview-title">
               <div class="grid gap-1 border-b border-line pb-5">
                 <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">設定預覽</span>
-                <h2 id="settings-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作面的基本偏好</h2>
+                <h2 id="settings-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">系統固定值與顯示規則</h2>
               </div>
               <dl class="grid divide-y divide-line">
-                <div class="grid gap-1 py-4 first:pt-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">登入方式</dt><dd class="font-semibold">範例：Google 帳號</dd></div>
-                <div class="grid gap-1 py-4 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">時區</dt><dd class="font-mono text-sm font-semibold">預覽：Asia/Taipei</dd></div>
-                <div class="grid gap-1 py-4 last:pb-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">狀態顯示</dt><dd class="font-semibold">日曆分類與 Day Status 分開</dd></div>
+                <div class="grid gap-1 py-4 first:pt-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">登入方式（固定）</dt><dd class="font-semibold">預覽：Google 帳號（固定）</dd></div>
+                <div class="grid gap-1 py-4 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">系統時區</dt><dd class="font-mono text-sm font-semibold">Asia/Taipei（固定）</dd></div>
+                <div class="grid gap-1 py-4 last:pb-0 sm:grid-cols-[minmax(8rem,0.7fr)_1fr] sm:items-baseline"><dt class="text-sm text-muted">狀態顯示規則</dt><dd class="font-semibold">預覽：Calendar classification 與 Day Status 分開</dd></div>
               </dl>
-              <p class="rounded-[0.625rem] border border-line bg-surface-soft p-4 text-[0.875rem] leading-relaxed text-muted forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]">以上欄位僅供預覽。尚未提供可寫入的設定控制。</p>
+              <p class="rounded-[0.625rem] border border-line bg-surface-soft p-4 text-[0.875rem] leading-relaxed text-muted forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]">以上是系統固定值與顯示規則，僅供預覽；沒有可寫入的設定控制。</p>
             </section>
 
             <aside class="grid content-start gap-4 rounded-2xl border border-line bg-surface-soft p-5 sm:p-6 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]" aria-labelledby="next-step-title">
