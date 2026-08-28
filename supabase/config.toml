@@ -1,5 +1,8 @@
 project_id = "online-attendance-system"
 
 [auth]
-site_url = "https://attendance.nhb.pp.ua"
-additional_redirect_urls = ["https://attendance.nhb.pp.ua/auth/callback"]
+site_url = "http://localhost:5173"
+additional_redirect_urls = [
+  "http://localhost:5173/auth/callback",
+  "http://127.0.0.1:5173/auth/callback",
+]
