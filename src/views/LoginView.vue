@@ -2,24 +2,12 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { createSupabaseAuth, signInWithGoogle } from '../lib/auth'
+import { safeRedirect } from '../lib/redirect'
 
 const route = useRoute()
 const isSigningIn = ref(false)
 const apiError = ref('')
 const errorRegion = ref<HTMLElement | null>(null)
-
-function safeRedirect(value: unknown) {
-  if (
-    typeof value === 'string'
-    && value.startsWith('/')
-    && !value.startsWith('//')
-    && !value.startsWith('/\\')
-  ) {
-    return value
-  }
-
-  return '/'
-}
 
 const redirect = computed(() => safeRedirect(route.query.redirect))
 const callbackFailed = computed(() => route.query.error === 'oauth_callback_failed')

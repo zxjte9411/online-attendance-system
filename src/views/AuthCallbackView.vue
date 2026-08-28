@@ -1,21 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { safeRedirect } from '../lib/redirect'
 
 const route = useRoute()
-
-function safeRedirect(value: unknown) {
-  if (
-    typeof value === 'string'
-    && value.startsWith('/')
-    && !value.startsWith('//')
-    && !value.startsWith('/\\')
-  ) {
-    return value
-  }
-
-  return '/'
-}
 
 const failed = computed(() => route.query.error === 'oauth_callback_failed')
 const redirect = computed(() => safeRedirect(route.query.redirect))
