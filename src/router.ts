@@ -61,7 +61,11 @@ export function createAppRouter(options: AppRouterOptions = {}) {
     scrollBehavior: () => ({ top: 0 }),
   })
 
+  let navigationToken = 0
+
   router.beforeEach(async (to) => {
+    const callbackToken = ++navigationToken
+
     if (to.name === 'auth-callback') {
       if (to.query.error === 'oauth_callback_failed') return true
 
@@ -71,17 +75,32 @@ export function createAppRouter(options: AppRouterOptions = {}) {
         return callbackErrorLocation(to.query.redirect)
       }
 
-      try {
-        const { data, error } = await getAuth().exchangeCodeForSession(code)
-
-        if (error || !data.session) {
-          return callbackErrorLocation(to.query.redirect)
+      const stopAfterEach = router.afterEach((confirmedTo) => {
+        if (callbackToken !== navigationToken || confirmedTo.fullPath !== to.fullPath) {
+          stopAfterEach()
+          return
         }
-      } catch {
-        return callbackErrorLocation(to.query.redirect)
-      }
 
-      return safeRedirect(to.query.redirect)
+        stopAfterEach()
+        void (async () => {
+          let location
+
+          try {
+            const { data, error } = await getAuth().exchangeCodeForSession(code)
+            location = error || !data.session
+              ? callbackErrorLocation(to.query.redirect)
+              : safeRedirect(to.query.redirect)
+          } catch {
+            location = callbackErrorLocation(to.query.redirect)
+          }
+
+          if (callbackToken !== navigationToken || router.currentRoute.value.fullPath !== to.fullPath) return
+
+          await router.replace(location)
+        })()
+      })
+
+      return true
     }
 
     if (to.name !== 'login' && !to.meta.requiresAuth) return true
