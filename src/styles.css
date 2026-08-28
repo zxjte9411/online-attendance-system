@@ -510,4 +510,8 @@
     background: Canvas !important;
     color: CanvasText !important;
   }
+
+  .sign-out-button {
+    border-color: ButtonText;
+  }
 }
