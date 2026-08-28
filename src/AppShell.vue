@@ -131,9 +131,9 @@ async function handleSignOut() {
 
         <nav class="min-w-0" aria-label="主要導覽">
           <ul class="flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain scroll-smooth scroll-px-5 md:grid md:content-start md:overflow-visible motion-reduce:scroll-auto">
-            <li v-for="(item, index) in navItems" :key="item.routeName">
+            <li v-for="(item, index) in navItems" :key="item.routeName" class="shrink-0">
               <RouterLink
-                class="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-[0.625rem] border border-transparent px-3 py-2 text-[0.9375rem] text-muted transition-[background-color,border-color,color,transform] duration-200 ease-out enabled:hover:-translate-y-px enabled:hover:border-line enabled:hover:text-ink active:translate-y-px focus-visible:z-10 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 md:justify-start md:px-3.5"
+                class="inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[0.625rem] border border-transparent px-3 py-2 text-[0.9375rem] text-muted transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-line hover:text-ink active:translate-y-px focus-visible:z-10 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 md:justify-start md:px-3.5"
                 :class="isCurrent(item) ? 'border-accent-soft bg-accent-soft font-bold text-accent forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText] forced-colors:[forced-color-adjust:none]' : ''"
                 :to="item.href"
                 :aria-current="isCurrent(item) ? 'page' : undefined"
