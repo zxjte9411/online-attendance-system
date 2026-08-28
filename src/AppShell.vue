@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { computed, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { createSupabaseAuth, signOut } from './lib/auth'
 
 const route = useRoute()
+const router = useRouter()
+const isSigningOut = ref(false)
+const logoutError = ref('')
 
 const navItems = [
   { label: '今日', href: '/', routeName: 'today' },
@@ -57,6 +61,28 @@ const page = computed(() => {
 function isCurrent(item: (typeof navItems)[number]) {
   return item.routeName === route.name
 }
+
+async function handleSignOut() {
+  if (isSigningOut.value) return
+
+  isSigningOut.value = true
+  logoutError.value = ''
+
+  try {
+    const { error } = await signOut(createSupabaseAuth())
+
+    if (error) {
+      logoutError.value = error.message || '登出失敗，請稍後再試。'
+      return
+    }
+
+    await router.push({ name: 'login' })
+  } catch {
+    logoutError.value = '登出失敗，請稍後再試。'
+  } finally {
+    isSigningOut.value = false
+  }
+}
 </script>
 
 <template>
@@ -69,9 +95,22 @@ function isCurrent(item: (typeof navItems)[number]) {
           <span class="wordmark-mark" aria-hidden="true">出</span>
           <span>線上出勤</span>
         </RouterLink>
-        <p class="header-note">個人工作日誌</p>
+        <div class="header-actions">
+          <p class="header-note">個人工作日誌</p>
+          <button
+            class="sign-out-button"
+            type="button"
+            :disabled="isSigningOut"
+            :aria-busy="isSigningOut"
+            @click="handleSignOut"
+          >
+            {{ isSigningOut ? '登出中…' : '登出' }}
+          </button>
+        </div>
       </div>
     </header>
+
+    <p v-if="logoutError" class="shell-error" role="alert">{{ logoutError }}</p>
 
     <div class="app-layout">
       <aside class="sidebar" aria-label="應用程式導覽">
