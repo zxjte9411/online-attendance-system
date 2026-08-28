@@ -1,6 +1,7 @@
 import { createMemoryHistory } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import { signInWithGoogle, signOut, type AuthAdapter } from './lib/auth'
+import { safeRedirect } from './lib/redirect'
 import { createAppRouter } from './router'
 
 function mockAuth(session: object | null = null): AuthAdapter {
@@ -36,6 +37,44 @@ describe('認證路由核心', () => {
     expect(router.currentRoute.value.fullPath).toBe('/reports?month=2026-08')
   })
 
+  it('OAuth callback 沒有 code 時停留在錯誤狀態並保留安全 redirect', async () => {
+    const router = createTestRouter(mockAuth())
+
+    await router.push('/auth/callback?redirect=/reports?month=2026-08')
+
+    expect(router.currentRoute.value.name).toBe('auth-callback')
+    expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed')
+    expect(router.currentRoute.value.query.redirect).toBe('/reports?month=2026-08')
+  })
+
+  it('Supabase callback 回傳 error 時停留在 callback 錯誤路由', async () => {
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    auth.exchangeCodeForSession = vi.fn(async () => ({
+      data: { session: null },
+      error: new Error('oauth denied'),
+    })) as unknown as AuthAdapter['exchangeCodeForSession']
+    const router = createTestRouter(auth)
+
+    await router.push('/auth/callback?code=bad-code&redirect=/settings?section=account')
+
+    expect(router.currentRoute.value.name).toBe('auth-callback')
+    expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed')
+    expect(router.currentRoute.value.query.redirect).toBe('/settings?section=account')
+  })
+
+  it('Supabase callback 拋出例外時停留在 callback 錯誤路由', async () => {
+    const auth = mockAuth()
+    auth.exchangeCodeForSession = vi.fn(async () => {
+      throw new Error('network failure')
+    }) as unknown as AuthAdapter['exchangeCodeForSession']
+    const router = createTestRouter(auth)
+
+    await router.push('/auth/callback?code=network-error&redirect=/attendance/calendar')
+
+    expect(router.currentRoute.value.name).toBe('auth-callback')
+    expect(router.currentRoute.value.query.error).toBe('oauth_callback_failed')
+  })
+
   it('已登入進入登入頁時回到原請求，沒有原請求則回首頁', async () => {
     const router = createTestRouter(mockAuth({ user: { id: 'user-1' } }))
 
@@ -66,5 +105,11 @@ describe('認證路由核心', () => {
 
     expect(auth.signOut).toHaveBeenCalledOnce()
     expect(result).toEqual({ error: null })
+  })
+
+  it('safeRedirect 只接受站內絕對路徑', () => {
+    expect(safeRedirect('/attendance/calendar?month=2026-08')).toBe('/attendance/calendar?month=2026-08')
+    expect(safeRedirect('https://evil.example')).toBe('/')
+    expect(safeRedirect('//evil.example/path')).toBe('/')
   })
 })

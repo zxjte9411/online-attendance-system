@@ -2,11 +2,11 @@ import {
   createMemoryHistory,
   createRouter,
   createWebHistory,
-  type RouteLocationNormalized,
   type RouterHistory,
 } from 'vue-router'
 import AppShell from './AppShell.vue'
 import { createSupabaseAuth, type AuthAdapter } from './lib/auth'
+import { safeRedirect } from './lib/redirect'
 import AuthCallbackView from './views/AuthCallbackView.vue'
 import LoginView from './views/LoginView.vue'
 
@@ -26,27 +26,14 @@ export type AppRouterOptions = {
   history?: RouterHistory
 }
 
-function redirectTarget(route: RouteLocationNormalized) {
-  const redirect = route.query.redirect
+function callbackErrorLocation(redirect: unknown) {
+  const target = safeRedirect(redirect)
 
-  if (
-    typeof redirect === 'string'
-    && redirect.startsWith('/')
-    && !redirect.startsWith('//')
-    && !redirect.startsWith('/\\')
-  ) {
-    return redirect
-  }
-
-  return '/'
-}
-
-function loginLocation(redirect: string, error?: string) {
   return {
-    name: 'login',
+    name: 'auth-callback',
     query: {
-      ...(redirect === '/' ? {} : { redirect }),
-      ...(error ? { error } : {}),
+      ...(target === '/' ? {} : { redirect: target }),
+      error: 'oauth_callback_failed',
     },
   }
 }
@@ -65,30 +52,36 @@ export function createAppRouter(options: AppRouterOptions = {}) {
 
   router.beforeEach(async (to) => {
     if (to.name === 'auth-callback') {
+      if (to.query.error === 'oauth_callback_failed') return true
+
       const code = typeof to.query.code === 'string' ? to.query.code : null
 
       if (!code) {
-        return loginLocation(redirectTarget(to), 'oauth_callback_failed')
+        return callbackErrorLocation(to.query.redirect)
       }
 
-      const { data, error } = await auth.exchangeCodeForSession(code)
+      try {
+        const { data, error } = await auth.exchangeCodeForSession(code)
 
-      if (error || !data.session) {
-        return loginLocation(redirectTarget(to), 'oauth_callback_failed')
+        if (error || !data.session) {
+          return callbackErrorLocation(to.query.redirect)
+        }
+      } catch {
+        return callbackErrorLocation(to.query.redirect)
       }
 
-      return redirectTarget(to)
+      return safeRedirect(to.query.redirect)
     }
 
     const { data } = await auth.getSession()
     const isLoggedIn = Boolean(data.session)
 
     if (to.name === 'login') {
-      return isLoggedIn ? redirectTarget(to) : true
+      return isLoggedIn ? safeRedirect(to.query.redirect) : true
     }
 
     if (to.meta.requiresAuth && !isLoggedIn) {
-      return loginLocation(to.fullPath)
+      return { name: 'login', query: { redirect: safeRedirect(to.fullPath) } }
     }
 
     return true
