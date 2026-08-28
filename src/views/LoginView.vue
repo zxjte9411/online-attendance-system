@@ -8,6 +8,9 @@ const route = useRoute()
 const isSigningIn = ref(false)
 const apiError = ref('')
 const errorRegion = ref<HTMLElement | null>(null)
+const isSupabaseConfigured = Boolean(
+  import.meta.env.VITE_SUPABASE_URL?.trim() && import.meta.env.VITE_SUPABASE_ANON_KEY?.trim(),
+)
 
 const redirect = computed(() => safeRedirect(route.query.redirect))
 const callbackFailed = computed(() => route.query.error === 'oauth_callback_failed')
@@ -79,6 +82,7 @@ async function handleGoogleSignIn() {
         </p>
 
         <button
+          v-if="isSupabaseConfigured"
           class="google-button"
           type="button"
           :disabled="isSigningIn"
@@ -90,7 +94,13 @@ async function handleGoogleSignIn() {
           <span class="button-arrow" aria-hidden="true">↗</span>
         </button>
 
-        <p class="auth-note">登入後會返回原本請求的頁面。</p>
+        <div v-else class="auth-preview-state" role="status">
+          <span class="auth-preview-label">Preview</span>
+          <strong>Google 登入尚未開放</strong>
+          <p>目前環境尚未設定 Supabase 公開設定，因此這裡只提供介面預覽，沒有可操作的登入按鈕。</p>
+        </div>
+
+        <p v-if="isSupabaseConfigured" class="auth-note">登入後會返回原本請求的頁面。</p>
       </section>
     </main>
 
