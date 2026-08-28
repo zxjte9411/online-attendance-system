@@ -48,12 +48,12 @@ async function handleGoogleSignIn() {
 </script>
 
 <template>
-  <div class="login-page flex min-h-dvh flex-col bg-canvas px-5 py-5 text-ink sm:px-10 lg:px-16">
-    <a class="skip-link" href="#auth-main">跳至主要內容</a>
+  <div class="flex min-h-dvh flex-col bg-canvas px-5 py-5 text-ink sm:px-10 lg:px-16">
+    <a class="fixed start-3 top-3 z-10 -translate-y-[180%] rounded-[0.5rem] bg-ink px-3 py-2 text-surface transition-transform duration-200 focus-visible:translate-y-0 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:focus-visible:translate-y-0" href="#auth-main">跳至主要內容</a>
 
     <header class="mx-auto flex min-h-12 w-full max-w-[80rem] items-center justify-between gap-4">
-      <RouterLink class="wordmark" to="/" aria-label="線上出勤首頁">
-        <span class="wordmark-mark" aria-hidden="true">出</span>
+      <RouterLink class="inline-flex items-center gap-2.5 font-display text-lg font-bold tracking-[-0.035em]" to="/" aria-label="線上出勤首頁">
+        <span class="grid size-8 place-items-center rounded-[0.625rem] bg-accent text-sm tracking-normal text-surface" aria-hidden="true">出</span>
         <span>線上出勤</span>
       </RouterLink>
       <span class="text-[0.75rem] font-bold tracking-[0.08em] text-muted">登入入口</span>
@@ -79,7 +79,7 @@ async function handleGoogleSignIn() {
         <p
           v-if="errorMessage"
           ref="errorRegion"
-          class="login-error rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-[0.875rem] text-[var(--error-ink)]"
+          class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-[0.875rem] text-[var(--error-ink)]"
           role="alert"
           tabindex="-1"
         >
@@ -88,18 +88,18 @@ async function handleGoogleSignIn() {
 
         <button
           v-if="isSupabaseConfigured"
-          class="google-button mt-2 inline-flex min-h-[3.25rem] w-full items-center justify-center gap-3 rounded-[0.625rem] border border-accent bg-accent px-4 py-3 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0"
+          class="mt-2 inline-flex min-h-[3.25rem] w-full items-center justify-center gap-3 rounded-[0.625rem] border border-accent bg-accent px-4 py-3 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 forced-colors:[forced-color-adjust:none] forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]"
           type="button"
           :disabled="isSigningIn"
           :aria-busy="isSigningIn"
           @click="handleGoogleSignIn"
         >
-          <span class="google-mark grid size-6 place-items-center rounded-full bg-surface font-display text-xs font-extrabold text-accent" aria-hidden="true">G</span>
+          <span class="grid size-6 place-items-center rounded-full bg-surface font-display text-xs font-extrabold text-accent forced-colors:border forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" aria-hidden="true">G</span>
           <span>{{ isSigningIn ? '正在前往 Google…' : '使用 Google 帳號登入' }}</span>
           <span class="ms-auto text-lg leading-none" aria-hidden="true">↗</span>
         </button>
 
-        <div v-else class="login-preview-state mt-2 grid gap-1.5 rounded-[0.625rem] border border-line border-s-accent border-s-4 bg-surface-soft px-4 py-4" role="status">
+        <div v-else class="mt-2 grid gap-1.5 rounded-[0.625rem] border border-line border-s-accent border-s-4 bg-surface-soft px-4 py-4 forced-colors:[forced-color-adjust:none] forced-colors:border-[ButtonText] forced-colors:border-s-[Highlight] forced-colors:bg-[Canvas] forced-colors:text-[CanvasText]" role="status">
           <span class="font-mono text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-accent">Preview</span>
           <strong class="text-[0.9375rem]">Google 登入尚未開放</strong>
           <p class="text-[0.875rem] leading-relaxed text-muted text-pretty">目前環境尚未設定 Supabase 公開設定，因此這裡只提供介面預覽，沒有可操作的登入按鈕。</p>

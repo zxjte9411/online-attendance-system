@@ -4,11 +4,11 @@ import { RouterLink } from 'vue-router'
 
 <template>
   <div class="flex min-h-dvh flex-col bg-canvas px-5 py-5 text-ink sm:px-10 lg:px-16">
-    <a class="skip-link" href="#info-main">跳至主要內容</a>
+    <a class="fixed start-3 top-3 z-10 -translate-y-[180%] rounded-[0.5rem] bg-ink px-3 py-2 text-surface transition-transform duration-200 focus-visible:translate-y-0 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:focus-visible:translate-y-0" href="#info-main">跳至主要內容</a>
 
     <header class="mx-auto flex min-h-12 w-full max-w-[76rem] items-center justify-between gap-4">
-      <RouterLink class="wordmark" to="/login" aria-label="回到線上出勤登入頁">
-        <span class="wordmark-mark" aria-hidden="true">出</span>
+      <RouterLink class="inline-flex items-center gap-2.5 font-display text-lg font-bold tracking-[-0.035em]" to="/login" aria-label="回到線上出勤登入頁">
+        <span class="grid size-8 place-items-center rounded-[0.625rem] bg-accent text-sm tracking-normal text-surface" aria-hidden="true">出</span>
         <span>線上出勤</span>
       </RouterLink>
       <span class="text-right text-[0.75rem] font-bold tracking-[0.08em] text-muted">協助與回報</span>
