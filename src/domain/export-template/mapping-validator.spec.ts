@@ -4,8 +4,8 @@ import {
   validateRowMapping,
   validateStaticCellMapping,
   validateExportTemplateConfig,
-  REPORT_MODEL_SOURCE_FIELDS,
-  STATIC_SOURCE_FIELDS,
+  validateTransformOptions,
+  validateTransformPipeline,
   type ExportTemplateConfig,
   type RowMappingEntry,
   type StaticCellMappingEntry,
@@ -25,7 +25,7 @@ describe('Domain: Export Template Mapping Validator', () => {
     it('rejects invalid month keys', () => {
       const result = validateMonthWorksheetMapping({
         '2026-8': '8月',
-        'August': '8月',
+        August: '8月',
       })
       expect(result.isValid).toBe(false)
       expect(result.errors.length).toBeGreaterThan(0)
@@ -39,12 +39,20 @@ describe('Domain: Export Template Mapping Validator', () => {
     })
   })
 
-  describe('Row Mapping', () => {
-    it('accepts valid row mapping containing a date locator', () => {
+  describe('Row Mapping & Type Compatibility', () => {
+    it('accepts valid row mapping containing a date locator and compatible transforms', () => {
       const entries: RowMappingEntry[] = [
         { sourceField: 'date', targetColumn: 'B' },
-        { sourceField: 'actual_clock_in_at', targetColumn: 'D', transforms: [{ type: 'TIME_HH_MM' }] },
-        { sourceField: 'net_worked_minutes', targetColumn: 'G', transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }] },
+        {
+          sourceField: 'actual_clock_in_at',
+          targetColumn: 'D',
+          transforms: [{ type: 'TIME_HH_MM' }],
+        },
+        {
+          sourceField: 'net_worked_minutes',
+          targetColumn: 'G',
+          transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }, { type: 'EMPTY_IF_ZERO' }],
+        },
       ]
       const result = validateRowMapping(entries)
       expect(result.isValid).toBe(true)
@@ -106,7 +114,7 @@ describe('Domain: Export Template Mapping Validator', () => {
       expect(result.errors.some((e) => e.includes('不支援的欄位'))).toBe(true)
     })
 
-    it('rejects invalid transform in pipeline', () => {
+    it('rejects invalid transform type in pipeline', () => {
       const entries: any[] = [
         {
           sourceField: 'date',
@@ -116,6 +124,56 @@ describe('Domain: Export Template Mapping Validator', () => {
       ]
       const result = validateRowMapping(entries)
       expect(result.isValid).toBe(false)
+    })
+
+    it('rejects type-incompatible transforms (e.g. MINUTES_TO_DECIMAL_HOURS on date or ISO timestamp)', () => {
+      const entries: RowMappingEntry[] = [
+        { sourceField: 'date', targetColumn: 'B' },
+        {
+          sourceField: 'actual_clock_in_at',
+          targetColumn: 'D',
+          transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }],
+        },
+      ]
+      const result = validateRowMapping(entries)
+      expect(result.isValid).toBe(false)
+      expect(result.errors.some((e) => e.includes('不相容'))).toBe(true)
+    })
+  })
+
+  describe('Transform Options & Pipeline Validation', () => {
+    it('validates VALUE_MAP options requiring non-empty map', () => {
+      expect(validateTransformOptions({ type: 'VALUE_MAP' }).length).toBeGreaterThan(0)
+      expect(validateTransformOptions({ type: 'VALUE_MAP', options: { map: {} } }).length).toBeGreaterThan(0)
+      expect(
+        validateTransformOptions({
+          type: 'VALUE_MAP',
+          options: { map: { WORK: '出勤', LEAVE: '請假' }, unmappedBehavior: 'keep' },
+        })
+      ).toEqual([])
+    })
+
+    it('rejects invalid VALUE_MAP unmappedBehavior', () => {
+      const errors = validateTransformOptions({
+        type: 'VALUE_MAP',
+        options: { map: { A: 'B' }, unmappedBehavior: 'invalid_mode' as any },
+      })
+      expect(errors.some((e) => e.includes('unmappedBehavior'))).toBe(true)
+    })
+
+    it('validates multi-stage pipeline type compatibility correctly', () => {
+      // scheduled_minutes (MINUTES) -> MINUTES_TO_DECIMAL_HOURS (NUMBER) -> EMPTY_IF_ZERO (NUMBER) => VALID
+      expect(
+        validateTransformPipeline('scheduled_minutes', [
+          { type: 'MINUTES_TO_DECIMAL_HOURS' },
+          { type: 'EMPTY_IF_ZERO' },
+        ])
+      ).toEqual([])
+
+      // date (DATE) -> MINUTES_TO_DECIMAL_HOURS => INVALID
+      expect(
+        validateTransformPipeline('date', [{ type: 'MINUTES_TO_DECIMAL_HOURS' }]).length
+      ).toBeGreaterThan(0)
     })
   })
 
@@ -163,10 +221,10 @@ describe('Domain: Export Template Mapping Validator', () => {
         monthWorksheetMapping: { '2026-08': '8月' },
         rowMapping: [
           { sourceField: 'date', targetColumn: 'B' },
-          { sourceField: 'actual_clock_in_at', targetColumn: 'D' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'D', transforms: [{ type: 'TIME_HH_MM' }] },
         ],
         staticCellMapping: [
-          { sourceField: 'year_month', targetCell: 'B2' },
+          { sourceField: 'year_month', targetCell: 'B2', transforms: [{ type: 'ROC_YEAR_MONTH' }] },
         ],
       }
       const result = validateExportTemplateConfig(config)

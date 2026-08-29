@@ -1,4 +1,10 @@
-import { ALLOWED_TRANSFORMS, type TransformConfig } from './transforms'
+import {
+  ALLOWED_TRANSFORMS,
+  type TransformConfig,
+  type TransformType,
+  type ValueMapOptions,
+  type RocYearMonthOptions,
+} from './transforms'
 
 export const REPORT_MODEL_SOURCE_FIELDS = [
   'date',
@@ -32,6 +38,95 @@ export const STATIC_SOURCE_FIELDS = [
 
 export type StaticSourceField = (typeof STATIC_SOURCE_FIELDS)[number]
 
+export type FieldDataType =
+  | 'MINUTES'
+  | 'DATETIME'
+  | 'DATE'
+  | 'WEEKDAY'
+  | 'YEAR_MONTH'
+  | 'STRING'
+  | 'BOOLEAN'
+  | 'NUMBER'
+  | 'ANY'
+
+export const SOURCE_FIELD_DATA_TYPES: Record<
+  ReportModelSourceField | StaticSourceField,
+  FieldDataType
+> = {
+  date: 'DATE',
+  weekday: 'WEEKDAY',
+  actual_clock_in_at: 'DATETIME',
+  effective_clock_in_at: 'DATETIME',
+  actual_clock_out_at: 'DATETIME',
+  effective_clock_out_at: 'DATETIME',
+  expected_clock_out_at: 'DATETIME',
+  scheduled_minutes: 'MINUTES',
+  actual_elapsed_minutes: 'MINUTES',
+  net_worked_minutes: 'MINUTES',
+  regular_minutes: 'MINUTES',
+  overtime_minutes: 'MINUTES',
+  leave_minutes: 'MINUTES',
+  absence_minutes: 'MINUTES',
+  created_source: 'STRING',
+  manually_adjusted: 'BOOLEAN',
+  calculation_version: 'STRING',
+  status: 'STRING',
+  note: 'STRING',
+  year_month: 'YEAR_MONTH',
+  company_identifier: 'STRING',
+  project_identifier: 'STRING',
+}
+
+export interface TransformTypeContract {
+  allowedInputs: FieldDataType[]
+  outputType: (input: FieldDataType) => FieldDataType
+}
+
+export const TRANSFORM_CONTRACTS: Record<TransformType, TransformTypeContract> = {
+  MINUTES_TO_DECIMAL_HOURS: {
+    allowedInputs: ['MINUTES', 'NUMBER'],
+    outputType: () => 'NUMBER',
+  },
+  TIME_HH_MM: {
+    allowedInputs: ['DATETIME'],
+    outputType: () => 'STRING',
+  },
+  DATE_YYYY_MM_DD: {
+    allowedInputs: ['DATE', 'DATETIME'],
+    outputType: () => 'DATE',
+  },
+  WEEKDAY_ZH_TW: {
+    allowedInputs: ['WEEKDAY', 'DATE', 'DATETIME'],
+    outputType: () => 'STRING',
+  },
+  ROC_YEAR_MONTH: {
+    allowedInputs: ['YEAR_MONTH', 'DATE'],
+    outputType: () => 'STRING',
+  },
+  EMPTY_IF_ZERO: {
+    allowedInputs: ['MINUTES', 'NUMBER', 'STRING', 'BOOLEAN', 'ANY'],
+    outputType: (input) => input,
+  },
+  ZERO_IF_EMPTY: {
+    allowedInputs: ['MINUTES', 'NUMBER', 'STRING', 'BOOLEAN', 'ANY'],
+    outputType: (input) => (input === 'MINUTES' ? 'MINUTES' : 'NUMBER'),
+  },
+  VALUE_MAP: {
+    allowedInputs: [
+      'MINUTES',
+      'DATETIME',
+      'DATE',
+      'WEEKDAY',
+      'YEAR_MONTH',
+      'STRING',
+      'BOOLEAN',
+      'NUMBER',
+      'ANY',
+    ],
+    outputType: () => 'STRING',
+  },
+}
+
 export interface RowMappingEntry {
   sourceField: ReportModelSourceField
   targetColumn: string
@@ -59,6 +154,75 @@ export interface ValidationResult {
 const COLUMN_REGEX = /^[A-Za-z]+$/
 const CELL_A1_REGEX = /^[A-Za-z]+[1-9][0-9]*$/
 const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/
+
+export function validateTransformOptions(config: TransformConfig): string[] {
+  const errors: string[] = []
+  if (config.type === 'VALUE_MAP') {
+    const opts = config.options as ValueMapOptions | undefined
+    if (!opts || typeof opts !== 'object' || !opts.map || typeof opts.map !== 'object') {
+      errors.push('VALUE_MAP 必須設定 map 對應表。')
+    } else {
+      const keys = Object.keys(opts.map)
+      if (keys.length === 0) {
+        errors.push('VALUE_MAP 必須設定至少一組鍵值對應。')
+      }
+      for (const [k, v] of Object.entries(opts.map)) {
+        if (!k.trim()) {
+          errors.push('VALUE_MAP 對應鍵（Key）不可為空白。')
+        }
+        if (typeof v !== 'string' && typeof v !== 'number') {
+          errors.push(`VALUE_MAP「${k}」的值必須為字串或數字。`)
+        }
+      }
+      if (opts.unmappedBehavior && !['keep', 'empty', 'error'].includes(opts.unmappedBehavior)) {
+        errors.push('VALUE_MAP unmappedBehavior 無效，必須為 keep、empty 或 error。')
+      }
+    }
+  } else if (config.type === 'ROC_YEAR_MONTH') {
+    const opts = config.options as RocYearMonthOptions | undefined
+    if (opts?.format && !['CHINESE', 'SLASH', 'COMPACT_ZH'].includes(opts.format)) {
+      errors.push('ROC_YEAR_MONTH format 無效。')
+    }
+  }
+  return errors
+}
+
+export function validateTransformPipeline(
+  sourceField: ReportModelSourceField | StaticSourceField,
+  pipeline?: TransformConfig[]
+): string[] {
+  const errors: string[] = []
+  if (!pipeline || pipeline.length === 0) return errors
+
+  let currentType: FieldDataType = SOURCE_FIELD_DATA_TYPES[sourceField] || 'ANY'
+
+  for (let i = 0; i < pipeline.length; i++) {
+    const t = pipeline[i]
+    if (!ALLOWED_TRANSFORMS.includes(t.type)) {
+      errors.push(`不支援的轉換規則：「${t.type}」。`)
+      continue
+    }
+
+    const optErrors = validateTransformOptions(t)
+    errors.push(...optErrors)
+
+    const contract = TRANSFORM_CONTRACTS[t.type]
+    if (contract) {
+      if (
+        !contract.allowedInputs.includes(currentType) &&
+        !contract.allowedInputs.includes('ANY') &&
+        currentType !== 'ANY'
+      ) {
+        errors.push(
+          `欄位「${sourceField}」無法套用轉換「${t.type}」（型別 ${currentType} 不相容）。`
+        )
+      }
+      currentType = contract.outputType(currentType)
+    }
+  }
+
+  return errors
+}
 
 export function validateMonthWorksheetMapping(
   mapping: Record<string, string>
@@ -104,6 +268,7 @@ export function validateRowMapping(
   for (const entry of entries) {
     if (!REPORT_MODEL_SOURCE_FIELDS.includes(entry.sourceField)) {
       errors.push(`不支援的欄位：「${entry.sourceField}」。`)
+      continue
     }
 
     const col = (entry.targetColumn || '').trim().toUpperCase()
@@ -117,11 +282,8 @@ export function validateRowMapping(
     }
 
     if (entry.transforms) {
-      for (const t of entry.transforms) {
-        if (!ALLOWED_TRANSFORMS.includes(t.type)) {
-          errors.push(`不支援的轉換規則：「${t.type}」。`)
-        }
-      }
+      const pipelineErrors = validateTransformPipeline(entry.sourceField, entry.transforms)
+      errors.push(...pipelineErrors)
     }
   }
 
@@ -144,6 +306,7 @@ export function validateStaticCellMapping(
   for (const entry of entries) {
     if (!STATIC_SOURCE_FIELDS.includes(entry.sourceField)) {
       errors.push(`不支援的靜態欄位：「${entry.sourceField}」。`)
+      continue
     }
 
     const cell = (entry.targetCell || '').trim().toUpperCase()
@@ -157,11 +320,8 @@ export function validateStaticCellMapping(
     }
 
     if (entry.transforms) {
-      for (const t of entry.transforms) {
-        if (!ALLOWED_TRANSFORMS.includes(t.type)) {
-          errors.push(`不支援的轉換規則：「${t.type}」。`)
-        }
-      }
+      const pipelineErrors = validateTransformPipeline(entry.sourceField, entry.transforms)
+      errors.push(...pipelineErrors)
     }
   }
 
