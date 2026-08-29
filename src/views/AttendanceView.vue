@@ -27,6 +27,9 @@ const recordToDelete = ref<AttendanceRecord | null>(null)
 const deleteError = ref('')
 const isDeleting = ref(false)
 
+// Stale request race protection
+let currentRequestId = 0
+
 // Form state
 const formRecordId = ref('')
 const formWorkDate = ref('')
@@ -67,16 +70,22 @@ async function loadContexts() {
 }
 
 async function loadMonth() {
+  const requestId = ++currentRequestId
+  const requestedMonth = currentMonth.value
   isLoading.value = true
   loadError.value = ''
 
   try {
-    const data = await getMonthAttendanceRecords(currentMonth.value)
+    const data = await getMonthAttendanceRecords(requestedMonth)
+    if (requestId !== currentRequestId) return
     records.value = data
   } catch (err) {
+    if (requestId !== currentRequestId) return
     loadError.value = err instanceof Error && err.message ? err.message : '載入出勤資料失敗，請稍後再試。'
   } finally {
-    isLoading.value = false
+    if (requestId === currentRequestId) {
+      isLoading.value = false
+    }
   }
 }
 
@@ -100,6 +109,8 @@ function handleCurrentMonth() {
 }
 
 function openDetail(record: AttendanceRecord) {
+  isFormOpen.value = false
+  recordToDelete.value = null
   selectedRecord.value = record
   isDetailOpen.value = true
 }
@@ -110,6 +121,9 @@ function closeDetail() {
 }
 
 function openCreateForm() {
+  isDetailOpen.value = false
+  recordToDelete.value = null
+  selectedRecord.value = null
   isEditMode.value = false
   formRecordId.value = ''
   formWorkDate.value = getTaipeiToday()
@@ -122,6 +136,11 @@ function openCreateForm() {
 }
 
 function openEditForm(record: AttendanceRecord) {
+  // Ensure detail modal is closed so only a single dialog is open
+  isDetailOpen.value = false
+  selectedRecord.value = null
+  recordToDelete.value = null
+
   isEditMode.value = true
   formRecordId.value = record.id
   formWorkDate.value = record.work_date
@@ -179,9 +198,6 @@ async function handleFormSubmit() {
     }
 
     closeForm()
-    if (isDetailOpen.value) {
-      closeDetail()
-    }
     await loadMonth()
   } catch (err) {
     formError.value = err instanceof Error && err.message ? err.message : '儲存出勤紀錄失敗，請檢查輸入。'
@@ -191,6 +207,9 @@ async function handleFormSubmit() {
 }
 
 function openDeleteConfirm(record: AttendanceRecord) {
+  isDetailOpen.value = false
+  isFormOpen.value = false
+  selectedRecord.value = null
   recordToDelete.value = record
   deleteError.value = ''
 }
@@ -208,9 +227,6 @@ async function handleConfirmDelete() {
   try {
     await deleteAttendanceRecord(recordToDelete.value.id)
     closeDeleteConfirm()
-    if (isDetailOpen.value) {
-      closeDetail()
-    }
     await loadMonth()
   } catch (err) {
     deleteError.value = err instanceof Error && err.message ? err.message : '刪除失敗，請稍後再試。'
@@ -268,6 +284,14 @@ function formatMinutes(minutes: number | null | undefined) {
   if (!hours) return `${remainder} 分鐘`
   if (!remainder) return `${hours} 小時`
   return `${hours} 小時 ${remainder} 分鐘`
+}
+
+function formatRounding(mode: unknown, minutes: unknown) {
+  if (!mode || mode === 'NONE') return '無進退位'
+  const mins = minutes ? `${minutes} 分鐘` : ''
+  if (mode === 'CEIL') return `無條件進位 (${mins})`
+  if (mode === 'FLOOR') return `無條件捨去 (${mins})`
+  return `${mode} (${mins})`
 }
 </script>
 
@@ -336,7 +360,7 @@ function formatMinutes(minutes: number | null | undefined) {
           type="button"
           @click="openCreateForm"
         >
-          + 補走出勤
+          + 補登出勤
         </button>
       </div>
     </section>
@@ -365,7 +389,7 @@ function formatMinutes(minutes: number | null | undefined) {
           type="button"
           @click="openCreateForm"
         >
-          補走出勤
+          補登出勤
         </button>
       </div>
     </div>
@@ -398,6 +422,9 @@ function formatMinutes(minutes: number | null | undefined) {
               class="rounded-[0.375rem] border border-line bg-surface-soft px-2 py-0.5 text-xs font-medium text-accent"
             >
               已人工修正
+            </span>
+            <span v-if="rec.manually_adjusted && rec.last_manual_edit_at" class="text-xs text-muted">
+              最後修正：{{ formatDateTime(rec.last_manual_edit_at) }}
             </span>
           </div>
 
@@ -463,9 +490,10 @@ function formatMinutes(minutes: number | null | undefined) {
           </div>
 
           <div class="grid gap-1">
-            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">制度 / 備註</span>
-            <div class="truncate text-sm font-medium">
-              {{ rec.context_snapshot?.name || '歷史 Context' }}
+            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">Context 快照 / 備註</span>
+            <div class="truncate text-sm font-medium" :title="`${rec.context_snapshot?.name || '—'} (${rec.context_snapshot?.company_identifier || '—'} / ${rec.context_snapshot?.project_identifier || '—'})`">
+              {{ rec.context_snapshot?.name || '—' }}
+              <span class="text-xs text-muted">({{ rec.context_snapshot?.company_identifier || '—' }} / {{ rec.context_snapshot?.project_identifier || '—' }})</span>
             </div>
             <p v-if="rec.status_note" class="truncate text-xs text-muted" :title="rec.status_note">
               備註：{{ rec.status_note }}
@@ -511,8 +539,12 @@ function formatMinutes(minutes: number | null | undefined) {
               <div><dt class="text-xs text-muted">建立來源</dt><dd class="font-bold">{{ selectedRecord.created_source === 'MANUAL' ? '手動補登' : '打卡' }}</dd></div>
               <div><dt class="text-xs text-muted">實際上班 / 下班</dt><dd class="font-mono font-bold">{{ formatTime(selectedRecord.actual_clock_in_at) }} / {{ formatTime(selectedRecord.actual_clock_out_at) }}</dd></div>
               <div><dt class="text-xs text-muted">有效上班 / 下班</dt><dd class="font-mono font-bold">{{ formatTime(selectedRecord.effective_clock_in_at) }} / {{ formatTime(selectedRecord.effective_clock_out_at) }}</dd></div>
-              <div><dt class="text-xs text-muted">有效工時</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.net_worked_minutes) }}</dd></div>
+              <div><dt class="text-xs text-muted">預計下班時間</dt><dd class="font-mono font-bold">{{ formatTime(selectedRecord.expected_clock_out_at) }}</dd></div>
+              <div><dt class="text-xs text-muted">實際經過時間</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.actual_elapsed_minutes) }}</dd></div>
+              <div><dt class="text-xs text-muted">有效工時 (Net)</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.net_worked_minutes) }}</dd></div>
               <div><dt class="text-xs text-muted">正常 / 加班</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.regular_minutes) }} / {{ formatMinutes(selectedRecord.overtime_minutes) }}</dd></div>
+              <div><dt class="text-xs text-muted">人工修正狀態</dt><dd class="font-semibold">{{ selectedRecord.manually_adjusted ? '已人工修正' : '未經修正' }}</dd></div>
+              <div><dt class="text-xs text-muted">最後修正時間</dt><dd class="font-mono text-xs">{{ selectedRecord.last_manual_edit_at ? formatDateTime(selectedRecord.last_manual_edit_at) : '—' }}</dd></div>
               <div class="sm:col-span-2"><dt class="text-xs text-muted">出勤備註</dt><dd class="text-sm font-medium">{{ selectedRecord.status_note || '無備註' }}</dd></div>
             </dl>
           </div>
@@ -535,7 +567,9 @@ function formatMinutes(minutes: number | null | undefined) {
               <div><dt class="text-xs text-muted">標準上班時間</dt><dd class="font-mono font-bold">{{ selectedRecord.policy_snapshot.standard_start_time || '—' }}</dd></div>
               <div><dt class="text-xs text-muted">規定工時 / 固定休息</dt><dd class="font-semibold">{{ formatMinutes(selectedRecord.policy_snapshot.work_minutes as number) }} / {{ formatMinutes(selectedRecord.policy_snapshot.fixed_break_minutes as number) }}</dd></div>
               <div><dt class="text-xs text-muted">早到規則</dt><dd class="font-semibold">{{ selectedRecord.policy_snapshot.early_arrival_policy || '—' }}</dd></div>
-              <div><dt class="text-xs text-muted">上班進位 / 下班進退位</dt><dd class="font-semibold">{{ selectedRecord.policy_snapshot.clock_in_rounding_mode || 'NONE' }} / {{ selectedRecord.policy_snapshot.clock_out_rounding_mode || 'NONE' }}</dd></div>
+              <div><dt class="text-xs text-muted">上班進位規則</dt><dd class="font-semibold">{{ formatRounding(selectedRecord.policy_snapshot.clock_in_rounding_mode, selectedRecord.policy_snapshot.clock_in_rounding_minutes) }}</dd></div>
+              <div><dt class="text-xs text-muted">下班進退位規則</dt><dd class="font-semibold">{{ formatRounding(selectedRecord.policy_snapshot.clock_out_rounding_mode, selectedRecord.policy_snapshot.clock_out_rounding_minutes) }}</dd></div>
+              <div><dt class="text-xs text-muted">生效區間</dt><dd class="font-mono text-xs">{{ selectedRecord.policy_snapshot.effective_from || '—' }} ~ {{ selectedRecord.policy_snapshot.effective_to || '持續適用' }}</dd></div>
               <div><dt class="text-xs text-muted">時區</dt><dd class="font-mono font-semibold">{{ selectedRecord.policy_snapshot.timezone || 'Asia/Taipei' }}</dd></div>
             </dl>
           </div>
@@ -547,6 +581,9 @@ function formatMinutes(minutes: number | null | undefined) {
               <div><dt class="text-xs text-muted">計算狀態</dt><dd class="font-mono font-bold">{{ selectedRecord.calculation_snapshot.state || '—' }}</dd></div>
               <div><dt class="text-xs text-muted">版本</dt><dd class="font-mono font-bold">{{ selectedRecord.calculation_snapshot.calculation_version || 'v1' }}</dd></div>
               <div><dt class="text-xs text-muted">計算時間</dt><dd class="font-mono text-xs">{{ formatDateTime(selectedRecord.calculation_snapshot.calculated_at as string) }}</dd></div>
+              <div><dt class="text-xs text-muted">快照有效工時</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.calculation_snapshot.net_worked_minutes as number) }}</dd></div>
+              <div><dt class="text-xs text-muted">快照正常 / 加班</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.calculation_snapshot.regular_minutes as number) }} / {{ formatMinutes(selectedRecord.calculation_snapshot.overtime_minutes as number) }}</dd></div>
+              <div><dt class="text-xs text-muted">快照經過時間</dt><dd class="font-bold">{{ formatMinutes(selectedRecord.calculation_snapshot.actual_elapsed_minutes as number) }}</dd></div>
             </dl>
           </div>
         </div>
@@ -658,7 +695,7 @@ function formatMinutes(minutes: number | null | undefined) {
               v-model="formStatusNote"
               name="status_note"
               type="text"
-              placeholder="例如：事假補登、忘記打卡"
+              placeholder="例如：忘記打卡、時間修正說明"
               class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-accent"
             />
           </div>

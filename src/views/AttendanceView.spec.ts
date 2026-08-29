@@ -91,6 +91,13 @@ const completedClockRecord: AttendanceRecord = {
     state: 'COMPLETED',
     calculation_version: 'v1',
     calculated_at: '2026-08-10T10:30:00.000Z',
+    actual_elapsed_minutes: 555,
+    net_worked_minutes: 480,
+    regular_minutes: 480,
+    overtime_minutes: 0,
+    effective_clock_in_at: '2026-08-10T01:30:00.000Z',
+    effective_clock_out_at: '2026-08-10T10:30:00.000Z',
+    expected_clock_out_at: '2026-08-10T10:30:00.000Z',
   },
 }
 
@@ -136,6 +143,13 @@ const incompleteManualRecord: AttendanceRecord = {
     state: 'IN_PROGRESS',
     calculation_version: 'v1',
     calculated_at: '2026-08-11T01:30:00.000Z',
+    actual_elapsed_minutes: null,
+    net_worked_minutes: null,
+    regular_minutes: null,
+    overtime_minutes: null,
+    effective_clock_in_at: '2026-08-11T01:30:00.000Z',
+    effective_clock_out_at: null,
+    expected_clock_out_at: '2026-08-11T10:30:00.000Z',
   },
 }
 
@@ -168,20 +182,16 @@ describe('AttendanceView', () => {
     ])
   })
 
-  it('載入當前月份資料並渲染紀錄列表與月份切換', async () => {
+  it('載入當前月份資料並渲染紀錄列表與 Context snapshot 識別', async () => {
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
 
     expect(getMonthAttendanceRecords).toHaveBeenCalledWith('2026-08')
     expect(wrapper.text()).toContain('2026-08-10')
-    expect(wrapper.text()).toContain('2026-08-11')
-    expect(wrapper.text()).toContain('2026-08-12')
-
-    // 切換至上一月
-    await wrapper.get('[data-action="prev-month"]').trigger('click')
-    await flushPromises()
-
-    expect(getMonthAttendanceRecords).toHaveBeenCalledWith('2026-07')
+    expect(wrapper.text()).toContain('Context Alpha')
+    expect(wrapper.text()).toContain('COMP-A')
+    expect(wrapper.text()).toContain('PROJ-A')
+    expect(wrapper.text()).toContain('+ 補登出勤')
     wrapper.unmount()
   })
 
@@ -205,7 +215,6 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const row = wrapper.get('[data-record-id="rec-1"]')
-    // Actual clock in 09:15, effective 09:30, expected 18:30
     expect(row.text()).toContain('09:15')
     expect(row.text()).toContain('09:30')
     expect(row.text()).toContain('18:30')
@@ -223,6 +232,7 @@ describe('AttendanceView', () => {
     const adjustedRow = wrapper.get('[data-record-id="rec-3"]')
     expect(adjustedRow.text()).toContain('打卡')
     expect(adjustedRow.text()).toContain('已人工修正')
+    expect(adjustedRow.text()).toContain('最後修正')
     wrapper.unmount()
   })
 
@@ -241,10 +251,82 @@ describe('AttendanceView', () => {
     expect(modal.text()).toContain('09:30')
     expect(modal.text()).toContain('今日正常上班')
     expect(modal.text()).toContain('COMPLETED')
+    expect(modal.text()).toContain('快照有效工時')
     wrapper.unmount()
   })
 
-  it('補走出勤表單驗證與成功送出後刷新清單', async () => {
+  it('從 single-day detail 點擊修改時，關閉 detail modal 且僅開啟 edit modal', async () => {
+    const wrapper = mount(AttendanceView, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('[data-record-id="rec-1"] [data-action="view-detail"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="detail-modal"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="form-modal"]').exists()).toBe(false)
+
+    // 點擊 detail 內的修改此紀錄按鈕
+    await wrapper.get('[data-testid="detail-modal"] button.bg-accent').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="detail-modal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="form-modal"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('月份切換具備 stale request 防護，晚回應的舊請求不會覆蓋新月份', async () => {
+    let resolveJuly: (value: AttendanceRecord[]) => void
+    let resolveJune: (value: AttendanceRecord[]) => void
+
+    const julyPromise = new Promise<AttendanceRecord[]>((resolve) => {
+      resolveJuly = resolve
+    })
+    const junePromise = new Promise<AttendanceRecord[]>((resolve) => {
+      resolveJune = resolve
+    })
+
+    vi.mocked(getMonthAttendanceRecords).mockImplementation((month) => {
+      if (month === '2026-07') return julyPromise
+      if (month === '2026-06') return junePromise
+      return Promise.resolve([])
+    })
+
+    const wrapper = mount(AttendanceView, { attachTo: document.body })
+    await flushPromises()
+
+    // 1. 切換至 7 月 (啟動 request A)
+    await wrapper.get('[data-action="prev-month"]').trigger('click')
+
+    // 2. 緊接著切換至 6 月 (啟動 request B)
+    await wrapper.get('[data-action="prev-month"]').trigger('click')
+
+    // 3. 讓 6 月 request B 先 resolve
+    const juneRecord: AttendanceRecord = {
+      ...completedClockRecord,
+      id: 'june-rec',
+      work_date: '2026-06-15',
+    }
+    resolveJune!([juneRecord])
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2026-06-15')
+
+    // 4. 讓 7 月 request A 晚 resolve
+    const julyRecord: AttendanceRecord = {
+      ...completedClockRecord,
+      id: 'july-rec',
+      work_date: '2026-07-15',
+    }
+    resolveJuly!([julyRecord])
+    await flushPromises()
+
+    // 5. 畫面應維持 6 月的資料，不被 7 月覆蓋
+    expect(wrapper.text()).toContain('2026-06-15')
+    expect(wrapper.text()).not.toContain('2026-07-15')
+    wrapper.unmount()
+  })
+
+  it('補登出勤表單驗證與成功送出後刷新清單', async () => {
     vi.mocked(createManualAttendance).mockResolvedValue(completedClockRecord as never)
 
     const wrapper = mount(AttendanceView, { attachTo: document.body })
