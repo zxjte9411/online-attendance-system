@@ -1,6 +1,6 @@
 begin;
 
-select plan(44);
+select plan(51);
 
 select has_table('public', 'attendance_records', 'attendance_records table exists');
 select has_column('public', 'attendance_records', 'created_source', 'created_source exists');
@@ -11,19 +11,19 @@ select has_column('public', 'attendance_records', 'status_note', 'status_note ex
 select is(
   (select count(*)::integer
    from pg_proc
-   where proname in ('create_manual_attendance', 'edit_attendance_record', 'delete_attendance_record')
+   where proname in ('create_manual_attendance', 'edit_attendance_record', 'delete_attendance_record', 'calculate_attendance_snapshots')
      and prosecdef),
-  3,
-  'manual attendance RPCs are security definer'
+  4,
+  'manual attendance RPCs and calculation helper are security definer'
 );
 
 select is(
   (select count(*)::integer
    from pg_proc
-   where proname in ('create_manual_attendance', 'edit_attendance_record', 'delete_attendance_record')
+   where proname in ('create_manual_attendance', 'edit_attendance_record', 'delete_attendance_record', 'calculate_attendance_snapshots')
      and proconfig = array['search_path=""']),
-  3,
-  'manual attendance RPCs use empty search_path'
+  4,
+  'manual attendance RPCs and calculation helper use empty search_path'
 );
 
 -- Setup test users and data
@@ -124,7 +124,7 @@ insert into public.work_policies (
     'Asia/Taipei'
   );
 
--- 1. Test existing #18 rows backfill default values
+-- 1. Default column values and constraints on new clock-in
 select clock_in_today();
 
 select is(
@@ -256,7 +256,104 @@ select throws_ok(
   'same date duplicate MANUAL create is rejected by unique constraint'
 );
 
--- 7. Edit CLOCK row preserves created_source = CLOCK, updates manual metadata & recalculates snapshots
+-- 7. Policy update does not touch untouched attendance record; explicit edit re-resolves policy
+-- Step A: close Current Policy and introduce a new policy version for context_a1 starting from 2026-08-01 with standard_start_time 08:30:00
+update public.work_policies
+set effective_to = '2026-07-31'
+where name = 'Current Policy';
+
+insert into public.work_policies (
+  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes,
+  clock_out_rounding_mode, clock_out_rounding_minutes, working_days, effective_from, effective_to, timezone
+) values (
+  '11111111-1111-4111-8111-111111111111',
+  (select id from test_context_ids where label = 'context_a1'),
+  'Updated Policy',
+  '08:30:00',
+  480,
+  60,
+  'STANDARD_START',
+  'NONE',
+  null,
+  'NONE',
+  null,
+  array[1, 2, 3, 4, 5],
+  '2026-08-01',
+  null,
+  'Asia/Taipei'
+);
+
+-- Step B: verify untouched 2026-08-10 attendance still retains original policy_snapshot and values
+select is(
+  (select policy_snapshot->>'name' from public.attendance_records where work_date = '2026-08-10'),
+  'Current Policy',
+  'untouched attendance retains its original historical policy snapshot name'
+);
+
+select is(
+  (select policy_snapshot->>'standard_start_time' from public.attendance_records where work_date = '2026-08-10'),
+  '09:30:00',
+  'untouched attendance retains its original historical standard_start_time'
+);
+
+select is(
+  (select effective_clock_in_at from public.attendance_records where work_date = '2026-08-10'),
+  ('2026-08-10 09:30:00'::timestamp at time zone 'Asia/Taipei'),
+  'untouched attendance retains its original effective_clock_in_at'
+);
+
+-- Step C: explicit edit re-resolves policy and updates snapshots and calculations
+select edit_attendance_record(
+  (select id from public.attendance_records where work_date = '2026-08-10'),
+  (select id from test_context_ids where label = 'context_a1'),
+  '08:30:00'::time,
+  '17:30:00'::time,
+  'Edited record with updated policy'
+);
+
+select is(
+  (select policy_snapshot->>'name' from public.attendance_records where work_date = '2026-08-10'),
+  'Updated Policy',
+  'explicit edit re-resolves policy snapshot name to Updated Policy'
+);
+
+select is(
+  (select policy_snapshot->>'standard_start_time' from public.attendance_records where work_date = '2026-08-10'),
+  '08:30:00',
+  'explicit edit re-resolves policy standard_start_time to 08:30:00'
+);
+
+select is(
+  (select effective_clock_in_at from public.attendance_records where work_date = '2026-08-10'),
+  ('2026-08-10 08:30:00'::timestamp at time zone 'Asia/Taipei'),
+  'explicit edit recalculates effective_clock_in_at with updated policy'
+);
+
+select is(
+  (select created_source from public.attendance_records where work_date = '2026-08-10'),
+  'MANUAL',
+  'explicit edit preserves created_source = MANUAL'
+);
+
+select is(
+  (select manually_adjusted from public.attendance_records where work_date = '2026-08-10'),
+  true,
+  'explicit edit sets manually_adjusted = true'
+);
+
+select ok(
+  (select last_manual_edit_at is not null from public.attendance_records where work_date = '2026-08-10'),
+  'explicit edit sets last_manual_edit_at'
+);
+
+select is(
+  (select calculation_snapshot->>'calculation_version' from public.attendance_records where work_date = '2026-08-10'),
+  'v1',
+  'calculation_version is preserved as engine version v1, not incremented revision counter'
+);
+
+-- 8. Edit CLOCK row preserves created_source = CLOCK, updates manual metadata & recalculates snapshots
 select clock_out_today();
 
 select is(
@@ -269,8 +366,8 @@ select is(
 select edit_attendance_record(
   (select id from public.attendance_records where work_date = (now() at time zone 'Asia/Taipei')::date),
   (select id from test_context_ids where label = 'context_a1'),
-  '09:30:00'::time,
-  '19:30:00'::time,
+  '08:30:00'::time,
+  '18:30:00'::time,
   'Adjusted today clock record'
 );
 
@@ -309,32 +406,11 @@ select is(
   'editing CLOCK record recalculates overtime_minutes (540 - 480 = 60m)'
 );
 
--- 8. Edit MANUAL row preserves created_source = MANUAL
-select edit_attendance_record(
-  (select id from public.attendance_records where work_date = '2026-08-10'),
-  (select id from test_context_ids where label = 'context_a1'),
-  '09:30:00'::time,
-  '18:30:00'::time,
-  'Updated manual note'
-);
-
-select is(
-  (select created_source from public.attendance_records where work_date = '2026-08-10'),
-  'MANUAL',
-  'editing MANUAL record preserves created_source = MANUAL'
-);
-
-select is(
-  (select manually_adjusted from public.attendance_records where work_date = '2026-08-10'),
-  true,
-  'editing MANUAL record sets manually_adjusted = true'
-);
-
 -- 9. Clearing clock-out returns to valid incomplete/null-derived state
 select edit_attendance_record(
   (select id from public.attendance_records where work_date = '2026-08-10'),
   (select id from test_context_ids where label = 'context_a1'),
-  '09:30:00'::time,
+  '08:30:00'::time,
   null,
   'Cleared clock-out'
 );
@@ -363,15 +439,7 @@ select is(
   'clearing clock-out sets calculation state to IN_PROGRESS'
 );
 
--- 10. Policy change does not touch untouched attendance record; explicit edit re-resolves policy
--- 2026-03-15 policy snapshot is Old Policy
-select is(
-  (select policy_snapshot->>'name' from public.attendance_records where work_date = '2026-03-15'),
-  'Old Policy',
-  'untouched attendance retains its historical policy snapshot'
-);
-
--- 11. Cross-user isolation: User A cannot edit User B's record
+-- 10. Cross-user isolation: User A cannot edit User B's record
 set local "request.jwt.claims" = '{"sub":"22222222-2222-4222-8222-222222222222"}';
 
 create temp table test_record_ids (
@@ -429,7 +497,7 @@ select throws_ok(
   'User A cannot use User B work context'
 );
 
--- 12. Owner hard delete succeeds
+-- 11. Owner hard delete succeeds
 select delete_attendance_record(
   (select id from public.attendance_records where work_date = '2026-08-11')
 );
@@ -440,7 +508,7 @@ select is(
   'owner hard delete removes the record from database'
 );
 
--- Verify direct mutations are still rejected
+-- 12. Verify direct mutations are still rejected
 select throws_ok(
   format($$insert into public.attendance_records (user_id, work_date, context_id, work_policy_id, actual_clock_in_at, effective_clock_in_at, expected_clock_out_at, context_snapshot, policy_snapshot, calculation_snapshot)
     values ('11111111-1111-4111-8111-111111111111', '2026-08-22', '%s'::uuid, (select id from public.work_policies where name = 'Current Policy'), now(), now(), now(), '{}', '{}', '{}')$$, (select id from test_context_ids where label = 'context_a1')),
