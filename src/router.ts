@@ -141,7 +141,7 @@ export function createAppRouter(options: AppRouterOptions = {}) {
         if (to.name === 'setup') return status.complete ? { name: 'today' } : true
         if (!status.complete) return { name: 'setup' }
       } catch {
-        return true
+        return to.name === 'setup' ? true : { name: 'setup' }
       }
     }
 
