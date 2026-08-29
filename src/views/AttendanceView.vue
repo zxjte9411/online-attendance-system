@@ -588,8 +588,9 @@ function formatRounding(mode: unknown, minutes: unknown) {
           </div>
         </div>
 
-        <div class="mt-6 flex justify-end gap-3 border-t border-line pt-4">
+        <div class="mt-6 flex flex-wrap justify-end gap-3 border-t border-line pt-4">
           <button
+            data-action="close-detail"
             class="rounded-[0.625rem] border border-line px-4 py-2 text-sm font-semibold hover:bg-surface-soft"
             type="button"
             @click="closeDetail"
@@ -597,6 +598,15 @@ function formatRounding(mode: unknown, minutes: unknown) {
             關閉
           </button>
           <button
+            data-action="delete-from-detail"
+            class="rounded-[0.625rem] border border-[var(--error-line)] bg-surface px-4 py-2 text-sm font-semibold text-[var(--error-ink)] hover:bg-[var(--error-surface)]"
+            type="button"
+            @click="openDeleteConfirm(selectedRecord)"
+          >
+            刪除此紀錄
+          </button>
+          <button
+            data-action="edit-from-detail"
             class="rounded-[0.625rem] border border-accent bg-accent px-4 py-2 text-sm font-bold text-canvas hover:bg-ink"
             type="button"
             @click="openEditForm(selectedRecord)"

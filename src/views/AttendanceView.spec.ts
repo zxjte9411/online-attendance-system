@@ -266,11 +266,32 @@ describe('AttendanceView', () => {
     expect(wrapper.find('[data-testid="form-modal"]').exists()).toBe(false)
 
     // 點擊 detail 內的修改此紀錄按鈕
-    await wrapper.get('[data-testid="detail-modal"] button.bg-accent').trigger('click')
+    await wrapper.get('[data-action="edit-from-detail"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.find('[data-testid="detail-modal"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="form-modal"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('從 single-day detail 點擊刪除時，關閉 detail modal 且開啟 delete confirmation 對話框', async () => {
+    const wrapper = mount(AttendanceView, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('[data-record-id="rec-1"] [data-action="view-detail"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="detail-modal"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="delete-confirm-dialog"]').exists()).toBe(false)
+
+    // 點擊 detail 內的刪除此紀錄按鈕
+    await wrapper.get('[data-action="delete-from-detail"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="detail-modal"]').exists()).toBe(false)
+    const confirmDialog = wrapper.find('[data-testid="delete-confirm-dialog"]')
+    expect(confirmDialog.exists()).toBe(true)
+    expect(confirmDialog.text()).toContain('2026-08-10')
     wrapper.unmount()
   })
 
