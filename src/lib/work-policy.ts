@@ -4,10 +4,6 @@ const TAIPEI_TIME_ZONE = 'Asia/Taipei'
 
 export type WorkPolicyStatus = '尚未生效' | '目前適用' | '已結束'
 
-export function isCurrentPolicyRequest(requestContextId: string, selectedContextId: string, requestToken: number, currentRequestToken: number) {
-  return requestContextId === selectedContextId && requestToken === currentRequestToken
-}
-
 export function getTaipeiToday(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: TAIPEI_TIME_ZONE,
