@@ -277,16 +277,6 @@ function formatExceptionFlagLabel(flag: string): string {
         >
           <span>下載 CSV</span>
         </button>
-
-        <button
-          type="button"
-          disabled
-          class="inline-flex min-h-11 items-center gap-2 rounded-[0.625rem] border border-line bg-surface px-4 py-2 text-sm font-bold text-muted opacity-50 cursor-not-allowed"
-          title="XLSX 多月份範本匯出將於後續功能支援"
-        >
-          <span>多月份 XLSX 匯出</span>
-          <span class="text-xs font-normal">（待範本設定）</span>
-        </button>
       </div>
     </section>
 

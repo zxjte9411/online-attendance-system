@@ -270,19 +270,6 @@ async function handleSignOut() {
               </div>
             </section>
 
-            <section v-else-if="route.name === 'reports'" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="reports-preview-title">
-              <div class="grid gap-1 border-b border-line pb-5">
-                <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">報表摘要</span>
-                <h2 id="reports-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">本週工作日概況 · 預覽資料</h2>
-              </div>
-              <dl class="grid gap-3 sm:grid-cols-3">
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">日期區間</dt><dd class="font-semibold">本週預覽</dd></div>
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">工作日</dt><dd class="font-mono text-2xl font-bold tabular-nums">範例：5 日</dd></div>
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">已記錄</dt><dd class="font-mono text-2xl font-bold tabular-nums">範例：0 筆</dd></div>
-              </dl>
-              <p class="border-s-4 border-accent ps-4 text-[0.875rem] leading-relaxed text-muted">這是報表結構預覽，不代表已產生正式統計，也不會修改任何資料。</p>
-            </section>
-
             <section v-else class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="settings-preview-title">
               <div class="grid gap-1 border-b border-line pb-5">
                 <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">設定預覽</span>

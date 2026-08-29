@@ -11,6 +11,11 @@ import type { CalendarOverride, DayStatus, DayStatusType } from '../calendar-sta
 
 export type ReportStatusType = DayStatusType | 'ABSENT'
 
+export type ReportExceptionFlag =
+  | 'HOLIDAY_WITH_ATTENDANCE'
+  | 'LEAVE_WITH_ATTENDANCE'
+  | 'OTHER_CONTEXT_ATTENDANCE'
+
 export type DailyReportRow = {
   date: string // YYYY-MM-DD
   weekday: number // 0 (Sun) - 6 (Sat)
@@ -39,7 +44,7 @@ export type DailyReportRow = {
   calendar_source: CalendarResolutionSource
   calendar_name: string | null
   is_incomplete: boolean
-  exception_flags: string[]
+  exception_flags: ReportExceptionFlag[]
   attendance_id: string | null
   attendance_context_id: string | null
 }
@@ -189,7 +194,7 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       status = 'ABSENT'
     }
 
-    const exception_flags: string[] = []
+    const exception_flags: ReportExceptionFlag[] = []
     if (calendar_day_type === 'HOLIDAY' && attendance) {
       exception_flags.push('HOLIDAY_WITH_ATTENDANCE')
     }
