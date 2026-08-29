@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { buildMonthlyReport } from './monthly-report'
+import { resolveMonthDays } from '../calendar-status/overview'
 import type { WorkContext, WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
 import type { DayStatus, CalendarOverride } from '../calendar-status/overview'
+import type { DgpaCalendarRow } from '../dgpa-calendar/resolver'
 
 const mockContext: WorkContext = {
   id: 'ctx-1',
@@ -110,12 +112,6 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
   })
 
   it('覆蓋 Case A–J 每日矩陣與規則', () => {
-    // We construct 10 specific dates in 2026-08
-    // 2026-08-01 is Saturday (Weekend fallback HOLIDAY)
-    // 2026-08-02 is Sunday (Weekend fallback HOLIDAY)
-    // 2026-08-03 (Mon) - 2026-08-07 (Fri) are WORKDAYs
-    // 2026-08-10 (Mon) - 2026-08-14 (Fri) are WORKDAYs
-
     const dayStatuses: DayStatus[] = [
       { id: 'ds-1', user_id: 'user-1', work_date: '2026-08-02', status: 'LEAVE', note: '週日請假' }, // B: HOLIDAY + LEAVE
       { id: 'ds-2', user_id: 'user-1', work_date: '2026-08-04', status: 'REMOTE', note: '遠端' }, // D: WORKDAY + REMOTE + complete
@@ -244,11 +240,6 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
   })
 
   it('PRD Case A–E 五日合計：scheduled 1920 / leave 480 / absence 480', () => {
-    // 2026-08-02 (Sun, HOLIDAY): Case B (LEAVE, no attendance)
-    // 2026-08-03 (Mon, WORKDAY): Case A (none, complete attendance)
-    // 2026-08-04 (Tue, WORKDAY): Case D (REMOTE, complete attendance)
-    // 2026-08-05 (Wed, WORKDAY): Case E (LEAVE, no attendance)
-    // 2026-08-07 (Fri, WORKDAY): Case C (none, no attendance)
     const targetDates = ['2026-08-02', '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-07']
 
     const dayStatuses: DayStatus[] = [
@@ -282,7 +273,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     expect(absenceSum).toBe(480) // 0 + 0 + 0 + 0 + 480
   })
 
-  it('無適用 Work Policy 的 WORKDAY 形成 configuration error，不猜測 480 default', () => {
+  it('無適用 Work Policy 的 WORKDAY 形成 configuration error，其 status 仍正確為 ABSENT', () => {
     // Policy only effective starting 2026-08-15
     const latePolicy: WorkPolicy = {
       ...mockPolicy,
@@ -299,8 +290,70 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     expect(report.hasConfigurationError).toBe(true)
     expect(report.missingPolicyDates).toContain('2026-08-03')
     const row = report.rows.find((r) => r.date === '2026-08-03')!
+    expect(row.calendar_day_type).toBe('WORKDAY')
     expect(row.scheduled_minutes).toBe(0)
+    expect(row.leave_minutes).toBe(0)
     expect(row.absence_minutes).toBe(0)
+    expect(row.status).toBe('ABSENT')
+  })
+
+  it('strictly read calculation_version without guessing: preserves string, uses null when missing', () => {
+    const withVersion = createAttendance('2026-08-03', {
+      calculation_snapshot: { calculation_version: 'v2' },
+    })
+    const withoutVersion = createAttendance('2026-08-04', {
+      calculation_snapshot: {},
+    })
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      context: mockContext,
+      workPolicies: [mockPolicy],
+      attendanceRecords: [withVersion, withoutVersion],
+    })
+
+    const rowWith = report.rows.find((r) => r.date === '2026-08-03')!
+    expect(rowWith.calculation_version).toBe('v2')
+
+    const rowWithout = report.rows.find((r) => r.date === '2026-08-04')!
+    expect(rowWithout.calculation_version).toBeNull()
+  })
+
+  it('共用 resolveMonthDays seam 確保 Manual Override > DGPA > Work Policy > weekend fallback 一致', () => {
+    const calendarOverrides: CalendarOverride[] = [
+      { id: 'co-1', user_id: 'user-1', calendar_date: '2026-08-01', day_type: 'WORKDAY', name: '補班', note: null },
+    ]
+    const dgpaRows: DgpaCalendarRow[] = [
+      { calendar_date: '2026-08-03', day_type: 'HOLIDAY', name: '國定假日', source: 'dgpa', fetched_at: '2026-08-01' },
+    ]
+
+    const monthDays = resolveMonthDays({
+      yearMonth: '2026-08',
+      calendarOverrides,
+      dgpaRows,
+      workPolicies: [mockPolicy],
+    })
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      context: mockContext,
+      calendarOverrides,
+      dgpaRows,
+      workPolicies: [mockPolicy],
+      attendanceRecords: [],
+    })
+
+    // 2026-08-01 (Sat) resolved as Manual Override WORKDAY in both
+    expect(monthDays[0].resolved.source).toBe('MANUAL_OVERRIDE')
+    expect(monthDays[0].resolved.dayType).toBe('WORKDAY')
+    expect(report.rows[0].calendar_source).toBe('MANUAL_OVERRIDE')
+    expect(report.rows[0].calendar_day_type).toBe('WORKDAY')
+
+    // 2026-08-03 (Mon) resolved as DGPA HOLIDAY in both
+    expect(monthDays[2].resolved.source).toBe('DGPA')
+    expect(monthDays[2].resolved.dayType).toBe('HOLIDAY')
+    expect(report.rows[2].calendar_source).toBe('DGPA')
+    expect(report.rows[2].calendar_day_type).toBe('HOLIDAY')
   })
 
   it('優先使用 Attendance 保存之 context_snapshot company/project identifier，維持歷史語意', () => {
@@ -338,14 +391,14 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
       yearMonth: '2026-08',
       context: mockContext,
       workPolicies: [mockPolicy],
-      attendanceRecords: [], // No attendance in this context
+      attendanceRecords: [],
       otherContextAttendanceDates: otherContextDates,
     })
 
     const row = report.rows.find((r) => r.date === '2026-08-03')!
     expect(row.exception_flags).toContain('OTHER_CONTEXT_ATTENDANCE')
     expect(row.regular_minutes).toBeNull()
-    expect(row.absence_minutes).toBe(480) // In current context it is still absent
+    expect(row.absence_minutes).toBe(480)
   })
 
   it('Monthly summary 嚴格由 daily rows reduce 得到', () => {

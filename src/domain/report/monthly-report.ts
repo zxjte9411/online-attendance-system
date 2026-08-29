@@ -1,13 +1,16 @@
 import {
-  findApplicableWorkPolicy,
-  resolveCalendarDay,
   type CalendarDayType,
   type CalendarResolutionSource,
   type DgpaCalendarRow,
 } from '../dgpa-calendar/resolver'
+import {
+  resolveMonthDays,
+  type CalendarOverride,
+  type DayStatus,
+  type DayStatusType,
+} from '../calendar-status/overview'
 import type { WorkContext, WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
-import type { CalendarOverride, DayStatus, DayStatusType } from '../calendar-status/overview'
 
 export type ReportStatusType = DayStatusType | 'ABSENT'
 
@@ -81,8 +84,6 @@ export type BuildMonthlyReportParams = {
   dgpaRows?: DgpaCalendarRow[]
 }
 
-const WEEKDAY_LABELS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'] as const
-
 export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyReport {
   const {
     yearMonth,
@@ -95,26 +96,6 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
     dgpaRows = [],
   } = params
 
-  const [yearStr, monthStr] = yearMonth.split('-')
-  const year = Number(yearStr)
-  const month = Number(monthStr)
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-
-  const dayStatusMap = new Map<string, DayStatus>()
-  for (const ds of dayStatuses) {
-    dayStatusMap.set(ds.work_date, ds)
-  }
-
-  const calendarOverrideMap = new Map<string, CalendarOverride>()
-  for (const co of calendarOverrides) {
-    calendarOverrideMap.set(co.calendar_date, co)
-  }
-
-  const dgpaMap = new Map<string, DgpaCalendarRow>()
-  for (const row of dgpaRows) {
-    dgpaMap.set(row.calendar_date, row)
-  }
-
   const attendanceMap = new Map<string, AttendanceRecord>()
   for (const rec of attendanceRecords) {
     if (rec.context_id === context.id) {
@@ -122,33 +103,25 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
     }
   }
 
+  const monthDays = resolveMonthDays({
+    yearMonth,
+    dayStatuses,
+    calendarOverrides,
+    dgpaRows,
+    workPolicies,
+  })
+
   const rows: DailyReportRow[] = []
   const missingPolicyDates: string[] = []
 
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dayStr = String(d).padStart(2, '0')
-    const date = `${yearMonth}-${dayStr}`
-    const dateObj = new Date(Date.UTC(year, month - 1, d, 12, 0, 0))
-    const weekday = dateObj.getUTCDay()
-    const weekdayLabel = WEEKDAY_LABELS[weekday]
-
-    const dayStatus = dayStatusMap.get(date) ?? null
-    const calendarOverride = calendarOverrideMap.get(date) ?? null
-    const dgpaRow = dgpaMap.get(date) ?? null
-    const attendance = attendanceMap.get(date) ?? null
-    const hasOtherContextAttendance = otherContextAttendanceDates.has(date)
-
-    const applicableWorkPolicy = findApplicableWorkPolicy(date, workPolicies)
-    const resolved = resolveCalendarDay({
-      date,
-      manualOverride: calendarOverride,
-      dgpaRow,
-      applicableWorkPolicy,
-    })
-
+  for (const day of monthDays) {
+    const { date, dayOfWeek: weekday, dayOfWeekLabel: weekdayLabel, dayStatus, applicableWorkPolicy, resolved } = day
     const calendar_day_type = resolved.dayType
     const calendar_source = resolved.source
     const calendar_name = resolved.name
+
+    const attendance = attendanceMap.get(date) ?? null
+    const hasOtherContextAttendance = otherContextAttendanceDates.has(date)
 
     let scheduled_minutes = 0
     let isMissingPolicy = false
@@ -190,7 +163,7 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
     let status: ReportStatusType | null = null
     if (dayStatus) {
       status = dayStatus.status
-    } else if (calendar_day_type === 'WORKDAY' && !attendance && !isMissingPolicy) {
+    } else if (calendar_day_type === 'WORKDAY' && !attendance) {
       status = 'ABSENT'
     }
 
@@ -221,10 +194,10 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
 
     let calculation_version: string | null = null
     if (attendance) {
-      if (typeof attendance.calculation_snapshot?.calculation_version === 'string') {
+      if (typeof attendance.calculation_snapshot?.calculation_version === 'string' && attendance.calculation_snapshot.calculation_version.trim()) {
         calculation_version = attendance.calculation_snapshot.calculation_version
       } else {
-        calculation_version = 'v1'
+        calculation_version = null
       }
     }
 

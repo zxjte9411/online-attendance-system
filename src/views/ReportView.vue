@@ -27,51 +27,54 @@ import { getDgpaCalendarForMonth } from '../lib/dgpa-calendar'
 import { getTaipeiToday } from '../lib/work-policy'
 import { presentErrorMessage } from '../lib/error-presentation'
 
+type LoadedScopeData = {
+  month: string
+  contextId: string
+  context: WorkContext
+  policies: WorkPolicy[]
+  records: AttendanceRecord[]
+  statuses: DayStatus[]
+  overrides: CalendarOverride[]
+  dgpas: DgpaCalendarRow[]
+}
+
 const currentMonth = ref(getTaipeiToday().slice(0, 7))
 const contexts = ref<WorkContext[]>([])
 const selectedContextId = ref<string>('')
-const workPolicies = ref<WorkPolicy[]>([])
-const attendanceRecords = ref<AttendanceRecord[]>([])
-const dayStatuses = ref<DayStatus[]>([])
-const calendarOverrides = ref<CalendarOverride[]>([])
-const dgpaRows = ref<DgpaCalendarRow[]>([])
+const loadedScope = ref<LoadedScopeData | null>(null)
 
 const isLoading = ref(true)
 const loadError = ref('')
 
 let currentRequestId = 0
 
-const selectedContext = computed<WorkContext | null>(() => {
-  return contexts.value.find((c) => c.id === selectedContextId.value) ?? null
-})
+const report = computed<MonthlyReport | null>(() => {
+  if (!loadedScope.value) return null
+  if (
+    loadedScope.value.month !== currentMonth.value ||
+    loadedScope.value.contextId !== selectedContextId.value
+  ) {
+    return null
+  }
 
-const selectedContextRecords = computed(() => {
-  if (!selectedContextId.value) return []
-  return attendanceRecords.value.filter((r) => r.context_id === selectedContextId.value)
-})
-
-const otherContextAttendanceDates = computed(() => {
-  if (!selectedContextId.value) return new Set<string>()
-  const dates = new Set<string>()
-  for (const r of attendanceRecords.value) {
-    if (r.context_id !== selectedContextId.value && r.work_date) {
-      dates.add(r.work_date)
+  const { month, context, policies, records, statuses, overrides, dgpas } = loadedScope.value
+  const contextRecords = records.filter((r) => r.context_id === context.id)
+  const otherContextDates = new Set<string>()
+  for (const r of records) {
+    if (r.context_id !== context.id && r.work_date) {
+      otherContextDates.add(r.work_date)
     }
   }
-  return dates
-})
 
-const report = computed<MonthlyReport | null>(() => {
-  if (!selectedContext.value) return null
   return buildMonthlyReport({
-    yearMonth: currentMonth.value,
-    context: selectedContext.value,
-    workPolicies: workPolicies.value,
-    attendanceRecords: selectedContextRecords.value,
-    otherContextAttendanceDates: otherContextAttendanceDates.value,
-    dayStatuses: dayStatuses.value,
-    calendarOverrides: calendarOverrides.value,
-    dgpaRows: dgpaRows.value,
+    yearMonth: month,
+    context,
+    workPolicies: policies,
+    attendanceRecords: contextRecords,
+    otherContextAttendanceDates: otherContextDates,
+    dayStatuses: statuses,
+    calendarOverrides: overrides,
+    dgpaRows: dgpas,
   })
 })
 
@@ -103,7 +106,6 @@ async function initContexts() {
     }
   } catch (err) {
     loadError.value = presentErrorMessage(err, '載入工作情境失敗，請稍後再試。')
-  } finally {
     isLoading.value = false
   }
 }
@@ -111,14 +113,16 @@ async function initContexts() {
 async function loadMonthData() {
   const requestId = ++currentRequestId
   const requestedMonth = currentMonth.value
-  const ctxId = selectedContextId.value
+  const requestedContextId = selectedContextId.value
+
   isLoading.value = true
   loadError.value = ''
+  loadedScope.value = null
 
   try {
     const userId = await getCurrentUserId()
     const [policies, records, statuses, overrides, dgpas] = await Promise.all([
-      listWorkPolicies(userId, ctxId),
+      listWorkPolicies(userId, requestedContextId),
       getMonthAttendanceRecords(requestedMonth),
       getDayStatusesForMonth(requestedMonth),
       getCalendarOverridesForMonth(requestedMonth),
@@ -127,13 +131,22 @@ async function loadMonthData() {
 
     if (requestId !== currentRequestId) return
 
-    workPolicies.value = policies
-    attendanceRecords.value = records
-    dayStatuses.value = statuses
-    calendarOverrides.value = overrides
-    dgpaRows.value = dgpas
+    const matchedContext = contexts.value.find((c) => c.id === requestedContextId)
+    if (!matchedContext) return
+
+    loadedScope.value = {
+      month: requestedMonth,
+      contextId: requestedContextId,
+      context: matchedContext,
+      policies,
+      records,
+      statuses,
+      overrides,
+      dgpas,
+    }
   } catch (err) {
     if (requestId !== currentRequestId) return
+    loadedScope.value = null
     loadError.value = presentErrorMessage(err, '載入月報表資料失敗，請稍後再試。')
   } finally {
     if (requestId === currentRequestId) {
@@ -155,7 +168,7 @@ function handleNextMonth() {
 }
 
 function handleDownloadCsv() {
-  if (!report.value || report.value.hasConfigurationError) return
+  if (!report.value || report.value.hasConfigurationError || isLoading.value) return
 
   const csvContent = exportReportToCsv(report.value)
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -283,6 +296,7 @@ function formatExceptionFlagLabel(flag: string): string {
     <!-- Error / Configuration Warning Banners -->
     <div
       v-if="loadError"
+      data-test="load-error-banner"
       class="mt-4 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
       role="alert"
     >
@@ -301,8 +315,17 @@ function formatExceptionFlagLabel(flag: string): string {
       </span>
     </div>
 
+    <!-- Loading State -->
+    <div
+      v-if="isLoading"
+      data-test="loading-indicator"
+      class="mt-6 rounded-2xl border border-line bg-surface p-8 text-center"
+    >
+      <p class="font-display text-base font-semibold text-muted">載入報表中…</p>
+    </div>
+
     <!-- Summary Cards -->
-    <section v-if="report" class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" aria-label="月份工時摘要">
+    <section v-else-if="report" class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" aria-label="月份工時摘要">
       <div class="grid gap-1 rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow)]" data-test="summary-scheduled">
         <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">應工作工時</span>
         <strong class="font-mono text-xl font-bold tabular-nums text-ink">{{ formatMinutes(report.summary.scheduled_minutes) }}</strong>
@@ -330,7 +353,7 @@ function formatExceptionFlagLabel(flag: string): string {
     </section>
 
     <!-- Daily Rows Table -->
-    <section v-if="report" class="mt-8 rounded-2xl border border-line bg-surface shadow-[var(--shadow)] overflow-hidden" aria-label="逐日出勤報表">
+    <section v-if="!isLoading && report" class="mt-8 rounded-2xl border border-line bg-surface shadow-[var(--shadow)] overflow-hidden" aria-label="逐日出勤報表">
       <div class="border-b border-line px-5 py-4 flex items-center justify-between">
         <h2 class="font-display text-lg font-bold">{{ monthLabel }} 逐日報表明細</h2>
         <span class="text-xs text-muted font-mono">{{ report.rows.length }} 日</span>

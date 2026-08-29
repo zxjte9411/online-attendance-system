@@ -49,7 +49,24 @@ export type DailyOverview = {
   dgpaBaseline: DgpaBaseline | null
 }
 
-const WEEKDAY_LABELS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'] as const
+export const WEEKDAY_LABELS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'] as const
+
+export function formatWeekdayLabel(dayOfWeek: number): string {
+  return WEEKDAY_LABELS[dayOfWeek] ?? ''
+}
+
+export type ResolvedMonthDay = {
+  date: string
+  dayOfMonth: number
+  dayOfWeek: number // 0 (Sun) - 6 (Sat)
+  dayOfWeekLabel: string
+  isWeekend: boolean
+  dayStatus: DayStatus | null
+  calendarOverride: CalendarOverride | null
+  dgpaRow: DgpaCalendarRow | null
+  applicableWorkPolicy: WorkPolicy | null
+  resolved: ReturnType<typeof resolveCalendarDay>
+}
 
 export function formatDayStatusLabel(status: DayStatusType): string {
   switch (status) {
@@ -80,19 +97,17 @@ export function formatCalendarResolutionLabel(
   }
 }
 
-export function buildMonthOverview(params: {
+export function resolveMonthDays(params: {
   yearMonth: string // YYYY-MM
-  dayStatuses: DayStatus[]
-  calendarOverrides: CalendarOverride[]
-  attendanceDates: Set<string>
+  dayStatuses?: DayStatus[]
+  calendarOverrides?: CalendarOverride[]
   dgpaRows?: DgpaCalendarRow[]
   workPolicies?: WorkPolicy[]
-}): DailyOverview[] {
+}): ResolvedMonthDay[] {
   const {
     yearMonth,
-    dayStatuses,
-    calendarOverrides,
-    attendanceDates,
+    dayStatuses = [],
+    calendarOverrides = [],
     dgpaRows = [],
     workPolicies = [],
   } = params
@@ -119,7 +134,7 @@ export function buildMonthOverview(params: {
     dgpaMap.set(row.calendar_date, row)
   }
 
-  const days: DailyOverview[] = []
+  const days: ResolvedMonthDay[] = []
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dayStr = String(d).padStart(2, '0')
@@ -140,9 +155,52 @@ export function buildMonthOverview(params: {
       applicableWorkPolicy,
     })
 
-    const hasAttendance = attendanceDates.has(date)
-    const isHoliday = resolved.dayType === 'HOLIDAY'
-    const isLeaveStatus = dayStatus?.status === 'LEAVE'
+    days.push({
+      date,
+      dayOfMonth: d,
+      dayOfWeek,
+      dayOfWeekLabel: formatWeekdayLabel(dayOfWeek),
+      isWeekend,
+      dayStatus,
+      calendarOverride,
+      dgpaRow,
+      applicableWorkPolicy,
+      resolved,
+    })
+  }
+
+  return days
+}
+
+export function buildMonthOverview(params: {
+  yearMonth: string // YYYY-MM
+  dayStatuses: DayStatus[]
+  calendarOverrides: CalendarOverride[]
+  attendanceDates: Set<string>
+  dgpaRows?: DgpaCalendarRow[]
+  workPolicies?: WorkPolicy[]
+}): DailyOverview[] {
+  const {
+    yearMonth,
+    dayStatuses,
+    calendarOverrides,
+    attendanceDates,
+    dgpaRows = [],
+    workPolicies = [],
+  } = params
+
+  const monthDays = resolveMonthDays({
+    yearMonth,
+    dayStatuses,
+    calendarOverrides,
+    dgpaRows,
+    workPolicies,
+  })
+
+  return monthDays.map((day) => {
+    const hasAttendance = attendanceDates.has(day.date)
+    const isHoliday = day.resolved.dayType === 'HOLIDAY'
+    const isLeaveStatus = day.dayStatus?.status === 'LEAVE'
     const hasException = hasAttendance && (isHoliday || isLeaveStatus)
 
     let exceptionHint: string | null = null
@@ -156,23 +214,21 @@ export function buildMonthOverview(params: {
       }
     }
 
-    days.push({
-      date,
-      dayOfMonth: d,
-      dayOfWeek,
-      dayOfWeekLabel: WEEKDAY_LABELS[dayOfWeek],
-      isWeekend,
-      dayStatus,
-      calendarOverride,
+    return {
+      date: day.date,
+      dayOfMonth: day.dayOfMonth,
+      dayOfWeek: day.dayOfWeek,
+      dayOfWeekLabel: day.dayOfWeekLabel,
+      isWeekend: day.isWeekend,
+      dayStatus: day.dayStatus,
+      calendarOverride: day.calendarOverride,
       hasAttendance,
       hasException,
       exceptionHint,
-      resolvedDayType: resolved.dayType,
-      resolvedSource: resolved.source,
-      resolvedName: resolved.name,
-      dgpaBaseline: resolved.dgpaBaseline,
-    })
-  }
-
-  return days
+      resolvedDayType: day.resolved.dayType,
+      resolvedSource: day.resolved.source,
+      resolvedName: day.resolved.name,
+      dgpaBaseline: day.resolved.dgpaBaseline,
+    }
+  })
 }

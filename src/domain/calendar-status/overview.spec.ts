@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildMonthOverview,
+  resolveMonthDays,
   formatDayStatusLabel,
   formatCalendarResolutionLabel,
   type DayStatus,
@@ -234,3 +235,62 @@ describe('buildMonthOverview', () => {
     expect(formatCalendarResolutionLabel('WEEKEND_FALLBACK', 'HOLIDAY')).toBe('週末預設')
   })
 })
+
+describe('resolveMonthDays', () => {
+  it('resolves month days with all priority levels: Manual Override > DGPA > Work Policy > weekend fallback', () => {
+    const calendarOverrides: CalendarOverride[] = [
+      { id: 'co-1', user_id: 'u1', calendar_date: '2026-08-01', day_type: 'WORKDAY', name: '人工補班', note: null },
+    ]
+    const dgpaRows: DgpaCalendarRow[] = [
+      { calendar_date: '2026-08-03', day_type: 'HOLIDAY', name: 'DGPA假', source: 'src', fetched_at: '2026-08-01' },
+    ]
+    const workPolicy: WorkPolicy = {
+      id: 'wp-1',
+      user_id: 'u1',
+      context_id: 'c1',
+      name: '週二至週六工作',
+      standard_start_time: '09:00:00',
+      work_minutes: 480,
+      fixed_break_minutes: 60,
+      early_arrival_policy: 'STANDARD_START',
+      clock_in_rounding_mode: 'NONE',
+      clock_in_rounding_minutes: null,
+      clock_out_rounding_mode: 'NONE',
+      clock_out_rounding_minutes: null,
+      working_days: ['2', '3', '4', '5', '6'], // Tue - Sat
+      effective_from: '2026-01-01',
+      effective_to: null,
+      timezone: 'Asia/Taipei',
+    }
+
+    const days = resolveMonthDays({
+      yearMonth: '2026-08',
+      calendarOverrides,
+      dgpaRows,
+      workPolicies: [workPolicy],
+    })
+
+    expect(days).toHaveLength(31)
+
+    // Aug 1 (Sat): Overridden to WORKDAY (MANUAL_OVERRIDE)
+    expect(days[0].date).toBe('2026-08-01')
+    expect(days[0].resolved.source).toBe('MANUAL_OVERRIDE')
+    expect(days[0].resolved.dayType).toBe('WORKDAY')
+
+    // Aug 2 (Sun): WORK_POLICY says Sun is not in working_days -> HOLIDAY (WORK_POLICY)
+    expect(days[1].date).toBe('2026-08-02')
+    expect(days[1].resolved.source).toBe('WORK_POLICY')
+    expect(days[1].resolved.dayType).toBe('HOLIDAY')
+
+    // Aug 3 (Mon): DGPA says HOLIDAY (DGPA takes precedence over WORK_POLICY)
+    expect(days[2].date).toBe('2026-08-03')
+    expect(days[2].resolved.source).toBe('DGPA')
+    expect(days[2].resolved.dayType).toBe('HOLIDAY')
+
+    // Aug 4 (Tue): WORK_POLICY says Tue is in working_days -> WORKDAY (WORK_POLICY)
+    expect(days[3].date).toBe('2026-08-04')
+    expect(days[3].resolved.source).toBe('WORK_POLICY')
+    expect(days[3].resolved.dayType).toBe('WORKDAY')
+  })
+})
+
