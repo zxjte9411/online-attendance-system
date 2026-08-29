@@ -49,6 +49,8 @@ begin
 end;
 $$;
 
+revoke all on function public.normalize_day_status_note() from public;
+
 create trigger day_statuses_normalize_note
   before insert or update on public.day_statuses
   for each row execute function public.normalize_day_status_note();
@@ -57,6 +59,7 @@ create trigger day_statuses_set_updated_at
   before update on public.day_statuses
   for each row execute function public.set_updated_at();
 
+revoke all on table public.day_statuses from public, anon;
 grant select, insert, update, delete on public.day_statuses to authenticated;
 
 create table public.calendar_overrides (
@@ -114,6 +117,8 @@ begin
 end;
 $$;
 
+revoke all on function public.normalize_calendar_override_fields() from public;
+
 create trigger calendar_overrides_normalize_fields
   before insert or update on public.calendar_overrides
   for each row execute function public.normalize_calendar_override_fields();
@@ -122,4 +127,5 @@ create trigger calendar_overrides_set_updated_at
   before update on public.calendar_overrides
   for each row execute function public.set_updated_at();
 
+revoke all on table public.calendar_overrides from public, anon;
 grant select, insert, update, delete on public.calendar_overrides to authenticated;

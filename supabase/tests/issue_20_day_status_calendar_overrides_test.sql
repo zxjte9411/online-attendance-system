@@ -2,7 +2,7 @@ create extension if not exists pgtap with schema extensions;
 
 begin;
 
-select plan(50);
+select plan(58);
 
 -- 1. Schema & Structure
 select has_table('public', 'day_statuses', 'day_statuses table exists');
@@ -55,6 +55,16 @@ select is(has_table_privilege('authenticated', 'public.calendar_overrides', 'SEL
 select is(has_table_privilege('authenticated', 'public.calendar_overrides', 'INSERT'), true, 'authenticated can insert calendar_overrides');
 select is(has_table_privilege('authenticated', 'public.calendar_overrides', 'UPDATE'), true, 'authenticated can update calendar_overrides');
 select is(has_table_privilege('authenticated', 'public.calendar_overrides', 'DELETE'), true, 'authenticated can delete calendar_overrides');
+
+select is(has_table_privilege('anon', 'public.day_statuses', 'SELECT'), false, 'anon cannot select day_statuses');
+select is(has_table_privilege('anon', 'public.day_statuses', 'INSERT'), false, 'anon cannot insert day_statuses');
+select is(has_table_privilege('anon', 'public.day_statuses', 'UPDATE'), false, 'anon cannot update day_statuses');
+select is(has_table_privilege('anon', 'public.day_statuses', 'DELETE'), false, 'anon cannot delete day_statuses');
+
+select is(has_table_privilege('anon', 'public.calendar_overrides', 'SELECT'), false, 'anon cannot select calendar_overrides');
+select is(has_table_privilege('anon', 'public.calendar_overrides', 'INSERT'), false, 'anon cannot insert calendar_overrides');
+select is(has_table_privilege('anon', 'public.calendar_overrides', 'UPDATE'), false, 'anon cannot update calendar_overrides');
+select is(has_table_privilege('anon', 'public.calendar_overrides', 'DELETE'), false, 'anon cannot delete calendar_overrides');
 
 -- Test Setup with Users
 insert into auth.users (id, email)
