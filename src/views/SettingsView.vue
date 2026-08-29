@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
+import ExportTemplateSection from '../components/settings/ExportTemplateSection.vue'
 import { getWorkPolicyStatus } from '../lib/work-policy'
 import {
   getCurrentUserId,
@@ -327,6 +328,30 @@ async function selectContext(contextId: string) {
         <div v-if="showPolicyForm && selectedContext && !isLoadingPolicies && !policyError" class="border-t border-line pt-5">
           <WorkPolicyForm :user-id="userId" :context-id="selectedContext.id" :policies="policies" @saved="handlePolicySaved" />
         </div>
+      </section>
+
+      <section id="export-templates" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-export-templates-title">
+        <div class="grid gap-1 border-b border-line pb-5">
+          <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">04 / XLSX 匯出範本</p>
+          <h2 id="settings-export-templates-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">XLSX 匯出範本</h2>
+          <p class="text-sm leading-relaxed text-muted">為各工作情境上傳專屬的 Excel 範本並配置欄位對應，即可在報表匯出填妥的檔案。</p>
+        </div>
+
+        <div class="grid gap-1.5">
+          <label class="font-semibold" for="template-context">選擇工作情境</label>
+          <select id="template-context" v-model="selectedContextId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="template_context_id" @change="selectContext(selectedContextId)">
+            <option v-for="context in contexts" :key="context.id" :value="context.id">{{ context.name }}{{ context.is_default ? '（目前預設）' : '' }}</option>
+          </select>
+        </div>
+
+        <div v-if="selectedContext" class="grid gap-4">
+          <ExportTemplateSection
+            :user-id="userId"
+            :context-id="selectedContext.id"
+            :context-name="selectedContext.name"
+          />
+        </div>
+        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">請先建立工作情境以設定匯出範本。</p>
       </section>
     </div>
   </div>
