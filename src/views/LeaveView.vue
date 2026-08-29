@@ -64,7 +64,7 @@ watch(currentMonth, (newMonth) => {
   void loadMonth(newMonth)
 })
 
-async function loadMonth(yearMonth: string) {
+async function loadMonth(yearMonth: string): Promise<boolean> {
   const requestId = ++currentRequestId
   isLoading.value = true
   loadError.value = ''
@@ -76,14 +76,16 @@ async function loadMonth(yearMonth: string) {
       getMonthAttendanceDates(yearMonth),
     ])
 
-    if (requestId !== currentRequestId) return
+    if (requestId !== currentRequestId) return false
 
     dayStatuses.value = statuses
     calendarOverrides.value = overrides
     attendanceDates.value = attendances
+    return true
   } catch (error) {
-    if (requestId !== currentRequestId) return
+    if (requestId !== currentRequestId) return false
     loadError.value = presentErrorMessage(error, '日曆與狀態資料載入失敗，請稍後再試。')
+    return false
   } finally {
     if (requestId === currentRequestId) {
       isLoading.value = false
@@ -188,6 +190,7 @@ async function handleSaveDay() {
   isSaving.value = true
   modalError.value = ''
 
+  let persistedOverrideAfterMutation: CalendarOverride | null = initialOverride
   let calendarMutationSucceeded = false
 
   try {
@@ -197,8 +200,9 @@ async function handleSaveDay() {
         if (initialOverride) {
           await deleteCalendarOverride(initialOverride.id)
         }
+        persistedOverrideAfterMutation = null
       } else {
-        await upsertCalendarOverride({
+        persistedOverrideAfterMutation = await upsertCalendarOverride({
           calendar_date: date,
           day_type: formCalendarOverrideType.value,
           name: normOverrideName,
@@ -228,14 +232,24 @@ async function handleSaveDay() {
     editingDay.value = null
   } catch (error) {
     // Partial success handling: If Calendar Override succeeded but Day Status failed,
-    // reload month data so UI reflects persisted state, rebase editingDay to persisted state,
-    // and display informative error while preserving user's form input for retry.
+    // rebase editingDay baseline to the authoritative persisted Calendar Override immediately.
+    // Also attempt to reload month data from server so UI reflects persisted state if network allows.
     if (calendarMutationSucceeded) {
-      await loadMonth(currentMonth.value)
-      const freshDay = overviewDays.value.find((d) => d.date === date)
-      if (freshDay) {
-        editingDay.value = freshDay
+      if (editingDay.value) {
+        editingDay.value = {
+          ...editingDay.value,
+          calendarOverride: persistedOverrideAfterMutation,
+        }
       }
+
+      const reloaded = await loadMonth(currentMonth.value)
+      if (reloaded) {
+        const freshDay = overviewDays.value.find((d) => d.date === date)
+        if (freshDay) {
+          editingDay.value = freshDay
+        }
+      }
+
       const detailMsg = presentErrorMessage(error, '特殊狀態儲存失敗。')
       modalError.value = `日曆覆寫已更新，但特殊狀態儲存失敗：${detailMsg}`
     } else {
