@@ -79,6 +79,10 @@ alter table public.profiles enable row level security;
 alter table public.work_contexts enable row level security;
 alter table public.work_policies enable row level security;
 
+grant select, insert, update, delete
+  on table public.profiles, public.work_contexts, public.work_policies
+  to authenticated;
+
 create policy profiles_owner_select on public.profiles
   for select using (id = (select auth.uid()));
 create policy profiles_owner_insert on public.profiles

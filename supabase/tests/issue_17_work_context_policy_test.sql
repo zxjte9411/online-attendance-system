@@ -4,12 +4,12 @@ begin;
 
 select plan(37);
 
-select has_table('public', 'profiles');
-select has_table('public', 'work_contexts');
-select has_table('public', 'work_policies');
-select has_column('public', 'profiles', 'timezone');
-select has_column('public', 'work_contexts', 'is_default');
-select has_column('public', 'work_policies', 'effective_to');
+select has_table('public', 'profiles', 'profiles table exists');
+select has_table('public', 'work_contexts', 'work_contexts table exists');
+select has_table('public', 'work_policies', 'work_policies table exists');
+select has_column('public', 'profiles', 'timezone', 'profiles timezone column exists');
+select has_column('public', 'work_contexts', 'is_default', 'work_contexts is_default column exists');
+select has_column('public', 'work_policies', 'effective_to', 'work_policies effective_to column exists');
 
 insert into auth.users (id, email)
 values
@@ -75,12 +75,12 @@ select is(
 select throws_ok(
   $$insert into public.work_contexts (user_id, name, company_identifier, project_identifier, is_default)
     values ('00000000-0000-0000-0000-000000000017', 'Bypass', 'Company A', 'Project D', true)$$,
-  'P0001', '.*', 'is_default changes are RPC-only'
+  'P0001', null, 'is_default changes are RPC-only'
 );
 select throws_ok(
   $$insert into public.work_contexts (user_id, name, company_identifier, project_identifier, active)
     values ('00000000-0000-0000-0000-000000000017', 'Bypass', 'Company A', 'Project D', true)$$,
-  '42501', '.*', 'RLS prevents direct active context insertion from bypassing default creation'
+  '42501', null, 'RLS prevents direct active context insertion from bypassing default creation'
 );
 
 select lives_ok(
@@ -95,7 +95,7 @@ select ok(
 );
 select throws_ok(
   $$select public.set_default_work_context((select id from issue_17_context_ids where label = 'inactive'))$$,
-  'P0001', '.*', 'set_default_work_context rejects inactive contexts'
+  'P0001', null, 'set_default_work_context rejects inactive contexts'
 );
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000018';
@@ -120,7 +120,7 @@ select throws_ok(
       (select id from issue_17_context_ids where label = 'other-user'),
       'Cross-account', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-01'
     )$$,
-  '23503', '.*', 'composite FK prevents cross-account policy contexts'
+  '23503', null, 'composite FK prevents cross-account policy contexts'
 );
 
 insert into public.work_policies (
@@ -156,13 +156,13 @@ select throws_ok(
   $$update public.work_policies
     set name = 'Valid policy updated'
     where name = 'Valid policy'$$,
-  'P0001', '.*', 'work policy name cannot be changed after creation'
+  'P0001', null, 'work policy name cannot be changed after creation'
 );
 select throws_ok(
   $$update public.work_policies
     set effective_to = '2026-02-01'
     where name = 'Valid policy'$$,
-  'P0001', '.*', 'work policy effective_to cannot be changed twice'
+  'P0001', null, 'work policy effective_to cannot be changed twice'
 );
 
 insert into public.work_policies (
@@ -185,7 +185,7 @@ select throws_ok(
       (select id from issue_17_context_ids where label = 'first'),
       'Bad rounding', '09:00', 480, 60, 'STANDARD_START', 'CEIL', 0, array['1'], '2027-01-01'
     )$$,
-  '23514', '.*', 'rounding minutes must be positive when rounding is enabled'
+  '23514', null, 'rounding minutes must be positive when rounding is enabled'
 );
 select throws_ok(
   $$insert into public.work_policies (
@@ -196,7 +196,7 @@ select throws_ok(
       (select id from issue_17_context_ids where label = 'first'),
       'Bad dates', '09:00', 480, 60, 'STANDARD_START', array['1'], '2027-02-01', '2027-01-01'
     )$$,
-  '23514', '.*', 'effective_to cannot precede effective_from'
+  '23514', null, 'effective_to cannot precede effective_from'
 );
 select throws_ok(
   $$insert into public.work_policies (
@@ -207,7 +207,7 @@ select throws_ok(
       (select id from issue_17_context_ids where label = 'first'),
       'No days', '09:00', 480, 60, 'STANDARD_START', array[]::text[], '2027-01-01'
     )$$,
-  '23514', '.*', 'working_days cannot be empty'
+  '23514', null, 'working_days cannot be empty'
 );
 select throws_ok(
   $$insert into public.work_policies (
@@ -218,7 +218,7 @@ select throws_ok(
       (select id from issue_17_context_ids where label = 'first'),
       'Invalid day', '09:00', 480, 60, 'STANDARD_START', array['MONDAY'], '2027-03-01'
     )$$,
-  '23514', '.*', 'working_days accepts only numeric day values'
+  '23514', null, 'working_days accepts only numeric day values'
 );
 select throws_ok(
   $$insert into public.work_policies (
@@ -229,24 +229,24 @@ select throws_ok(
       (select id from issue_17_context_ids where label = 'first'),
       'Overlapping', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-15', '2026-02-01'
     )$$,
-  '23P01', '.*', 'overlapping policy effective dates are rejected'
+  '23P01', null, 'overlapping policy effective dates are rejected'
 );
 select throws_ok(
   $$update public.work_policies
     set effective_from = '2026-01-31'
     where name = 'Second valid policy'$$,
-  'P0001', '.*', 'work policy effective_from cannot be changed after creation'
+  'P0001', null, 'work policy effective_from cannot be changed after creation'
 );
 
 select throws_ok(
   $$update public.work_contexts set is_default = true
     where id = (select id from issue_17_context_ids where label = 'first')$$,
-  'P0001', '.*', 'is_default updates remain RPC-only'
+  'P0001', null, 'is_default updates remain RPC-only'
 );
 
 select throws_ok(
   $$delete from public.work_contexts where id = (select id from issue_17_context_ids where label = 'first')$$,
-  '23503', '.*', 'context deletion is restricted while a policy references it'
+  '23503', null, 'context deletion is restricted while a policy references it'
 );
 
 select * from finish();
