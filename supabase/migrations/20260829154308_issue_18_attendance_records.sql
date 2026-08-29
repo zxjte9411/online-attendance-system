@@ -74,6 +74,37 @@ create index attendance_records_context_owner_idx
 create index attendance_records_policy_owner_idx
   on public.attendance_records (work_policy_id, user_id, context_id);
 
+create function public.calculate_effective_clock_in_at(
+  p_actual_clock_in_at timestamptz,
+  p_work_date date,
+  p_standard_start_at timestamptz,
+  p_early_arrival_policy text,
+  p_rounding_mode text,
+  p_rounding_minutes integer
+)
+returns timestamptz
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when p_actual_clock_in_at <= p_standard_start_at
+      and p_early_arrival_policy = 'STANDARD_START'
+      then p_standard_start_at
+    when p_actual_clock_in_at > p_standard_start_at
+      and p_rounding_mode = 'CEIL'
+      then (p_work_date::timestamp at time zone 'Asia/Taipei')
+        + pg_catalog.ceil(
+            extract(epoch from (
+              p_actual_clock_in_at - (p_work_date::timestamp at time zone 'Asia/Taipei')
+            )) / 60 / p_rounding_minutes
+          ) * interval '1 minute' * p_rounding_minutes
+    else p_actual_clock_in_at
+  end
+$$;
+
+revoke all on function public.calculate_effective_clock_in_at(timestamptz, date, timestamptz, text, text, integer) from public, anon, authenticated;
+
 alter table public.attendance_records enable row level security;
 
 revoke all on table public.attendance_records from public, anon, authenticated;
@@ -131,7 +162,6 @@ declare
   selected_context public.work_contexts;
   selected_policy public.work_policies;
   standard_start_at timestamptz;
-  taipei_midnight timestamptz;
   effective_start_at timestamptz;
   expected_end_at timestamptz;
   calculation jsonb;
@@ -175,19 +205,15 @@ begin
     raise exception 'applicable work policy required';
   end if;
 
-  taipei_midnight := (work_day::timestamp at time zone 'Asia/Taipei');
   standard_start_at := ((work_day + selected_policy.standard_start_time)::timestamp at time zone 'Asia/Taipei');
-  effective_start_at := case
-    when now_at <= standard_start_at and selected_policy.early_arrival_policy = 'STANDARD_START'
-      then standard_start_at
-    when now_at > standard_start_at and selected_policy.clock_in_rounding_mode = 'CEIL'
-      then taipei_midnight
-        + pg_catalog.ceil(
-            extract(epoch from (now_at - taipei_midnight)) / 60
-            / selected_policy.clock_in_rounding_minutes
-          ) * interval '1 minute' * selected_policy.clock_in_rounding_minutes
-    else now_at
-  end;
+  effective_start_at := public.calculate_effective_clock_in_at(
+    now_at,
+    work_day,
+    standard_start_at,
+    selected_policy.early_arrival_policy,
+    selected_policy.clock_in_rounding_mode,
+    selected_policy.clock_in_rounding_minutes
+  );
   expected_end_at := effective_start_at
     + (selected_policy.work_minutes + selected_policy.fixed_break_minutes) * interval '1 minute';
 

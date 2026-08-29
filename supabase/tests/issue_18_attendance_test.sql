@@ -1,6 +1,6 @@
 begin;
 
-select plan(66);
+select plan(76);
 
 select has_table('public', 'attendance_records', 'attendance_records table exists');
 select has_column('public', 'attendance_records', 'work_date', 'work_date exists');
@@ -100,18 +100,42 @@ select is(has_function_privilege('anon', 'public.clock_in_today()', 'EXECUTE'), 
 select is(has_function_privilege('authenticated', 'public.clock_in_today()', 'EXECUTE'), true, 'authenticated can execute clock_in_today');
 select is(has_function_privilege('anon', 'public.clock_out_today()', 'EXECUTE'), false, 'anon cannot execute clock_out_today');
 select is(has_function_privilege('authenticated', 'public.clock_out_today()', 'EXECUTE'), true, 'authenticated can execute clock_out_today');
+select is(
+  (select count(*)::integer
+   from pg_proc
+   where pronamespace = 'public'::regnamespace
+     and proname = 'calculate_effective_clock_in_at'
+     and pronargs = 6),
+  1,
+  'the deterministic clock-in calculation seam exists internally'
+);
+select results_eq(
+  $$select public.calculate_effective_clock_in_at(
+      '2026-08-29 01:30:00+00'::timestamptz,
+      '2026-08-29'::date,
+      '2026-08-29 01:00:00+00'::timestamptz,
+      'STANDARD_START', 'CEIL', 30)$$,
+  $$select '2026-08-29 01:30:00+00'::timestamptz$$,
+  'exact CEIL boundary does not advance to the next interval'
+);
 
 insert into auth.users (id, email)
 values
   ('00000000-0000-0000-0000-000000000018', 'issue18-a@example.test'),
   ('00000000-0000-0000-0000-000000000019', 'issue18-b@example.test'),
-  ('00000000-0000-0000-0000-000000000020', 'issue18-c@example.test');
+  ('00000000-0000-0000-0000-000000000020', 'issue18-c@example.test'),
+  ('00000000-0000-0000-0000-000000000021', 'issue18-d@example.test'),
+  ('00000000-0000-0000-0000-000000000022', 'issue18-e@example.test'),
+  ('00000000-0000-0000-0000-000000000023', 'issue18-f@example.test');
 
 insert into public.profiles (id, display_name)
 values
   ('00000000-0000-0000-0000-000000000018', 'Issue 18 A'),
   ('00000000-0000-0000-0000-000000000019', 'Issue 18 B'),
-  ('00000000-0000-0000-0000-000000000020', 'Issue 18 C');
+  ('00000000-0000-0000-0000-000000000020', 'Issue 18 C'),
+  ('00000000-0000-0000-0000-000000000021', 'Issue 18 D'),
+  ('00000000-0000-0000-0000-000000000022', 'Issue 18 E'),
+  ('00000000-0000-0000-0000-000000000023', 'Issue 18 F');
 
 set role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000018';
@@ -173,6 +197,99 @@ select is((select calculation_snapshot->>'state' from issue_18_a_clock_out), 'CO
 select ok((select calculation_snapshot->>'actual_clock_in_at' is not null and calculation_snapshot->>'actual_clock_out_at' is not null from issue_18_a_clock_out), 'clock-out calculation snapshot contains actual inputs');
 select is((select context_snapshot from issue_18_a_clock_out), (select context_snapshot from issue_18_a_clock_in), 'clock-out does not change context snapshot');
 select is((select policy_snapshot from issue_18_a_clock_out), (select policy_snapshot from issue_18_a_clock_in), 'clock-out does not change policy snapshot');
+
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000021';
+select * into temporary issue_18_d_context from public.create_work_context('Issue 18 D', 'Company D', 'Project D');
+insert into public.work_policies (
+  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
+  working_days, effective_from, effective_to
+)
+select
+  '00000000-0000-0000-0000-000000000021', id, 'Issue 18 D policy',
+  case when extract(hour from (clock_timestamp() at time zone 'Asia/Taipei')) < 23
+    then (date_trunc('hour', clock_timestamp() at time zone 'Asia/Taipei') + interval '1 hour')::time
+    else '23:59:59.999999'::time end,
+  480, 60, 'STANDARD_START', 'NONE', 'NONE', array['0', '1', '2', '3', '4', '5', '6'],
+  (clock_timestamp() at time zone 'Asia/Taipei')::date,
+  (clock_timestamp() at time zone 'Asia/Taipei')::date
+from public.work_contexts where user_id = '00000000-0000-0000-0000-000000000021';
+select * into temporary issue_18_d_clock_in from public.clock_in_today();
+select is(
+  (select effective_clock_in_at from issue_18_d_clock_in),
+  (select ((work_date + (policy_snapshot->>'standard_start_time')::time) at time zone 'Asia/Taipei') from issue_18_d_clock_in),
+  'early STANDARD_START persists standard effective clock-in in the RPC row'
+);
+select ok(
+  (select expected_clock_out_at = effective_clock_in_at
+    + ((policy_snapshot->>'work_minutes')::integer + (policy_snapshot->>'fixed_break_minutes')::integer) * interval '1 minute'
+   from issue_18_d_clock_in),
+  'early STANDARD_START expected clock-out uses persisted effective clock-in'
+);
+
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000022';
+select * into temporary issue_18_e_context from public.create_work_context('Issue 18 E', 'Company E', 'Project E');
+insert into public.work_policies (
+  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
+  working_days, effective_from, effective_to
+)
+select
+  '00000000-0000-0000-0000-000000000022', id, 'Issue 18 E policy',
+  case when extract(hour from (clock_timestamp() at time zone 'Asia/Taipei')) < 23
+    then (date_trunc('hour', clock_timestamp() at time zone 'Asia/Taipei') + interval '1 hour')::time
+    else '23:59:59.999999'::time end,
+  450, 30, 'ACTUAL', 'NONE', 'NONE', array['0', '1', '2', '3', '4', '5', '6'],
+  (clock_timestamp() at time zone 'Asia/Taipei')::date,
+  (clock_timestamp() at time zone 'Asia/Taipei')::date
+from public.work_contexts where user_id = '00000000-0000-0000-0000-000000000022';
+select * into temporary issue_18_e_clock_in from public.clock_in_today();
+select is(
+  (select effective_clock_in_at from issue_18_e_clock_in),
+  (select actual_clock_in_at from issue_18_e_clock_in),
+  'early ACTUAL persists actual effective clock-in in the RPC row'
+);
+select ok(
+  (select expected_clock_out_at = effective_clock_in_at
+    + ((policy_snapshot->>'work_minutes')::integer + (policy_snapshot->>'fixed_break_minutes')::integer) * interval '1 minute'
+   from issue_18_e_clock_in),
+  'early ACTUAL expected clock-out uses persisted effective clock-in'
+);
+
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000023';
+select * into temporary issue_18_f_context from public.create_work_context('Issue 18 F', 'Company F', 'Project F');
+insert into public.work_policies (
+  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes, clock_out_rounding_mode,
+  working_days, effective_from, effective_to
+)
+select
+  '00000000-0000-0000-0000-000000000023', id, 'Issue 18 F policy',
+  case when extract(hour from (clock_timestamp() at time zone 'Asia/Taipei')) > 0
+    then (date_trunc('hour', clock_timestamp() at time zone 'Asia/Taipei') - interval '1 hour')::time
+    else '00:00:00'::time end,
+  480, 0, 'STANDARD_START', 'CEIL', 30, 'NONE', array['0', '1', '2', '3', '4', '5', '6'],
+  (clock_timestamp() at time zone 'Asia/Taipei')::date,
+  (clock_timestamp() at time zone 'Asia/Taipei')::date
+from public.work_contexts where user_id = '00000000-0000-0000-0000-000000000023';
+select * into temporary issue_18_f_clock_in from public.clock_in_today();
+select ok((select effective_clock_in_at >= actual_clock_in_at from issue_18_f_clock_in), 'late CEIL persists an effective time not before actual time');
+select ok(
+  (select extract(minute from effective_clock_in_at at time zone 'Asia/Taipei')::integer % 30 = 0
+    and extract(second from effective_clock_in_at at time zone 'Asia/Taipei') = 0
+   from issue_18_f_clock_in),
+  'late CEIL uses the Asia/Taipei midnight calendar anchor'
+);
+select ok(
+  (select effective_clock_in_at < actual_clock_in_at + interval '30 minutes' from issue_18_f_clock_in),
+  'late CEIL does not advance an exact boundary into the next interval'
+);
+select ok(
+  (select expected_clock_out_at = effective_clock_in_at
+    + ((policy_snapshot->>'work_minutes')::integer + (policy_snapshot->>'fixed_break_minutes')::integer) * interval '1 minute'
+   from issue_18_f_clock_in),
+  'late CEIL expected clock-out uses persisted effective clock-in'
+);
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000019';
 select * into temporary issue_18_b_context from public.create_work_context('Issue 18 B', 'Company B', 'Project B');
