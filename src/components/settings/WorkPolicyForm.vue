@@ -169,12 +169,12 @@ async function submit() {
           <label v-for="[value, label] in dayOptions" :key="value" class="flex min-h-12 items-center gap-3 rounded-[0.625rem] border border-line bg-surface-soft px-3.5"><input v-model="workingDays" class="size-5 accent-accent" type="checkbox" name="working_days" :value="value"><span>{{ label }}</span></label>
         </div>
       </div>
-      <div class="grid gap-4 sm:grid-cols-2">
-        <div class="grid gap-1.5">
+      <div class="grid gap-4 sm:grid-cols-2 sm:grid-rows-[auto_auto_auto] sm:gap-x-4 sm:gap-y-1.5">
+        <div class="grid gap-1.5 sm:row-span-3 sm:grid-rows-subgrid">
           <label class="font-semibold" for="policy-effective-from">生效起日 <span class="text-accent" aria-hidden="true">*</span></label>
           <input id="policy-effective-from" v-model="effectiveFrom" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 font-mono text-base focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="effective_from" type="date" required :aria-describedby="errorMessage ? 'policy-error' : undefined" :aria-invalid="errorMessage ? 'true' : undefined">
         </div>
-        <div class="grid gap-1.5">
+        <div class="grid gap-1.5 sm:row-span-3 sm:grid-rows-subgrid">
           <label class="font-semibold" for="policy-effective-to">生效迄日 <span class="text-sm font-normal text-muted">（選填）</span></label>
           <input id="policy-effective-to" v-model="effectiveTo" :min="effectiveFrom || undefined" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 font-mono text-base focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="effective_to" type="date" aria-describedby="policy-effective-help">
           <span id="policy-effective-help" class="text-sm text-muted">日期區間含首含尾；留白代表持續生效。</span>
