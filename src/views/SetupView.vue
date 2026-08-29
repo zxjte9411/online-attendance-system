@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
+import { getSetupContextForStep } from '../lib/setup'
 import {
   getCurrentUserId,
   getSetupStatus,
@@ -164,7 +165,7 @@ async function handlePolicySaved() {
             <h2 id="context-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">這筆工作屬於哪裡？</h2>
             <p class="text-sm leading-relaxed text-muted">公司與專案只是識別資料，不代表團隊或權限。</p>
           </div>
-          <WorkContextForm v-if="userId" :user-id="userId" onboarding @saved="handleContextSaved" />
+          <WorkContextForm v-if="userId" :user-id="userId" :context="getSetupContextForStep(step, defaultContext)" onboarding @saved="handleContextSaved" />
           <button v-if="canVisitStep(1)" class="min-h-11 justify-self-start font-semibold text-accent underline decoration-[0.1em] underline-offset-[0.2em] transition duration-200 ease-out hover:text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" type="button" @click="step = 1">回到上一步</button>
         </div>
 

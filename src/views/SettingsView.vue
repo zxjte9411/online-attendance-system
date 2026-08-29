@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
+import { getWorkPolicyStatus, isCurrentPolicyRequest } from '../lib/work-policy'
 import {
   getCurrentUserId,
   getProfile,
@@ -20,6 +21,7 @@ const profile = ref<Profile | null>(null)
 const contexts = ref<WorkContext[]>([])
 const policies = ref<WorkPolicy[]>([])
 const selectedContextId = ref('')
+let policyRequestToken = 0
 const editingContext = ref<WorkContext | null>(null)
 const showContextForm = ref(false)
 const showPolicyForm = ref(false)
@@ -67,12 +69,18 @@ async function load() {
 }
 
 async function loadPolicies() {
-  if (!userId.value || !selectedContextId.value) {
+  const requestToken = ++policyRequestToken
+  const contextId = selectedContextId.value
+
+  if (!userId.value || !contextId) {
     policies.value = []
     return
   }
 
-  policies.value = await listWorkPolicies(userId.value, selectedContextId.value)
+  const loadedPolicies = await listWorkPolicies(userId.value, contextId)
+  if (isCurrentPolicyRequest(contextId, selectedContextId.value, requestToken, policyRequestToken)) {
+    policies.value = loadedPolicies
+  }
 }
 
 async function handleContextSaved(savedContexts: WorkContext[]) {
@@ -273,7 +281,7 @@ async function selectContext(contextId: string) {
                 <span class="text-sm text-muted">{{ policy.effective_from }} 至 {{ policy.effective_to || '未定' }} · {{ policy.standard_start_time }} 開始 · {{ policy.work_minutes }} 分鐘工作</span>
               </div>
               <div class="flex flex-wrap items-center gap-2 sm:justify-end">
-                <span class="text-xs font-semibold text-muted">{{ policy.effective_to ? '已結束' : '目前版本' }}</span>
+                <span class="text-xs font-semibold text-muted">{{ getWorkPolicyStatus(policy) }}</span>
                 <button v-if="!policy.effective_to" class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="toggleEndingPolicy(policy)">
                   {{ endingPolicyId === policy.id ? '取消' : '結束版本' }}
                 </button>
