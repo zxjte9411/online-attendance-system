@@ -158,17 +158,59 @@ begin
 end;
 $$;
 
+create function public.prevent_work_policy_update()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if new.user_id is distinct from old.user_id
+    or new.context_id is distinct from old.context_id
+    or new.name is distinct from old.name
+    or new.standard_start_time is distinct from old.standard_start_time
+    or new.work_minutes is distinct from old.work_minutes
+    or new.fixed_break_minutes is distinct from old.fixed_break_minutes
+    or new.early_arrival_policy is distinct from old.early_arrival_policy
+    or new.clock_in_rounding_mode is distinct from old.clock_in_rounding_mode
+    or new.clock_in_rounding_minutes is distinct from old.clock_in_rounding_minutes
+    or new.clock_out_rounding_mode is distinct from old.clock_out_rounding_mode
+    or new.clock_out_rounding_minutes is distinct from old.clock_out_rounding_minutes
+    or new.working_days is distinct from old.working_days
+    or new.timezone is distinct from old.timezone
+    or new.effective_from is distinct from old.effective_from then
+    raise exception 'work policy fields cannot be changed after creation'
+      using errcode = 'P0001';
+  end if;
+
+  if old.effective_to is not null then
+    if new.effective_to is distinct from old.effective_to then
+      raise exception 'effective_to can only be set once'
+        using errcode = 'P0001';
+    end if;
+  elsif new.effective_to is not null and new.effective_to < old.effective_from then
+    raise exception 'effective_to cannot precede effective_from'
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$;
+
 create trigger profiles_set_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();
 create trigger work_contexts_set_updated_at
   before update on public.work_contexts
   for each row execute function public.set_updated_at();
+create trigger work_policies_prevent_update
+  before update on public.work_policies
+  for each row execute function public.prevent_work_policy_update();
 create trigger work_policies_set_updated_at
   before update on public.work_policies
   for each row execute function public.set_updated_at();
 
 revoke all on function public.set_updated_at() from public;
+revoke all on function public.prevent_work_policy_update() from public;
 
 create function public.create_work_context(
   p_name text,

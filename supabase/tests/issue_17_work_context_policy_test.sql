@@ -2,7 +2,7 @@
 
 begin;
 
-select plan(34);
+select plan(36);
 
 select has_table('public', 'profiles');
 select has_table('public', 'work_contexts');
@@ -129,7 +129,7 @@ insert into public.work_policies (
 )
 select
   '00000000-0000-0000-0000-000000000017', id, 'Valid policy', '09:00', 480, 60,
-  'STANDARD_START', array['1', '2'], '2026-01-01', '2026-01-31'
+  'STANDARD_START', array['1', '2'], '2026-01-01'
 from issue_17_context_ids
 where label = 'first';
 
@@ -139,13 +139,24 @@ do $$
 begin
   perform pg_catalog.pg_sleep(0.01);
   update public.work_policies
-  set name = 'Valid policy updated'
+  set effective_to = '2026-01-31'
   where name = 'Valid policy';
 end
 $$;
+select is(
+  (select effective_to from public.work_policies where name = 'Valid policy'),
+  '2026-01-31'::date,
+  'work policy effective_to can be set once'
+);
 select ok(
-  (select updated_at > created_at from public.work_policies where name = 'Valid policy updated'),
+  (select updated_at > created_at from public.work_policies where name = 'Valid policy'),
   'work_policies updated_at is maintained by a trigger'
+);
+select throws_ok(
+  $$update public.work_policies
+    set name = 'Valid policy updated'
+    where name = 'Valid policy'$$,
+  'P0001', '.*', 'work policy name cannot be changed after creation'
 );
 
 insert into public.work_policies (
@@ -218,7 +229,7 @@ select throws_ok(
   $$update public.work_policies
     set effective_from = '2026-01-31'
     where name = 'Second valid policy'$$,
-  '23P01', '.*', 'overlapping policy effective dates are rejected on update'
+  'P0001', '.*', 'work policy effective_from cannot be changed after creation'
 );
 
 select throws_ok(
