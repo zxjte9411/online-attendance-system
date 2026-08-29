@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import {
+  activateWorkContext,
   createWorkContext,
   updateWorkContext,
   type WorkContext,
@@ -51,9 +52,16 @@ async function submit() {
       return
     }
 
-    const contexts = props.context
-      ? await updateWorkContext(props.userId, props.context.id, input)
+    const shouldActivate = Boolean(props.context && !props.context.active && input.active)
+    let contexts = props.context
+      ? shouldActivate
+        ? await activateWorkContext(props.userId, props.context.id)
+        : await updateWorkContext(props.userId, props.context.id, input)
       : await createWorkContext(props.userId, input)
+
+    if (shouldActivate) {
+      contexts = await updateWorkContext(props.userId, props.context!.id, input)
+    }
 
     emit('saved', contexts)
     successMessage.value = props.context ? '工作情境已儲存。' : '工作情境已建立。'

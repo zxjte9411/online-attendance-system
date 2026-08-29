@@ -125,6 +125,15 @@ export async function updateWorkContext(userId: string, contextId: string, input
   return listWorkContexts(userId)
 }
 
+export async function activateWorkContext(userId: string, contextId: string) {
+  const { error } = await getSupabaseClient().rpc('activate_work_context', {
+    p_context_id: contextId,
+  })
+
+  if (error) throw error
+  return listWorkContexts(userId)
+}
+
 export async function setDefaultWorkContext(userId: string, contextId: string) {
   const { error } = await getSupabaseClient().rpc('set_default_work_context', {
     p_context_id: contextId,
