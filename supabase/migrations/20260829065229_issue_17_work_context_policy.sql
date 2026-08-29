@@ -1,6 +1,8 @@
 -- attendance_records and its historical foreign-key coverage are deferred to Issue #18.
 
-create extension if not exists btree_gist with schema public;
+create extension if not exists btree_gist with schema extensions;
+
+set local search_path = extensions, public;
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -27,6 +29,9 @@ create table public.work_contexts (
 create unique index work_contexts_one_active_default_per_user
   on public.work_contexts (user_id)
   where active and is_default;
+
+create index work_contexts_user_id_idx
+  on public.work_contexts (user_id);
 
 create table public.work_policies (
   id uuid primary key default gen_random_uuid(),
@@ -75,11 +80,14 @@ create table public.work_policies (
     )
 );
 
+create index work_policies_context_owner_idx
+  on public.work_policies (context_id, user_id);
+
 alter table public.profiles enable row level security;
 alter table public.work_contexts enable row level security;
 alter table public.work_policies enable row level security;
 
-grant select, insert, update, delete
+grant select, insert, update
   on table public.profiles, public.work_contexts, public.work_policies
   to authenticated;
 
@@ -90,9 +98,6 @@ create policy profiles_owner_insert on public.profiles
 create policy profiles_owner_update on public.profiles
   for update using (id = (select auth.uid()))
   with check (id = (select auth.uid()));
-create policy profiles_owner_delete on public.profiles
-  for delete using (id = (select auth.uid()));
-
 create policy work_contexts_owner_select on public.work_contexts
   for select using (user_id = (select auth.uid()));
 create policy work_contexts_owner_insert on public.work_contexts
@@ -102,9 +107,6 @@ create policy work_contexts_owner_update on public.work_contexts
   for update
   using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
-create policy work_contexts_owner_delete on public.work_contexts
-  for delete using (user_id = (select auth.uid()));
-
 create policy work_policies_owner_select on public.work_policies
   for select using (user_id = (select auth.uid()));
 create policy work_policies_owner_insert on public.work_policies
@@ -113,9 +115,6 @@ create policy work_policies_owner_update on public.work_policies
   for update
   using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
-create policy work_policies_owner_delete on public.work_policies
-  for delete using (user_id = (select auth.uid()));
-
 create function public.prevent_direct_default_context_change()
 returns trigger
 language plpgsql

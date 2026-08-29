@@ -2,7 +2,7 @@
 
 begin;
 
-select plan(37);
+select plan(48);
 
 select has_table('public', 'profiles', 'profiles table exists');
 select has_table('public', 'work_contexts', 'work_contexts table exists');
@@ -10,6 +10,55 @@ select has_table('public', 'work_policies', 'work_policies table exists');
 select has_column('public', 'profiles', 'timezone', 'profiles timezone column exists');
 select has_column('public', 'work_contexts', 'is_default', 'work_contexts is_default column exists');
 select has_column('public', 'work_policies', 'effective_to', 'work_policies effective_to column exists');
+select is(
+  (select n.nspname
+   from pg_extension e
+   join pg_namespace n on n.oid = e.extnamespace
+   where e.extname = 'btree_gist'),
+  'extensions',
+  'btree_gist is installed in the extensions schema'
+);
+select has_index(
+  'public', 'work_contexts', 'work_contexts_user_id_idx',
+  'work_contexts.user_id has the required foreign-key index'
+);
+select has_index(
+  'public', 'work_policies', 'work_policies_context_owner_idx',
+  'work_policies(context_id, user_id) covers the composite foreign key'
+);
+select is(
+  has_table_privilege('authenticated', 'public.profiles', 'DELETE'),
+  false,
+  'authenticated has no DELETE privilege on profiles'
+);
+select is(
+  has_table_privilege('authenticated', 'public.work_contexts', 'DELETE'),
+  false,
+  'authenticated has no DELETE privilege on work_contexts'
+);
+select is(
+  has_table_privilege('authenticated', 'public.work_policies', 'DELETE'),
+  false,
+  'authenticated has no DELETE privilege on work_policies'
+);
+select is(
+  (select count(*)::integer from pg_policy
+   where polrelid = 'public.profiles'::regclass and polcmd = 'd'),
+  0,
+  'profiles has no DELETE policy'
+);
+select is(
+  (select count(*)::integer from pg_policy
+   where polrelid = 'public.work_contexts'::regclass and polcmd = 'd'),
+  0,
+  'work_contexts has no DELETE policy'
+);
+select is(
+  (select count(*)::integer from pg_policy
+   where polrelid = 'public.work_policies'::regclass and polcmd = 'd'),
+  0,
+  'work_policies has no DELETE policy'
+);
 
 insert into auth.users (id, email)
 values
@@ -245,8 +294,17 @@ select throws_ok(
 );
 
 select throws_ok(
+  $$delete from public.profiles
+    where id = '00000000-0000-0000-0000-000000000017'$$,
+  '42501', null, 'authenticated cannot delete profiles'
+);
+select throws_ok(
   $$delete from public.work_contexts where id = (select id from issue_17_context_ids where label = 'first')$$,
-  '23503', null, 'context deletion is restricted while a policy references it'
+  '42501', null, 'authenticated cannot delete work_contexts'
+);
+select throws_ok(
+  $$delete from public.work_policies where name = 'Valid policy'$$,
+  '42501', null, 'authenticated cannot delete work_policies'
 );
 
 select * from finish();
