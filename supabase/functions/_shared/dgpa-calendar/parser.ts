@@ -21,9 +21,11 @@ export type DgpaResource = {
 
 export type DgpaDatasetMetadata = {
   result?: {
+    distribution?: DgpaResource[]
     resources?: DgpaResource[]
     [key: string]: unknown
   }
+  distribution?: DgpaResource[]
   resources?: DgpaResource[]
   [key: string]: unknown
 }
@@ -34,9 +36,15 @@ export function selectDgpaResource(metadata: DgpaDatasetMetadata, targetYear: nu
   const rocYear = targetYear - 1911
   const rocYearRegex = new RegExp(`(?:^|[^\\d])${rocYear}年(?:[^\\d]|$)`)
 
-  const rawResources = metadata.result?.resources ?? metadata.resources ?? []
+  const rawResources =
+    metadata.result?.distribution ??
+    metadata.result?.resources ??
+    metadata.distribution ??
+    metadata.resources ??
+    []
+
   if (!Array.isArray(rawResources)) {
-    throw new Error(`DGPA metadata 格式錯誤或缺少 resources 陣列。`)
+    throw new Error(`DGPA metadata 格式錯誤或缺少 resources/distribution 陣列。`)
   }
 
   const candidates = rawResources.filter((res) => {
@@ -64,7 +72,10 @@ export function selectDgpaResource(metadata: DgpaDatasetMetadata, targetYear: nu
     if (res.resourceField) {
       const requiredFields = ['西元日期', '星期', '是否放假', '備註']
       if (Array.isArray(res.resourceField)) {
-        const fieldSet = new Set(res.resourceField.map((f) => String(f).trim()))
+        const fieldNames = res.resourceField.map((f: any) =>
+          typeof f === 'object' && f !== null && f.name ? String(f.name).trim() : String(f).trim()
+        )
+        const fieldSet = new Set(fieldNames)
         if (!requiredFields.every((rf) => fieldSet.has(rf))) {
           return false
         }
