@@ -14,3 +14,15 @@ jobs:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
       - run: bun run verify
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.115.0
+      - run: supabase start --exclude edge-runtime
+      - run: supabase db reset
+      - run: supabase test db
+      - run: supabase db advisors --local --fail-on error

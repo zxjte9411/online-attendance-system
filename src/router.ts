@@ -7,9 +7,11 @@ import {
 import AppShell from './AppShell.vue'
 import { createSupabaseAuth, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
+import { getSetupStatus } from './lib/settings'
 import AuthCallbackView from './views/AuthCallbackView.vue'
 import LoginView from './views/LoginView.vue'
 import PrivacyView from './views/PrivacyView.vue'
+import SetupView from './views/SetupView.vue'
 import SupportView from './views/SupportView.vue'
 
 const routes = [
@@ -17,6 +19,7 @@ const routes = [
   { path: '/auth/callback', name: 'auth-callback', component: AuthCallbackView },
   { path: '/privacy', name: 'privacy', component: PrivacyView },
   { path: '/support', name: 'support', component: SupportView },
+  { path: '/setup', name: 'setup', component: SetupView, meta: { requiresAuth: true } },
   { path: '/', name: 'today', component: AppShell, meta: { requiresAuth: true } },
   { path: '/attendance/:pathMatch(.*)*', name: 'attendance', component: AppShell, meta: { requiresAuth: true } },
   { path: '/leave/:pathMatch(.*)*', name: 'leave', component: AppShell, meta: { requiresAuth: true } },
@@ -112,9 +115,11 @@ export function createAppRouter(options: AppRouterOptions = {}) {
     }
 
     let isLoggedIn = false
+    let userId = ''
     try {
       const { data } = await getAuth().getSession()
       isLoggedIn = Boolean(data.session)
+      userId = data.session?.user.id ?? ''
     } catch {
       return to.name === 'login'
         ? true
@@ -127,6 +132,17 @@ export function createAppRouter(options: AppRouterOptions = {}) {
 
     if (to.meta.requiresAuth && !isLoggedIn) {
       return { name: 'login', query: { redirect: safeRedirect(to.fullPath) } }
+    }
+
+    if (to.meta.requiresAuth && hasAuthConfig && userId) {
+      try {
+        const status = await getSetupStatus(userId)
+
+        if (to.name === 'setup') return status.complete ? { name: 'today' } : true
+        if (!status.complete) return { name: 'setup' }
+      } catch {
+        return to.name === 'setup' ? true : { name: 'setup' }
+      }
     }
 
     return true

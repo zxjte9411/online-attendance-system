@@ -22,6 +22,20 @@ bun run dev
 bun run verify
 ```
 
+### 開發容器中的 Local Supabase
+
+Supabase CLI 在開發容器中執行、Docker 服務位於遠端主機時，CLI 的預設 `127.0.0.1` 無法連線。以 `host.docker.internal` 覆寫服務主機：
+
+```sh
+SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase start
+SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase db reset
+SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase stop
+```
+
+- 專案未使用 Edge Functions；若 Edge Runtime 因缺少 entrypoint 阻擋啟動，改用 `SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase start --exclude edge-runtime`。
+- 資料庫測試優先使用 `supabase test db`。若 Docker credential helper 無法拉取 `pg_prove` 映像，保留錯誤輸出，並以本機資料庫容器執行已提交的 pgTAP SQL 作為 fallback：`docker exec -i supabase_db_online-attendance-system psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/<test-file>.sql`。
+- 此流程只操作 Local Supabase；勿把 `.env.local` 的值貼入文件、提交，或套用到 Dev／Production 專案。
+
 ## 環境與設定責任
 
 專案清晰區分四種環境的責任邊界，避免本機 CLI 設定與雲端專案設定混淆：

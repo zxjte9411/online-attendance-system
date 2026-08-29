@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { createSupabaseAuth } from './lib/auth'
+import SettingsView from './views/SettingsView.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -200,7 +201,8 @@ async function handleSignOut() {
       </aside>
 
       <main id="main-content" tabindex="-1" class="grid items-start px-5 py-10 pb-16 sm:px-10 md:py-12 md:pb-24 lg:px-16">
-        <div class="w-full max-w-6xl">
+        <SettingsView v-if="route.name === 'settings'" />
+        <div v-else class="w-full max-w-6xl">
           <section class="grid max-w-[39rem] gap-4" aria-labelledby="page-title">
             <span class="inline-flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-accent">
               <span class="h-px w-6 bg-current" aria-hidden="true"></span>
