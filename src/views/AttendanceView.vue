@@ -24,6 +24,8 @@ const isDetailOpen = ref(false)
 const isFormOpen = ref(false)
 const isEditMode = ref(false)
 const recordToDelete = ref<AttendanceRecord | null>(null)
+const deleteError = ref('')
+const isDeleting = ref(false)
 
 // Form state
 const formRecordId = ref('')
@@ -60,7 +62,7 @@ async function loadContexts() {
       formContextId.value = setup.contexts[0].id
     }
   } catch {
-    // Non-blocking for contexts, will retry when opening form
+    // Non-blocking for contexts
   }
 }
 
@@ -112,8 +114,8 @@ function openCreateForm() {
   formRecordId.value = ''
   formWorkDate.value = getTaipeiToday()
   formContextId.value = contexts.value.find((c) => c.is_default)?.id || contexts.value[0]?.id || ''
-  formClockInTime.value = '09:00'
-  formClockOutTime.value = '18:00'
+  formClockInTime.value = ''
+  formClockOutTime.value = ''
   formStatusNote.value = ''
   formError.value = ''
   isFormOpen.value = true
@@ -190,15 +192,19 @@ async function handleFormSubmit() {
 
 function openDeleteConfirm(record: AttendanceRecord) {
   recordToDelete.value = record
+  deleteError.value = ''
 }
 
 function closeDeleteConfirm() {
   recordToDelete.value = null
+  deleteError.value = ''
 }
 
 async function handleConfirmDelete() {
   if (!recordToDelete.value) return
 
+  isDeleting.value = true
+  deleteError.value = ''
   try {
     await deleteAttendanceRecord(recordToDelete.value.id)
     closeDeleteConfirm()
@@ -207,7 +213,9 @@ async function handleConfirmDelete() {
     }
     await loadMonth()
   } catch (err) {
-    alert(err instanceof Error && err.message ? err.message : '刪除失敗，請稍後再試。')
+    deleteError.value = err instanceof Error && err.message ? err.message : '刪除失敗，請稍後再試。'
+  } finally {
+    isDeleting.value = false
   }
 }
 
@@ -217,6 +225,20 @@ function formatTime(isoString: string | null | undefined) {
     timeZone: 'Asia/Taipei',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
+  }).format(new Date(isoString))
+}
+
+function formatDateTime(isoString: string | null | undefined) {
+  if (!isoString) return '—'
+  return new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   }).format(new Date(isoString))
 }
@@ -524,7 +546,7 @@ function formatMinutes(minutes: number | null | undefined) {
             <dl class="grid gap-2 sm:grid-cols-3">
               <div><dt class="text-xs text-muted">計算狀態</dt><dd class="font-mono font-bold">{{ selectedRecord.calculation_snapshot.state || '—' }}</dd></div>
               <div><dt class="text-xs text-muted">版本</dt><dd class="font-mono font-bold">{{ selectedRecord.calculation_snapshot.calculation_version || 'v1' }}</dd></div>
-              <div><dt class="text-xs text-muted">計算時間</dt><dd class="font-mono text-xs">{{ formatTime(selectedRecord.calculation_snapshot.calculated_at as string) }}</dd></div>
+              <div><dt class="text-xs text-muted">計算時間</dt><dd class="font-mono text-xs">{{ formatDateTime(selectedRecord.calculation_snapshot.calculated_at as string) }}</dd></div>
             </dl>
           </div>
         </div>
@@ -678,22 +700,29 @@ function formatMinutes(minutes: number | null | undefined) {
         <p class="mt-3 text-sm leading-relaxed text-ink">
           確定要刪除 <strong>{{ recordToDelete.work_date }}</strong> 的出勤紀錄嗎？此動作無法復原。
         </p>
+
+        <p v-if="deleteError" class="mt-3 rounded-[0.5rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-2.5 text-xs text-[var(--error-ink)]" role="alert">
+          {{ deleteError }}
+        </p>
+
         <div class="mt-6 flex justify-end gap-3 border-t border-line pt-4">
           <button
             data-action="cancel-delete"
             class="rounded-[0.625rem] border border-line px-4 py-2 text-sm font-semibold hover:bg-surface-soft"
             type="button"
+            :disabled="isDeleting"
             @click="closeDeleteConfirm"
           >
             取消
           </button>
           <button
             data-action="confirm-delete"
-            class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-4 py-2 text-sm font-bold text-[var(--error-ink)] hover:bg-[var(--error-line)]/20"
+            class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-4 py-2 text-sm font-bold text-[var(--error-ink)] hover:bg-[var(--error-line)]/20 disabled:opacity-60"
             type="button"
+            :disabled="isDeleting"
             @click="handleConfirmDelete"
           >
-            確認刪除
+            {{ isDeleting ? '刪除中…' : '確認刪除' }}
           </button>
         </div>
       </div>
