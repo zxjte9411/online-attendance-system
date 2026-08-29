@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, config } from '@vue/test-utils'
 import ReportView from './ReportView.vue'
 import * as settingsLib from '../lib/settings'
 import * as attendanceLib from '../lib/attendance'
 import * as dayStatusCalendarLib from '../lib/day-status-calendar'
 import * as dgpaCalendarLib from '../lib/dgpa-calendar'
+import * as exportTemplatesLib from '../lib/export-templates'
+import * as xlsxExportDomain from '../domain/export-template/xlsx-export'
+import ExcelJS from 'exceljs'
+
+config.global.stubs = {
+  RouterLink: true,
+}
 
 const mockContexts: settingsLib.WorkContext[] = [
   {
@@ -80,6 +87,7 @@ describe('ReportView', () => {
     vi.spyOn(dayStatusCalendarLib, 'getDayStatusesForMonth').mockResolvedValue([])
     vi.spyOn(dayStatusCalendarLib, 'getCalendarOverridesForMonth').mockResolvedValue([])
     vi.spyOn(dgpaCalendarLib, 'getDgpaCalendarForMonth').mockResolvedValue([])
+    vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(null)
   })
 
   it('載入並呈現情境選擇、月份導覽與預設統計', async () => {
@@ -406,5 +414,130 @@ describe('ReportView', () => {
     // CSV button must be disabled
     const downloadButton = wrapper.find('[data-test="download-csv-button"]')
     expect(downloadButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('未設定 XLSX 範本時顯示前往設定 CTA，不顯示下載 XLSX 按鈕', async () => {
+    vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(null)
+
+    const wrapper = mount(ReportView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="missing-template-cta"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="download-xlsx-button"]').exists()).toBe(false)
+  })
+
+  it('已設定 XLSX 範本但當前月份無工作表對應時，顯示提示並停用下載 XLSX 按鈕', async () => {
+    const mockTpl: exportTemplatesLib.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-09': '9月' }, // No 2026-08
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockTpl)
+
+    const wrapper = mount(ReportView)
+    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="missing-worksheet-cta"]').exists()).toBe(true)
+    const xlsxButton = wrapper.find('[data-test="download-xlsx-button"]')
+    expect(xlsxButton.exists()).toBe(true)
+    expect(xlsxButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('已設定 XLSX 範本且當月有對應時，點擊下載 XLSX 產出填寫後之活頁簿檔案', async () => {
+    const mockTpl: exportTemplatesLib.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [
+        { sourceField: 'date', targetColumn: 'B' },
+        { sourceField: 'actual_clock_in_at', targetColumn: 'D', transforms: [{ type: 'TIME_HH_MM' }] },
+      ],
+      static_cell_mapping: [
+        { sourceField: 'year_month', targetCell: 'B2', transforms: [{ type: 'ROC_YEAR_MONTH' }] },
+      ],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockTpl)
+    vi.spyOn(exportTemplatesLib, 'downloadExportTemplateFile').mockResolvedValue(new ArrayBuffer(16))
+    vi.spyOn(xlsxExportDomain, 'exportReportToXlsx').mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+    const createObjectUrlSpy = vi.fn().mockReturnValue('blob:mock-xlsx-url')
+    const revokeObjectUrlSpy = vi.fn()
+    window.URL.createObjectURL = createObjectUrlSpy
+    window.URL.revokeObjectURL = revokeObjectUrlSpy
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const wrapper = mount(ReportView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    })
+    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="missing-template-cta"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="missing-worksheet-cta"]').exists()).toBe(false)
+
+    const xlsxButton = wrapper.find('[data-test="download-xlsx-button"]')
+    expect(xlsxButton.exists()).toBe(true)
+    expect(xlsxButton.attributes('disabled')).toBeUndefined()
+
+    await xlsxButton.trigger('click')
+    await flushPromises()
+
+    expect(exportTemplatesLib.downloadExportTemplateFile).toHaveBeenCalledWith('user-1/ctx-1/tpl-1/source.xlsx')
+    expect(createObjectUrlSpy).toHaveBeenCalled()
+    expect(clickSpy).toHaveBeenCalled()
+  })
+
+  it('XLSX 匯出失敗時顯示友善錯誤提示', async () => {
+    const mockTpl: exportTemplatesLib.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockTpl)
+    vi.spyOn(exportTemplatesLib, 'downloadExportTemplateFile').mockRejectedValue(new Error('Storage failure'))
+
+    const wrapper = mount(ReportView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    })
+    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+    await flushPromises()
+
+    const xlsxButton = wrapper.find('[data-test="download-xlsx-button"]')
+    await xlsxButton.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="export-xlsx-error-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="export-xlsx-error-banner"]').text()).toContain('匯出 XLSX 失敗')
   })
 })

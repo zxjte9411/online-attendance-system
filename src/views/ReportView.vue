@@ -26,6 +26,12 @@ import type { DgpaCalendarRow } from '../domain/dgpa-calendar/resolver'
 import { getDgpaCalendarForMonth } from '../lib/dgpa-calendar'
 import { getTaipeiToday } from '../lib/work-policy'
 import { presentErrorMessage } from '../lib/error-presentation'
+import {
+  getExportTemplate,
+  downloadExportTemplateFile,
+  type ExportTemplate,
+} from '../lib/export-templates'
+import { exportReportToXlsx } from '../domain/export-template/xlsx-export'
 
 type LoadedScopeData = {
   month: string
@@ -45,6 +51,9 @@ const loadedScope = ref<LoadedScopeData | null>(null)
 
 const isLoading = ref(true)
 const loadError = ref('')
+const exportTemplate = ref<ExportTemplate | null>(null)
+const isExportingXlsx = ref(false)
+const exportXlsxError = ref('')
 
 let currentRequestId = 0
 
@@ -81,6 +90,12 @@ const report = computed<MonthlyReport | null>(() => {
 const monthLabel = computed(() => {
   const [yearStr, monthStr] = currentMonth.value.split('-')
   return `${yearStr} 年 ${Number(monthStr)} 月`
+})
+
+const hasTemplate = computed(() => Boolean(exportTemplate.value))
+const hasWorksheetMapping = computed(() => {
+  if (!exportTemplate.value) return false
+  return Boolean(exportTemplate.value.month_worksheet_mapping?.[currentMonth.value])
 })
 
 onMounted(async () => {
@@ -120,16 +135,18 @@ async function loadMonthData() {
 
   isLoading.value = true
   loadError.value = ''
+  exportXlsxError.value = ''
   loadedScope.value = null
 
   try {
     const userId = await getCurrentUserId()
-    const [policies, records, statuses, overrides, dgpas] = await Promise.all([
+    const [policies, records, statuses, overrides, dgpas, template] = await Promise.all([
       listWorkPolicies(userId, requestedContextId),
       getMonthAttendanceRecords(requestedMonth),
       getDayStatusesForMonth(requestedMonth),
       getCalendarOverridesForMonth(requestedMonth),
       getDgpaCalendarForMonth(requestedMonth),
+      getExportTemplate(userId, requestedContextId).catch(() => null),
     ])
 
     if (requestId !== currentRequestId) return
@@ -137,6 +154,7 @@ async function loadMonthData() {
     const matchedContext = contexts.value.find((c) => c.id === requestedContextId)
     if (!matchedContext) return
 
+    exportTemplate.value = template
     loadedScope.value = {
       month: requestedMonth,
       contextId: requestedContextId,
@@ -183,6 +201,53 @@ function handleDownloadCsv() {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+async function handleDownloadXlsx() {
+  if (
+    !report.value ||
+    report.value.hasConfigurationError ||
+    isLoading.value ||
+    isExportingXlsx.value ||
+    !exportTemplate.value ||
+    !hasWorksheetMapping.value
+  ) {
+    return
+  }
+
+  exportXlsxError.value = ''
+  isExportingXlsx.value = true
+
+  try {
+    const templateBuffer = await downloadExportTemplateFile(exportTemplate.value.storage_path)
+    const xlsxBytes = await exportReportToXlsx({
+      templateBytes: templateBuffer,
+      report: report.value,
+      config: {
+        name: exportTemplate.value.name,
+        monthWorksheetMapping: exportTemplate.value.month_worksheet_mapping,
+        rowMapping: exportTemplate.value.row_mapping,
+        staticCellMapping: exportTemplate.value.static_cell_mapping,
+      },
+      targetMonth: currentMonth.value,
+    })
+
+    const blob = new Blob([xlsxBytes.slice().buffer as ArrayBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `attendance-report-${report.value.context.company_identifier || 'export'}-${currentMonth.value}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    exportXlsxError.value = presentErrorMessage(err, '匯出 XLSX 失敗，請確認範本設定與檔案格式。')
+  } finally {
+    isExportingXlsx.value = false
+  }
 }
 
 function formatMinutes(minutes: number | null | undefined): string {
@@ -293,6 +358,18 @@ function formatExceptionFlagLabel(flag: string): string {
         >
           <span>下載 CSV</span>
         </button>
+
+        <button
+          v-if="hasTemplate"
+          type="button"
+          data-test="download-xlsx-button"
+          :disabled="!report || report.hasConfigurationError || isLoading || isExportingXlsx || !hasWorksheetMapping"
+          :title="!hasWorksheetMapping ? '此月份尚未設定工作表對應' : undefined"
+          class="inline-flex min-h-11 items-center gap-2 rounded-[0.625rem] border border-accent bg-surface px-4 py-2 text-sm font-bold text-accent transition-[opacity,transform] duration-200 enabled:hover:-translate-y-px enabled:active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent"
+          @click="handleDownloadXlsx"
+        >
+          <span>{{ isExportingXlsx ? '匯出中…' : '下載 XLSX' }}</span>
+        </button>
       </div>
     </section>
 
@@ -307,6 +384,43 @@ function formatExceptionFlagLabel(flag: string): string {
     </div>
 
     <div
+      v-if="exportXlsxError"
+      data-test="export-xlsx-error-banner"
+      class="mt-4 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
+      role="alert"
+    >
+      {{ exportXlsxError }}
+    </div>
+
+    <div
+      v-if="!isLoading && !loadError && !hasTemplate && contexts.length > 0"
+      data-test="missing-template-cta"
+      class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border border-line bg-surface-soft p-4 text-sm"
+    >
+      <span class="text-muted">此工作情境尚未設定 XLSX 匯出範本。</span>
+      <RouterLink
+        to="/settings#export-templates"
+        class="font-semibold text-accent hover:underline"
+      >
+        前往設定範本 →
+      </RouterLink>
+    </div>
+
+    <div
+      v-if="!isLoading && !loadError && hasTemplate && !hasWorksheetMapping"
+      data-test="missing-worksheet-cta"
+      class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border border-accent-soft bg-accent-soft p-4 text-sm text-ink"
+    >
+      <span>此月份（{{ currentMonth }}）尚未在「{{ exportTemplate?.name }}」設定對應工作表。</span>
+      <RouterLink
+        to="/settings#export-templates"
+        class="font-semibold text-accent hover:underline"
+      >
+        前往設定工作表對應 →
+      </RouterLink>
+    </div>
+
+    <div
       v-if="report?.hasConfigurationError"
       data-test="configuration-error-banner"
       class="mt-4 rounded-[0.625rem] border border-amber-400 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm text-amber-900 dark:text-amber-200"
@@ -314,7 +428,7 @@ function formatExceptionFlagLabel(flag: string): string {
     >
       <strong class="font-bold">制度設定不完整：</strong>
       <span>
-        目前工作情境在此月份部分工作日缺少適用的 Work Policy（缺少日期：{{ report.missingPolicyDates.slice(0, 5).join(', ') }}{{ report.missingPolicyDates.length > 5 ? ' 等' : '' }}）。已暫停 CSV 匯出，請至設定頁面補齊工作制度。
+        目前工作情境在此月份部分工作日缺少適用的 Work Policy（缺少日期：{{ report.missingPolicyDates.slice(0, 5).join(', ') }}{{ report.missingPolicyDates.length > 5 ? ' 等' : '' }}）。已暫停匯出，請至設定頁面補齊工作制度。
       </span>
     </div>
 
