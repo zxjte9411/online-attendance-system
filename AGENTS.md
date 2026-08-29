@@ -7,6 +7,7 @@
 ## Work discipline
 
 * **Current state first**：開始實作前先確認目前 repository 狀態。Issue 描述的是目標與需求，不代表其中內容尚未實作；沿用已存在且正確的實作，不重做已完成工作。
+* **Migration immutability**：開始修改 `supabase/migrations/*` 前，先確認該 migration 是否已進入 production branch 或已存在 remote migration history。尚未 merge／部署的 migration 可在 PR 內整理；一旦 merge 至 production branch 且可能由 Supabase `Deploy to production` 套用，就視為已發布且 immutable。後續 schema、RPC、RLS、grant、constraint、index 等資料庫變更一律新增 migration 往前套用，不回頭改寫已發布檔案。
 * **Scope**：以目前工作票的實際 acceptance scope 為實作邊界。Future notes、follow-up requirements、next-slice constraints 與 out-of-scope 內容只提供上下文，不自動成為本次實作需求。
 * **Reuse before build**：新增 helper、component、abstraction 或 dependency 前，先搜尋 repository 是否已有可重用的 seam / utility，再評估平台或標準 API 與既有 dependency。對非領域特有、且自行實作會產生明顯複雜度的能力，先確認是否有成熟且持續維護的套件可用；只有在套件比小型本地實作更簡單、安全且與現有 toolchain 相容時才新增 dependency。不要為少量清楚的邏輯引入套件。
 * **Smallest sufficient solution**：以「讓目前 acceptance criteria 完整成立的最小實作」為目標。不要預先支援未要求的 future case、extension point、generic framework、compatibility layer 或 configuration。新的 abstraction / public interface 必須由目前 use case 需要，並且現在就能降低複雜度。
