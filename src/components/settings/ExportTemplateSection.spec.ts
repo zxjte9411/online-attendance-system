@@ -13,6 +13,7 @@ vi.mock('../../lib/export-templates', () => ({
   deleteExportTemplate: vi.fn(),
   downloadExportTemplateFile: vi.fn(),
   getWorkbookWorksheetNames: vi.fn(),
+  validateXlsxFileInput: vi.fn(),
 }))
 
 describe('Component: ExportTemplateSection', () => {
@@ -77,7 +78,7 @@ describe('Component: ExportTemplateSection', () => {
     expect(wrapper.text()).toContain('靜態儲存格對應（Static Cell Mapping）')
   })
 
-  it('saves updated mapping successfully', async () => {
+  it('preserves existing multi-stage pipeline without silent truncation on save', async () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
@@ -85,7 +86,14 @@ describe('Component: ExportTemplateSection', () => {
       name: '公司出勤表範本',
       storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
-      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      row_mapping: [
+        { sourceField: 'date', targetColumn: 'B' },
+        {
+          sourceField: 'net_worked_minutes',
+          targetColumn: 'F',
+          transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }, { type: 'EMPTY_IF_ZERO' }],
+        },
+      ],
       static_cell_mapping: [],
       created_at: '2026-08-01T00:00:00Z',
       updated_at: '2026-08-01T00:00:00Z',
@@ -93,11 +101,8 @@ describe('Component: ExportTemplateSection', () => {
 
     vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
     vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
-    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
-    vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue({
-      ...mockTemplate,
-      month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
-    })
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+    vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
 
     const wrapper = mount(ExportTemplateSection, {
       props: {
@@ -113,7 +118,85 @@ describe('Component: ExportTemplateSection', () => {
     await saveForm.trigger('submit')
     await flushPromises()
 
-    expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('範本設定已儲存。')
+    expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowMapping: expect.arrayContaining([
+          expect.objectContaining({
+            sourceField: 'net_worked_minutes',
+            transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }, { type: 'EMPTY_IF_ZERO' }],
+          }),
+        ]),
+      })
+    )
+  })
+
+  it('saves VALUE_MAP configuration with parsed key-value map and fallback option', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [
+        { sourceField: 'date', targetColumn: 'B' },
+        {
+          sourceField: 'status',
+          targetColumn: 'C',
+          transforms: [
+            {
+              type: 'VALUE_MAP',
+              options: {
+                map: { WORK: '出勤', LEAVE: '請假' },
+                unmappedBehavior: 'keep',
+              },
+            },
+          ],
+        },
+      ],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+    vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: {
+        userId: 'user-1',
+        contextId: 'ctx-1',
+        contextName: '測試情境',
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('值映射設定')
+
+    const saveForm = wrapper.find('[data-test="mapping-form"]')
+    await saveForm.trigger('submit')
+    await flushPromises()
+
+    expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowMapping: expect.arrayContaining([
+          expect.objectContaining({
+            sourceField: 'status',
+            transforms: [
+              {
+                type: 'VALUE_MAP',
+                options: {
+                  map: { WORK: '出勤', LEAVE: '請假' },
+                  unmappedBehavior: 'keep',
+                },
+              },
+            ],
+          }),
+        ]),
+      })
+    )
   })
 })

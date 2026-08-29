@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   getExportTemplate,
   uploadExportTemplate,
@@ -8,17 +8,25 @@ import {
   deleteExportTemplate,
   downloadExportTemplateFile,
   getWorkbookWorksheetNames,
+  validateXlsxFileInput,
   type ExportTemplate,
 } from '../../lib/export-templates'
 import {
   REPORT_MODEL_SOURCE_FIELDS,
   STATIC_SOURCE_FIELDS,
+  SOURCE_FIELD_DATA_TYPES,
+  TRANSFORM_CONTRACTS,
   type ReportModelSourceField,
   type StaticSourceField,
   type RowMappingEntry,
   type StaticCellMappingEntry,
 } from '../../domain/export-template/mapping-validator'
-import type { TransformType } from '../../domain/export-template/transforms'
+import {
+  ALLOWED_TRANSFORMS,
+  type TransformType,
+  type TransformConfig,
+  type ValueMapOptions,
+} from '../../domain/export-template/transforms'
 
 const props = defineProps<{
   userId: string
@@ -65,6 +73,24 @@ const TRANSFORM_LABELS: Record<TransformType, string> = {
   VALUE_MAP: '值映射 (Value Map)',
 }
 
+interface RowMappingUiItem {
+  sourceField: ReportModelSourceField
+  targetColumn: string
+  transformType: string
+  transforms: TransformConfig[]
+  valueMapText: string
+  valueMapFallback: 'keep' | 'empty' | 'error'
+}
+
+interface StaticMappingUiItem {
+  sourceField: StaticSourceField
+  targetCell: string
+  transformType: string
+  transforms: TransformConfig[]
+  valueMapText: string
+  valueMapFallback: 'keep' | 'empty' | 'error'
+}
+
 const template = ref<ExportTemplate | null>(null)
 const availableWorksheets = ref<string[]>([])
 const isLoading = ref(true)
@@ -88,8 +114,8 @@ const replaceName = ref('')
 
 const editingName = ref('')
 const monthMappings = ref<Array<{ month: string; worksheet: string }>>([])
-const rowMappings = ref<Array<{ sourceField: ReportModelSourceField; targetColumn: string; transformType: string }>>([])
-const staticMappings = ref<Array<{ sourceField: StaticSourceField; targetCell: string; transformType: string }>>([])
+const rowMappings = ref<RowMappingUiItem[]>([])
+const staticMappings = ref<StaticMappingUiItem[]>([])
 
 watch(
   () => [props.userId, props.contextId],
@@ -99,6 +125,32 @@ watch(
 )
 
 onMounted(loadTemplate)
+
+function getAvailableTransformsForField(
+  field: ReportModelSourceField | StaticSourceField
+): TransformType[] {
+  const fieldType = SOURCE_FIELD_DATA_TYPES[field]
+  if (!fieldType) return [...ALLOWED_TRANSFORMS]
+  return (ALLOWED_TRANSFORMS as readonly TransformType[]).filter((tType) => {
+    const contract = TRANSFORM_CONTRACTS[tType]
+    return (
+      contract.allowedInputs.includes(fieldType) ||
+      contract.allowedInputs.includes('ANY')
+    )
+  })
+}
+
+function parseValueMapOptions(
+  transforms?: TransformConfig[]
+): { text: string; fallback: 'keep' | 'empty' | 'error' } {
+  const vm = transforms?.find((t) => t.type === 'VALUE_MAP')
+  const opts = vm?.options as ValueMapOptions | undefined
+  const text = Object.entries(opts?.map || {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n')
+  const fallback = opts?.unmappedBehavior || 'keep'
+  return { text, fallback }
+}
 
 async function loadTemplate() {
   if (!props.userId || !props.contextId) {
@@ -120,16 +172,30 @@ async function loadTemplate() {
       monthMappings.value = Object.entries(loaded.month_worksheet_mapping || {}).map(
         ([month, worksheet]) => ({ month, worksheet })
       )
-      rowMappings.value = (loaded.row_mapping || []).map((m) => ({
-        sourceField: m.sourceField,
-        targetColumn: m.targetColumn,
-        transformType: m.transforms?.[0]?.type || '',
-      }))
-      staticMappings.value = (loaded.static_cell_mapping || []).map((m) => ({
-        sourceField: m.sourceField,
-        targetCell: m.targetCell,
-        transformType: m.transforms?.[0]?.type || '',
-      }))
+
+      rowMappings.value = (loaded.row_mapping || []).map((m) => {
+        const vmInfo = parseValueMapOptions(m.transforms)
+        return {
+          sourceField: m.sourceField,
+          targetColumn: m.targetColumn,
+          transformType: m.transforms?.[0]?.type || '',
+          transforms: m.transforms ? [...m.transforms] : [],
+          valueMapText: vmInfo.text,
+          valueMapFallback: vmInfo.fallback,
+        }
+      })
+
+      staticMappings.value = (loaded.static_cell_mapping || []).map((m) => {
+        const vmInfo = parseValueMapOptions(m.transforms)
+        return {
+          sourceField: m.sourceField,
+          targetCell: m.targetCell,
+          transformType: m.transforms?.[0]?.type || '',
+          transforms: m.transforms ? [...m.transforms] : [],
+          valueMapText: vmInfo.text,
+          valueMapFallback: vmInfo.fallback,
+        }
+      })
 
       // Download file to inspect available worksheets
       try {
@@ -153,14 +219,30 @@ async function loadTemplate() {
 function handleUploadFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   if (target.files && target.files[0]) {
-    uploadFile.value = target.files[0]
+    try {
+      validateXlsxFileInput(target.files[0])
+      uploadFile.value = target.files[0]
+      errorMessage.value = ''
+    } catch (err) {
+      uploadFile.value = null
+      target.value = ''
+      errorMessage.value = err instanceof Error ? err.message : '檔案格式無效。'
+    }
   }
 }
 
 function handleReplaceFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   if (target.files && target.files[0]) {
-    replaceFile.value = target.files[0]
+    try {
+      validateXlsxFileInput(target.files[0])
+      replaceFile.value = target.files[0]
+      errorMessage.value = ''
+    } catch (err) {
+      replaceFile.value = null
+      target.value = ''
+      errorMessage.value = err instanceof Error ? err.message : '檔案格式無效。'
+    }
   }
 }
 
@@ -250,8 +332,8 @@ async function handleDelete() {
   try {
     await deleteExportTemplate(props.userId, template.value)
     template.value = null
-    successMessage.value = 'XLSX 範本已刪除。'
-    await loadTemplate()
+    availableWorksheets.value = []
+    successMessage.value = '範本已成功刪除。'
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '刪除範本失敗。'
     await nextTick()
@@ -298,6 +380,9 @@ function addRowMapping() {
     sourceField: 'actual_clock_in_at',
     targetColumn: 'C',
     transformType: 'TIME_HH_MM',
+    transforms: [{ type: 'TIME_HH_MM' }],
+    valueMapText: '',
+    valueMapFallback: 'keep',
   })
 }
 
@@ -310,11 +395,60 @@ function addStaticMapping() {
     sourceField: 'year_month',
     targetCell: 'B2',
     transformType: 'ROC_YEAR_MONTH',
+    transforms: [{ type: 'ROC_YEAR_MONTH' }],
+    valueMapText: '',
+    valueMapFallback: 'keep',
   })
 }
 
 function removeStaticMapping(index: number) {
   staticMappings.value.splice(index, 1)
+}
+
+function parseValueMapFromText(text: string): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const line of (text || '').split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx !== -1) {
+      const k = trimmed.slice(0, eqIdx).trim()
+      const v = trimmed.slice(eqIdx + 1).trim()
+      if (k) map[k] = v
+    }
+  }
+  return map
+}
+
+function buildTransformsForEntry(
+  transformType: string,
+  existingTransforms: TransformConfig[],
+  valueMapText: string,
+  valueMapFallback: 'keep' | 'empty' | 'error'
+): TransformConfig[] | undefined {
+  if (!transformType) {
+    return undefined
+  }
+
+  // If entry had a multi-stage pipeline and transformType matches the 1st transform, preserve the rest of the pipeline
+  if (existingTransforms.length > 1 && existingTransforms[0].type === transformType) {
+    return existingTransforms
+  }
+
+  if (transformType === 'VALUE_MAP') {
+    const map = parseValueMapFromText(valueMapText)
+    return [
+      {
+        type: 'VALUE_MAP',
+        options: {
+          map,
+          unmappedBehavior: valueMapFallback,
+        },
+      },
+    ]
+  }
+
+  return [{ type: transformType as TransformType }]
 }
 
 async function handleSaveMapping() {
@@ -332,13 +466,23 @@ async function handleSaveMapping() {
   const rowEntries: RowMappingEntry[] = rowMappings.value.map((r) => ({
     sourceField: r.sourceField,
     targetColumn: r.targetColumn.trim().toUpperCase(),
-    transforms: r.transformType ? [{ type: r.transformType as TransformType }] : undefined,
+    transforms: buildTransformsForEntry(
+      r.transformType,
+      r.transforms,
+      r.valueMapText,
+      r.valueMapFallback
+    ),
   }))
 
   const staticEntries: StaticCellMappingEntry[] = staticMappings.value.map((s) => ({
     sourceField: s.sourceField,
     targetCell: s.targetCell.trim().toUpperCase(),
-    transforms: s.transformType ? [{ type: s.transformType as TransformType }] : undefined,
+    transforms: buildTransformsForEntry(
+      s.transformType,
+      s.transforms,
+      s.valueMapText,
+      s.valueMapFallback
+    ),
   }))
 
   isSaving.value = true
@@ -369,82 +513,86 @@ async function handleSaveMapping() {
     <p
       v-if="errorMessage"
       ref="errorRegion"
-      class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]"
+      class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
       role="alert"
       tabindex="-1"
     >
       {{ errorMessage }}
     </p>
+
     <p
       v-if="successMessage"
-      class="rounded-[0.625rem] border border-accent-soft bg-accent-soft px-3.5 py-3 text-sm"
+      class="rounded-[0.625rem] border border-line bg-surface-soft p-4 text-sm font-semibold text-accent"
       role="status"
-      aria-live="polite"
     >
       {{ successMessage }}
     </p>
 
-    <div v-if="isLoading" class="grid gap-3" aria-busy="true">
-      <span class="h-24 rounded-2xl bg-surface-soft" aria-hidden="true"></span>
+    <!-- Loading State -->
+    <div v-if="isLoading" class="p-6 text-center text-sm text-muted">
+      載入中…
     </div>
 
-    <!-- No template: Upload view -->
-    <div v-else-if="!template" class="grid gap-5">
-      <div class="rounded-xl border border-dashed border-line p-5 sm:p-6">
+    <!-- Empty State: Upload Prompt -->
+    <div
+      v-else-if="!template"
+      class="grid gap-4 rounded-xl border border-dashed border-line p-6 text-center sm:p-8"
+    >
+      <div class="mx-auto grid max-w-md gap-2">
         <h3 class="font-display text-lg font-semibold">尚未上傳 XLSX 匯出範本</h3>
-        <p class="mt-1 text-sm text-muted">
-          為「{{ contextName }}」上傳一份多月份 Excel (.xlsx) 範本，即可自訂欄位對應並在報表頁面直接匯出填妥的出勤表。
+        <p class="text-xs leading-relaxed text-muted">
+          上傳包含工作表的 .xlsx 檔案，可自訂每月匯出時的欄位與儲存格對應。
         </p>
-
-        <form class="mt-5 grid gap-4 max-w-lg" @submit.prevent="handleUpload">
-          <div class="grid gap-1.5">
-            <label for="template-upload-name" class="font-semibold text-sm">範本名稱</label>
-            <input
-              id="template-upload-name"
-              v-model="uploadName"
-              type="text"
-              class="min-h-11 rounded-[0.625rem] border border-line bg-canvas px-3 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              required
-            />
-          </div>
-
-          <div class="grid gap-1.5">
-            <label for="template-file-input" class="font-semibold text-sm">選擇 .xlsx 活頁簿檔案</label>
-            <input
-              id="template-file-input"
-              ref="uploadFileInput"
-              type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              class="min-h-11 rounded-[0.625rem] border border-line bg-canvas px-3 py-2 text-sm text-ink file:mr-3 file:rounded-[0.375rem] file:border-0 file:bg-surface-soft file:px-3 file:py-1 file:text-xs file:font-semibold"
-              required
-              @change="handleUploadFileChange"
-            />
-            <span class="text-xs text-muted">僅支援 .xlsx 格式。</span>
-          </div>
-
-          <button
-            type="submit"
-            data-test="upload-template-button"
-            :disabled="isUploading || !uploadFile"
-            class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] bg-accent px-4 py-2 font-semibold text-surface transition duration-200 enabled:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {{ isUploading ? '上傳中…' : '上傳範本' }}
-          </button>
-        </form>
       </div>
+
+      <form class="mx-auto mt-2 grid w-full max-w-sm gap-3" @submit.prevent="handleUpload">
+        <div class="grid gap-1 text-left">
+          <label for="upload-template-name" class="text-xs font-semibold text-muted">範本名稱</label>
+          <input
+            id="upload-template-name"
+            v-model="uploadName"
+            type="text"
+            class="min-h-11 rounded-[0.625rem] border border-line bg-canvas px-3 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            placeholder="例如: 公司出勤月報表"
+            required
+          />
+        </div>
+
+        <div class="grid gap-1 text-left">
+          <label for="upload-file-input" class="text-xs font-semibold text-muted">選擇 Excel 範本檔 (.xlsx)</label>
+          <input
+            id="upload-file-input"
+            ref="uploadFileInput"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            class="min-h-11 rounded-[0.625rem] border border-line bg-canvas px-3 py-2 text-sm text-ink file:mr-3 file:rounded-[0.375rem] file:border-0 file:bg-surface-soft file:px-3 file:py-1 file:text-xs file:font-semibold"
+            required
+            @change="handleUploadFileChange"
+          />
+        </div>
+
+        <button
+          type="submit"
+          data-test="upload-template-button"
+          :disabled="isUploading || !uploadFile"
+          class="mt-2 inline-flex min-h-11 items-center justify-center rounded-[0.625rem] bg-accent px-4 py-2 font-semibold text-surface transition duration-200 enabled:hover:-translate-y-px disabled:opacity-50"
+        >
+          {{ isUploading ? '上傳中…' : '上傳範本檔案' }}
+        </button>
+      </form>
     </div>
 
-    <!-- Has template: Management & Mapping View -->
+    <!-- Active Template Configuration UI -->
     <div v-else class="grid gap-6">
-      <!-- Template header bar -->
-      <div class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-surface-soft p-4 sm:p-5">
-        <div class="grid gap-1">
-          <div class="flex items-center gap-2">
-            <strong class="text-lg font-semibold">{{ template.name }}</strong>
-            <span class="rounded-[0.375rem] border border-accent bg-accent-soft px-2 py-0.5 text-xs font-bold text-accent">已啟用</span>
-          </div>
-          <span class="text-xs text-muted">更新時間：{{ new Date(template.updated_at).toLocaleString('zh-TW') }}</span>
+      <div class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-surface-soft p-4">
+        <div>
+          <span class="text-xs font-bold text-accent">目前範本</span>
+          <h3 class="font-display text-lg font-semibold text-ink">{{ template.name }}</h3>
+          <p class="text-xs text-muted">
+            建立時間：{{ new Date(template.created_at).toLocaleDateString('zh-TW') }}
+          </p>
         </div>
+
         <div class="flex flex-wrap gap-2">
           <button
             type="button"
@@ -474,7 +622,7 @@ async function handleSaveMapping() {
       <!-- Replace form if toggled -->
       <div v-if="showReplaceForm" class="rounded-xl border border-line p-4 sm:p-5">
         <h4 class="font-semibold text-sm">更換範本檔案</h4>
-        <p class="text-xs text-muted mt-1">上傳新的 .xlsx 檔案，原有的欄位對應設定將會保留。</p>
+        <p class="text-xs text-muted mt-1">上傳新的 .xlsx 檔案，原有的欄位對應設定將會保留（新檔案需包含目前已設定的月份工作表）。</p>
         <form class="mt-3 grid gap-3 max-w-lg" @submit.prevent="handleReplace">
           <input
             ref="replaceFileInput"
@@ -601,59 +749,92 @@ async function handleSaveMapping() {
             </button>
           </div>
 
-          <div class="grid gap-2">
+          <div class="grid gap-3">
             <div
               v-for="(item, idx) in rowMappings"
               :key="idx"
-              class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3"
+              class="grid gap-3 rounded-lg border border-line bg-surface p-3"
             >
-              <div class="grid gap-1 min-w-[200px] flex-1">
-                <label :for="`row-source-${idx}`" class="text-xs font-semibold text-muted">報表資料欄位</label>
-                <select
-                  :id="`row-source-${idx}`"
-                  v-model="item.sourceField"
-                  class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+              <div class="flex flex-wrap items-center gap-3">
+                <div class="grid gap-1 min-w-[200px] flex-1">
+                  <label :for="`row-source-${idx}`" class="text-xs font-semibold text-muted">報表資料欄位</label>
+                  <select
+                    :id="`row-source-${idx}`"
+                    v-model="item.sourceField"
+                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                  >
+                    <option v-for="f in REPORT_MODEL_SOURCE_FIELDS" :key="f" :value="f">
+                      {{ FIELD_LABELS[f] || f }}
+                    </option>
+                  </select>
+                </div>
+
+                <div class="grid gap-1 w-24">
+                  <label :for="`row-col-${idx}`" class="text-xs font-semibold text-muted">目標欄位</label>
+                  <input
+                    :id="`row-col-${idx}`"
+                    v-model="item.targetColumn"
+                    type="text"
+                    placeholder="例如: B"
+                    maxlength="3"
+                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink"
+                    required
+                  />
+                </div>
+
+                <div class="grid gap-1 min-w-[180px] flex-1">
+                  <label :for="`row-transform-${idx}`" class="text-xs font-semibold text-muted">資料轉換規則 (選填)</label>
+                  <select
+                    :id="`row-transform-${idx}`"
+                    v-model="item.transformType"
+                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                  >
+                    <option value="">無 (原值寫入)</option>
+                    <option
+                      v-for="tKey in getAvailableTransformsForField(item.sourceField)"
+                      :key="tKey"
+                      :value="tKey"
+                    >
+                      {{ TRANSFORM_LABELS[tKey] || tKey }}
+                    </option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  class="self-end min-h-10 px-2.5 text-xs text-[var(--error-ink)] hover:underline"
+                  @click="removeRowMapping(idx)"
                 >
-                  <option v-for="f in REPORT_MODEL_SOURCE_FIELDS" :key="f" :value="f">
-                    {{ FIELD_LABELS[f] || f }}
-                  </option>
-                </select>
+                  刪除
+                </button>
               </div>
 
-              <div class="grid gap-1 w-24">
-                <label :for="`row-col-${idx}`" class="text-xs font-semibold text-muted">目標欄位</label>
-                <input
-                  :id="`row-col-${idx}`"
-                  v-model="item.targetColumn"
-                  type="text"
-                  placeholder="例如: B"
-                  maxlength="3"
-                  class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink"
-                  required
-                />
-              </div>
-
-              <div class="grid gap-1 min-w-[180px] flex-1">
-                <label :for="`row-transform-${idx}`" class="text-xs font-semibold text-muted">資料轉換規則 (選填)</label>
-                <select
-                  :id="`row-transform-${idx}`"
-                  v-model="item.transformType"
-                  class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
-                >
-                  <option value="">無 (原值寫入)</option>
-                  <option v-for="(lbl, key) in TRANSFORM_LABELS" :key="key" :value="key">
-                    {{ lbl }}
-                  </option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                class="self-end min-h-10 px-2.5 text-xs text-[var(--error-ink)] hover:underline"
-                @click="removeRowMapping(idx)"
+              <!-- Value Map Options if selected -->
+              <div
+                v-if="item.transformType === 'VALUE_MAP'"
+                class="grid gap-2 rounded border border-line bg-canvas p-3 text-xs"
               >
-                刪除
-              </button>
+                <div class="grid gap-1">
+                  <label class="font-semibold text-muted">值映射設定 (每行一組 原值=目標值，如: WORK=出勤)</label>
+                  <textarea
+                    v-model="item.valueMapText"
+                    rows="2"
+                    placeholder="WORK=出勤&#10;LEAVE=請假"
+                    class="rounded border border-line bg-surface p-2 font-mono text-xs text-ink"
+                  />
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="font-semibold text-muted">未配對時處理：</label>
+                  <select
+                    v-model="item.valueMapFallback"
+                    class="rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
+                  >
+                    <option value="keep">保持原值 (keep)</option>
+                    <option value="empty">輸出空白 (empty)</option>
+                    <option value="error">中斷並報錯 (error)</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -663,83 +844,117 @@ async function handleSaveMapping() {
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 class="font-semibold text-base">靜態儲存格對應（Static Cell Mapping）</h4>
-              <p class="text-xs text-muted">設定整月一次性標頭儲存格位置（如 B2, D3），與每日列分離。</p>
+              <p class="text-xs text-muted">將報表全域欄位（如月份、公司識別碼）填入指定 A1 儲存格（如 B2, D2）。</p>
             </div>
             <button
               type="button"
               class="min-h-9 rounded-[0.5rem] border border-line bg-surface px-3 py-1 text-xs font-semibold text-ink hover:border-accent hover:text-accent"
               @click="addStaticMapping"
             >
-              + 新增靜態對應
+              + 新增儲存格對應
             </button>
           </div>
 
-          <div v-if="staticMappings.length" class="grid gap-2">
+          <div v-if="staticMappings.length" class="grid gap-3">
             <div
               v-for="(item, idx) in staticMappings"
               :key="idx"
-              class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3"
+              class="grid gap-3 rounded-lg border border-line bg-surface p-3"
             >
-              <div class="grid gap-1 min-w-[180px] flex-1">
-                <label :for="`static-source-${idx}`" class="text-xs font-semibold text-muted">靜態欄位</label>
-                <select
-                  :id="`static-source-${idx}`"
-                  v-model="item.sourceField"
-                  class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+              <div class="flex flex-wrap items-center gap-3">
+                <div class="grid gap-1 min-w-[200px] flex-1">
+                  <label :for="`static-source-${idx}`" class="text-xs font-semibold text-muted">全域資料欄位</label>
+                  <select
+                    :id="`static-source-${idx}`"
+                    v-model="item.sourceField"
+                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                  >
+                    <option v-for="f in STATIC_SOURCE_FIELDS" :key="f" :value="f">
+                      {{ STATIC_FIELD_LABELS[f] || f }}
+                    </option>
+                  </select>
+                </div>
+
+                <div class="grid gap-1 w-28">
+                  <label :for="`static-cell-${idx}`" class="text-xs font-semibold text-muted">目標儲存格 (A1)</label>
+                  <input
+                    :id="`static-cell-${idx}`"
+                    v-model="item.targetCell"
+                    type="text"
+                    placeholder="例如: B2"
+                    maxlength="6"
+                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink"
+                    required
+                  />
+                </div>
+
+                <div class="grid gap-1 min-w-[180px] flex-1">
+                  <label :for="`static-transform-${idx}`" class="text-xs font-semibold text-muted">資料轉換規則 (選填)</label>
+                  <select
+                    :id="`static-transform-${idx}`"
+                    v-model="item.transformType"
+                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                  >
+                    <option value="">無 (原值寫入)</option>
+                    <option
+                      v-for="tKey in getAvailableTransformsForField(item.sourceField)"
+                      :key="tKey"
+                      :value="tKey"
+                    >
+                      {{ TRANSFORM_LABELS[tKey] || tKey }}
+                    </option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  class="self-end min-h-10 px-2.5 text-xs text-[var(--error-ink)] hover:underline"
+                  @click="removeStaticMapping(idx)"
                 >
-                  <option v-for="f in STATIC_SOURCE_FIELDS" :key="f" :value="f">
-                    {{ STATIC_FIELD_LABELS[f] || f }}
-                  </option>
-                </select>
+                  刪除
+                </button>
               </div>
 
-              <div class="grid gap-1 w-28">
-                <label :for="`static-cell-${idx}`" class="text-xs font-semibold text-muted">目標儲存格 (A1)</label>
-                <input
-                  :id="`static-cell-${idx}`"
-                  v-model="item.targetCell"
-                  type="text"
-                  placeholder="例如: B2"
-                  maxlength="5"
-                  class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink"
-                  required
-                />
-              </div>
-
-              <div class="grid gap-1 min-w-[180px] flex-1">
-                <label :for="`static-transform-${idx}`" class="text-xs font-semibold text-muted">資料轉換規則 (選填)</label>
-                <select
-                  :id="`static-transform-${idx}`"
-                  v-model="item.transformType"
-                  class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
-                >
-                  <option value="">無 (原值寫入)</option>
-                  <option v-for="(lbl, key) in TRANSFORM_LABELS" :key="key" :value="key">
-                    {{ lbl }}
-                  </option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                class="self-end min-h-10 px-2.5 text-xs text-[var(--error-ink)] hover:underline"
-                @click="removeStaticMapping(idx)"
+              <!-- Value Map Options if selected -->
+              <div
+                v-if="item.transformType === 'VALUE_MAP'"
+                class="grid gap-2 rounded border border-line bg-canvas p-3 text-xs"
               >
-                刪除
-              </button>
+                <div class="grid gap-1">
+                  <label class="font-semibold text-muted">值映射設定 (每行一組 原值=目標值，如: ACME_CORP= Acme 企業)</label>
+                  <textarea
+                    v-model="item.valueMapText"
+                    rows="2"
+                    placeholder="ACME=公司名稱"
+                    class="rounded border border-line bg-surface p-2 font-mono text-xs text-ink"
+                  />
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="font-semibold text-muted">未配對時處理：</label>
+                  <select
+                    v-model="item.valueMapFallback"
+                    class="rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
+                  >
+                    <option value="keep">保持原值 (keep)</option>
+                    <option value="empty">輸出空白 (empty)</option>
+                    <option value="error">中斷並報錯 (error)</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
-          <p v-else class="text-xs text-muted italic">尚未設定靜態儲存格對應（如不需要可保持為空）。</p>
+          <p v-else class="text-xs text-muted italic">尚未設定任何靜態儲存格對應，可點擊上方按鈕新增。</p>
         </section>
 
-        <div class="flex items-center gap-3 border-t border-line pt-5">
+        <!-- Submit Button -->
+        <div class="flex items-center gap-4">
           <button
             type="submit"
             data-test="save-mapping-button"
             :disabled="isSaving"
-            class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] bg-accent px-6 py-2 font-semibold text-surface transition duration-200 enabled:hover:-translate-y-px disabled:cursor-wait disabled:opacity-50"
+            class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] bg-accent px-6 py-2 font-semibold text-surface transition duration-200 enabled:hover:-translate-y-px disabled:opacity-50"
           >
-            {{ isSaving ? '儲存中…' : '儲存範本對應設定' }}
+            {{ isSaving ? '儲存中…' : '儲存對應設定' }}
           </button>
         </div>
       </form>
