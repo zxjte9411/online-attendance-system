@@ -146,7 +146,7 @@ async function loadMonthData() {
       getDayStatusesForMonth(requestedMonth),
       getCalendarOverridesForMonth(requestedMonth),
       getDgpaCalendarForMonth(requestedMonth),
-      getExportTemplate(userId, requestedContextId).catch(() => null),
+      getExportTemplate(userId, requestedContextId),
     ])
 
     if (requestId !== currentRequestId) return

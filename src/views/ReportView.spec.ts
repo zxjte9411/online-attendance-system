@@ -540,4 +540,14 @@ describe('ReportView', () => {
     expect(wrapper.find('[data-test="export-xlsx-error-banner"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="export-xlsx-error-banner"]').text()).toContain('匯出 XLSX 失敗')
   })
+
+  it('載入範本發生資料庫或網路錯誤時呈現錯誤提示，而非偽裝為尚未設定範本', async () => {
+    vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockRejectedValue(new Error('PostgREST connection failure'))
+
+    const wrapper = mount(ReportView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="load-error-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="missing-template-cta"]').exists()).toBe(false)
+  })
 })
