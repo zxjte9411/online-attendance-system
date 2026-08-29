@@ -49,7 +49,6 @@ create function public.calculate_attendance_snapshots(
   out out_calculation_snapshot jsonb
 )
 language plpgsql
-security definer
 set search_path = ''
 as $$
 declare
@@ -401,7 +400,7 @@ $$;
 
 revoke all on function public.calculate_attendance_snapshots(date, time, time, public.work_contexts, public.work_policies, text) from public;
 revoke execute on function public.calculate_attendance_snapshots(date, time, time, public.work_contexts, public.work_policies, text) from anon;
-grant execute on function public.calculate_attendance_snapshots(date, time, time, public.work_contexts, public.work_policies, text) to authenticated;
+revoke execute on function public.calculate_attendance_snapshots(date, time, time, public.work_contexts, public.work_policies, text) from authenticated;
 
 revoke all on function public.create_manual_attendance(date, uuid, time, time, text) from public;
 revoke execute on function public.create_manual_attendance(date, uuid, time, time, text) from anon;

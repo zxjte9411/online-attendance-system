@@ -1,6 +1,6 @@
 begin;
 
-select plan(51);
+select plan(53);
 
 select has_table('public', 'attendance_records', 'attendance_records table exists');
 select has_column('public', 'attendance_records', 'created_source', 'created_source exists');
@@ -11,10 +11,17 @@ select has_column('public', 'attendance_records', 'status_note', 'status_note ex
 select is(
   (select count(*)::integer
    from pg_proc
-   where proname in ('create_manual_attendance', 'edit_attendance_record', 'delete_attendance_record', 'calculate_attendance_snapshots')
+   where proname in ('create_manual_attendance', 'edit_attendance_record', 'delete_attendance_record')
      and prosecdef),
-  4,
-  'manual attendance RPCs and calculation helper are security definer'
+  3,
+  'manual attendance mutation RPCs are security definer'
+);
+
+select ok(
+  (select not prosecdef
+   from pg_proc
+   where proname = 'calculate_attendance_snapshots'),
+  'internal calculation helper is not security definer'
 );
 
 select is(
@@ -529,6 +536,20 @@ select throws_ok(
   '42501',
   null,
   'direct delete on attendance_records is rejected'
+);
+
+select throws_ok(
+  format($$select * from public.calculate_attendance_snapshots(
+    '2026-08-10'::date,
+    '09:00:00'::time,
+    '18:00:00'::time,
+    (select c from public.work_contexts c where id = '%s'::uuid),
+    (select p from public.work_policies p where name = 'Current Policy'),
+    'v1'
+  )$$, (select id from test_context_ids where label = 'context_a1')),
+  '42501',
+  null,
+  'direct execution of calculate_attendance_snapshots by authenticated is rejected'
 );
 
 select * from finish();
