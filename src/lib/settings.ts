@@ -1,4 +1,5 @@
 import { getSupabaseClient } from './supabase'
+import { getWorkPolicyStatus } from './work-policy'
 
 const profileFields = 'id,display_name,timezone,created_at,updated_at'
 const contextFields = 'id,user_id,name,company_identifier,project_identifier,active,is_default,created_at,updated_at'
@@ -199,6 +200,10 @@ export async function getSetupStatus(userId: string) {
     contexts,
     defaultContext,
     policies,
-    complete: Boolean(profile?.display_name?.trim() && defaultContext && policies.length),
+    complete: Boolean(
+      profile?.display_name?.trim()
+      && defaultContext
+      && policies.some((policy) => getWorkPolicyStatus(policy) === '目前適用'),
+    ),
   }
 }

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
+import { getWorkPolicyStatus } from '../lib/work-policy'
 import {
   getCurrentUserId,
   getSetupStatus,
@@ -75,7 +76,7 @@ async function handleProfileSaved(savedProfile: Profile) {
   profile.value = savedProfile
 
   if (defaultContext.value) {
-    if (policies.value.length) {
+    if (policies.value.some((policy) => getWorkPolicyStatus(policy) === '目前適用')) {
       await router.replace({ name: 'today' })
     } else {
       step.value = 3
@@ -91,8 +92,14 @@ function handleContextSaved(contexts: WorkContext[]) {
   step.value = 3
 }
 
-async function handlePolicySaved() {
-  await router.replace({ name: 'today' })
+async function handlePolicySaved(savedPolicy: WorkPolicy) {
+  if (getWorkPolicyStatus(savedPolicy) === '目前適用') {
+    await router.replace({ name: 'today' })
+    return
+  }
+
+  policies.value = [...policies.value, savedPolicy]
+  step.value = 3
 }
 </script>
 
