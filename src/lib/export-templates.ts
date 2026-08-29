@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import { getSupabaseClient } from './supabase'
 import {
   validateExportTemplateConfig,
+  validateRowMapping,
   type RowMappingEntry,
   type StaticCellMappingEntry,
 } from '../domain/export-template/mapping-validator'
@@ -229,7 +230,19 @@ export async function replaceExportTemplate({
   // 1. Validate file extension and MIME
   validateXlsxFileInput(newFile)
 
-  // 2. Validate new workbook readability and get sheets
+  // 2. Validate current persisted row mapping configuration and require valid date locator
+  const rowMappingValidation = validateRowMapping(currentTemplate.row_mapping || [])
+  if (!rowMappingValidation.isValid) {
+    throw new Error(`目前範本設定無效，無法執行替換：${rowMappingValidation.errors.join('；')}`)
+  }
+
+  const dateLocator = currentTemplate.row_mapping.find((e) => e.sourceField === 'date')
+  if (!dateLocator || !dateLocator.targetColumn || !dateLocator.targetColumn.trim()) {
+    throw new Error('目前範本缺少有效的日期定位欄位（date locator），無法替換。')
+  }
+  const dateCol = dateLocator.targetColumn.trim().toUpperCase()
+
+  // 3. Validate new workbook readability and get sheets
   let buffer: ArrayBuffer
   if (newFile instanceof Blob) {
     buffer = await newFile.arrayBuffer()
@@ -250,10 +263,8 @@ export async function replaceExportTemplate({
     throw new Error('範本檔案中沒有任何工作表。')
   }
 
-  // 3. Compatibility Validation against current persisted configuration
+  // 4. Compatibility Validation against current persisted configuration
   const configuredMonths = Object.entries(currentTemplate.month_worksheet_mapping || {})
-  const dateLocator = (currentTemplate.row_mapping || []).find((e) => e.sourceField === 'date')
-  const dateCol = dateLocator?.targetColumn ? dateLocator.targetColumn.trim().toUpperCase() : null
 
   for (const [month, sheetName] of configuredMonths) {
     const worksheet = workbook.getWorksheet(sheetName)
@@ -263,30 +274,28 @@ export async function replaceExportTemplate({
       )
     }
 
-    if (dateCol) {
-      const seenDates = new Set<string>()
-      let foundDatesCount = 0
-      const rowCount = Math.max(worksheet.rowCount, 100)
+    const seenDates = new Set<string>()
+    let foundDatesCount = 0
+    const rowCount = Math.max(worksheet.rowCount, 100)
 
-      for (let r = 1; r <= rowCount; r++) {
-        const cell = worksheet.getCell(`${dateCol}${r}`)
-        const parsedDate = parseDateCellValue(cell.value, month)
-        if (parsedDate && parsedDate.startsWith(month)) {
-          if (seenDates.has(parsedDate)) {
-            throw new Error(
-              `新範本工作表「${sheetName}」在欄位 ${dateCol} 出現重複日期「${parsedDate}」，無法替換。`
-            )
-          }
-          seenDates.add(parsedDate)
-          foundDatesCount++
+    for (let r = 1; r <= rowCount; r++) {
+      const cell = worksheet.getCell(`${dateCol}${r}`)
+      const parsedDate = parseDateCellValue(cell.value, month)
+      if (parsedDate && parsedDate.startsWith(month)) {
+        if (seenDates.has(parsedDate)) {
+          throw new Error(
+            `新範本工作表「${sheetName}」在欄位 ${dateCol} 出現重複日期「${parsedDate}」，無法替換。`
+          )
         }
+        seenDates.add(parsedDate)
+        foundDatesCount++
       }
+    }
 
-      if (foundDatesCount === 0) {
-        throw new Error(
-          `新範本工作表「${sheetName}」在欄位 ${dateCol} 未找到任何對應月份 ${month} 的日期資料，無法替換。請確認日期定位欄位或工作表內容。`
-        )
-      }
+    if (foundDatesCount === 0) {
+      throw new Error(
+        `新範本工作表「${sheetName}」在欄位 ${dateCol} 未找到任何對應月份 ${month} 的日期資料，無法替換。請確認日期定位欄位或工作表內容。`
+      )
     }
   }
 

@@ -408,6 +408,82 @@ describe('Lib: Export Templates Service', () => {
       expect(updateMock).not.toHaveBeenCalled()
     })
 
+    it('rejects replacement if current template is missing date locator without touching storage or DB', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          // Missing date locator!
+          { sourceField: 'actual_clock_in_at', targetColumn: 'D' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      const newFileBytes = await createDummyXlsxBuffer(['8月'])
+
+      const uploadMock = vi.fn()
+      const updateMock = vi.fn()
+      const removeMock = vi.fn()
+      mockSupabase.storage.from.mockReturnValue({ upload: uploadMock, remove: removeMock } as any)
+      mockSupabase.from.mockReturnValue({ update: updateMock } as any)
+
+      await expect(
+        replaceExportTemplate({
+          userId: 'user-1',
+          currentTemplate,
+          newFile: newFileBytes,
+        })
+      ).rejects.toThrow('Row mapping 必須包含一個 date 日期定位欄位')
+
+      expect(uploadMock).not.toHaveBeenCalled()
+      expect(updateMock).not.toHaveBeenCalled()
+      expect(removeMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects replacement if current template has blank or invalid date locator target column', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          // Invalid column identifier!
+          { sourceField: 'date', targetColumn: '123' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      const newFileBytes = await createDummyXlsxBuffer(['8月'])
+
+      const uploadMock = vi.fn()
+      const updateMock = vi.fn()
+      const removeMock = vi.fn()
+      mockSupabase.storage.from.mockReturnValue({ upload: uploadMock, remove: removeMock } as any)
+      mockSupabase.from.mockReturnValue({ update: updateMock } as any)
+
+      await expect(
+        replaceExportTemplate({
+          userId: 'user-1',
+          currentTemplate,
+          newFile: newFileBytes,
+        })
+      ).rejects.toThrow('無效的欄位代號')
+
+      expect(uploadMock).not.toHaveBeenCalled()
+      expect(updateMock).not.toHaveBeenCalled()
+      expect(removeMock).not.toHaveBeenCalled()
+    })
+
     it('performs best-effort cleanup on new file if DB update fails and preserves old template', async () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',

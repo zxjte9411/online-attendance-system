@@ -13,7 +13,7 @@ export type TransformType = (typeof ALLOWED_TRANSFORMS)[number]
 
 export interface ValueMapOptions {
   map: Record<string, string>
-  unmappedBehavior: 'keep' | 'empty' | 'error'
+  unmappedBehavior: 'keep' | 'error'
 }
 
 export interface RocYearMonthOptions {
@@ -149,14 +149,13 @@ export function applyTransform(value: unknown, config: TransformConfig): unknown
       if (!opts || typeof opts !== 'object' || !opts.map) {
         throw new Error('TRANSFORM_INVALID: Missing map in VALUE_MAP options')
       }
-      if (!opts.unmappedBehavior || !['keep', 'empty', 'error'].includes(opts.unmappedBehavior)) {
+      if (!opts.unmappedBehavior || !['keep', 'error'].includes(opts.unmappedBehavior)) {
         throw new Error('TRANSFORM_INVALID: Missing or invalid unmappedBehavior in VALUE_MAP options')
       }
       const key = String(value)
       if (key in opts.map) {
         return opts.map[key]
       }
-      if (opts.unmappedBehavior === 'empty') return null
       if (opts.unmappedBehavior === 'error') {
         throw new Error(`TRANSFORM_INVALID: Unmapped value "${key}" in VALUE_MAP`)
       }

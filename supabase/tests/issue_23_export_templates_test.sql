@@ -2,7 +2,7 @@ create extension if not exists pgtap with schema extensions;
 
 begin;
 
-select plan(33);
+select plan(35);
 
 -- 1. Schema & Structure
 select has_table('public', 'export_templates', 'export_templates table exists');
@@ -131,12 +131,13 @@ select throws_ok(
 );
 
 -- 5. Storage RLS for User A
-insert into storage.objects (id, bucket_id, name, owner)
+insert into storage.objects (id, bucket_id, name, owner, metadata)
 values (
   '00000000-0000-0000-0000-000000000888',
   'export-templates',
   '00000000-0000-0000-0000-000000000023/00000000-0000-0000-0000-000000000101/00000000-0000-0000-0000-000000000999/source.xlsx',
-  '00000000-0000-0000-0000-000000000023'
+  '00000000-0000-0000-0000-000000000023',
+  '{"mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "author": "user_a"}'::jsonb
 );
 
 select is(
@@ -208,9 +209,21 @@ select is(
 );
 
 select is(
+  (select metadata->>'author' from storage.objects where bucket_id = 'export-templates' and id = '00000000-0000-0000-0000-000000000888'),
+  'user_a',
+  'User A storage object metadata author was not modified by User B'
+);
+
+select is(
+  (select (metadata ? 'hacked') from storage.objects where bucket_id = 'export-templates' and id = '00000000-0000-0000-0000-000000000888'),
+  false,
+  'User A storage object does not contain hacked metadata injected by User B'
+);
+
+select is(
   (select count(*)::integer from storage.objects where bucket_id = 'export-templates' and id = '00000000-0000-0000-0000-000000000888'),
   1,
-  'User A storage object was not deleted or altered by User B'
+  'User A storage object was not deleted by User B'
 );
 
 -- User A deletes own storage object

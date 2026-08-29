@@ -79,7 +79,7 @@ interface RowMappingUiItem {
   transformType: string
   transforms: TransformConfig[]
   valueMapText: string
-  valueMapFallback: 'keep' | 'empty' | 'error'
+  valueMapFallback: 'keep' | 'error'
 }
 
 interface StaticMappingUiItem {
@@ -88,7 +88,7 @@ interface StaticMappingUiItem {
   transformType: string
   transforms: TransformConfig[]
   valueMapText: string
-  valueMapFallback: 'keep' | 'empty' | 'error'
+  valueMapFallback: 'keep' | 'error'
 }
 
 const template = ref<ExportTemplate | null>(null)
@@ -142,13 +142,13 @@ function getAvailableTransformsForField(
 
 function parseValueMapOptions(
   transforms?: TransformConfig[]
-): { text: string; fallback: 'keep' | 'empty' | 'error' } {
+): { text: string; fallback: 'keep' | 'error' } {
   const vm = transforms?.find((t) => t.type === 'VALUE_MAP')
   const opts = vm?.options as ValueMapOptions | undefined
   const text = Object.entries(opts?.map || {})
     .map(([k, v]) => `${k}=${v}`)
     .join('\n')
-  const fallback = opts?.unmappedBehavior || 'keep'
+  const fallback = opts?.unmappedBehavior === 'error' ? 'error' : 'keep'
   return { text, fallback }
 }
 
@@ -307,15 +307,14 @@ async function handleReplace() {
       newFile: replaceFile.value,
       newName: replaceName.value.trim() || undefined,
     })
-    template.value = result.template
     showReplaceForm.value = false
     replaceFile.value = null
+    await loadTemplate()
     if (result.warning) {
       successMessage.value = `XLSX 範本檔案已成功更換，但舊檔案清理未完成：${result.warning}`
     } else {
       successMessage.value = 'XLSX 範本檔案已成功更換。'
     }
-    await loadTemplate()
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '更換範本檔案失敗。'
     await nextTick()
@@ -428,7 +427,7 @@ function buildTransformsForEntry(
   transformType: string,
   existingTransforms: TransformConfig[],
   valueMapText: string,
-  valueMapFallback: 'keep' | 'empty' | 'error'
+  valueMapFallback: 'keep' | 'error'
 ): TransformConfig[] | undefined {
   if (!transformType) {
     return undefined
@@ -840,7 +839,6 @@ async function handleSaveMapping() {
                     class="rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
                   >
                     <option value="keep">保持原值 (keep)</option>
-                    <option value="empty">輸出空白 (empty)</option>
                     <option value="error">中斷並報錯 (error)</option>
                   </select>
                 </div>
@@ -946,7 +944,6 @@ async function handleSaveMapping() {
                     class="rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
                   >
                     <option value="keep">保持原值 (keep)</option>
-                    <option value="empty">輸出空白 (empty)</option>
                     <option value="error">中斷並報錯 (error)</option>
                   </select>
                 </div>

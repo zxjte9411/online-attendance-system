@@ -132,16 +132,7 @@ describe('Domain: Export Template Transforms', () => {
       expect(applyTransform('NORMAL', config)).toBe('NORMAL')
     })
 
-    it('handles unmappedBehavior empty and error', () => {
-      const emptyConfig: TransformConfig = {
-        type: 'VALUE_MAP',
-        options: {
-          map: { LEAVE: '請假' },
-          unmappedBehavior: 'empty',
-        },
-      }
-      expect(applyTransform('UNKNOWN', emptyConfig)).toBeNull()
-
+    it('handles unmappedBehavior error by throwing error on unmapped value', () => {
       const errorConfig: TransformConfig = {
         type: 'VALUE_MAP',
         options: {
@@ -149,7 +140,7 @@ describe('Domain: Export Template Transforms', () => {
           unmappedBehavior: 'error',
         },
       }
-      expect(() => applyTransform('UNKNOWN', errorConfig)).toThrow()
+      expect(() => applyTransform('UNKNOWN', errorConfig)).toThrow('Unmapped value "UNKNOWN" in VALUE_MAP')
     })
 
     it('handles null with unmappedBehavior', () => {

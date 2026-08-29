@@ -154,6 +154,19 @@ describe('Domain: Export Template Mapping Validator', () => {
     })
 
     it('rejects invalid or missing VALUE_MAP unmappedBehavior', () => {
+      expect(
+        validateTransformOptions({
+          type: 'VALUE_MAP',
+          options: { map: { WORK: '出勤' }, unmappedBehavior: 'error' },
+        })
+      ).toEqual([])
+
+      const emptyBehaviorErrors = validateTransformOptions({
+        type: 'VALUE_MAP',
+        options: { map: { A: 'B' }, unmappedBehavior: 'empty' as any },
+      })
+      expect(emptyBehaviorErrors.some((e) => e.includes('unmappedBehavior'))).toBe(true)
+
       const missingBehaviorErrors = validateTransformOptions({
         type: 'VALUE_MAP',
         options: { map: { A: 'B' } as any },
