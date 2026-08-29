@@ -30,9 +30,11 @@ const record = ref<AttendanceRecord | null>(null)
 const policy = ref<WorkPolicy | null>(null)
 const isLoading = ref(true)
 const action = ref<Action | null>(null)
-const pageError = ref('')
+const loadError = ref('')
+const actionError = ref('')
 const successMessage = ref('')
-const errorRegion = ref<HTMLElement | null>(null)
+const loadErrorRegion = ref<HTMLElement | null>(null)
+const actionErrorRegion = ref<HTMLElement | null>(null)
 let clockTimer: ReturnType<typeof setInterval> | undefined
 
 const dateTime = computed(() => now.value.toISOString())
@@ -96,12 +98,13 @@ onUnmounted(() => {
 
 async function load() {
   isLoading.value = true
-  pageError.value = ''
+  loadError.value = ''
   successMessage.value = ''
 
   try {
     const todayRecord = await getTodayAttendanceRecord()
     record.value = todayRecord
+    actionError.value = ''
     if (todayRecord) return
 
     const userId = await getCurrentUserId()
@@ -115,8 +118,13 @@ async function load() {
 
     policy.value = currentPolicy
   } catch (error) {
-    pageError.value = getErrorMessage(error, '今日出勤資料載入失敗，請稍後再試。')
-    await focusError()
+    if (actionError.value) {
+      await focusError('action')
+      return
+    }
+
+    loadError.value = getErrorMessage(error, '今日出勤資料載入失敗，請稍後再試。')
+    await focusError('load')
   } finally {
     isLoading.value = false
   }
@@ -140,23 +148,25 @@ async function runClockAction(
   message: string,
 ) {
   action.value = nextAction
-  pageError.value = ''
+  loadError.value = ''
+  actionError.value = ''
   successMessage.value = ''
 
   try {
     record.value = await clock()
     successMessage.value = message
-  } catch (error) {
-    pageError.value = getErrorMessage(error, '打卡失敗，請稍後再試。')
-    await focusError()
+  } catch {
+    actionError.value = '無法確認這次打卡是否完成，請重新載入今日狀態確認。'
+    await focusError('action')
   } finally {
     action.value = null
   }
 }
 
-async function focusError() {
+async function focusError(kind: 'load' | 'action') {
   await nextTick()
-  errorRegion.value?.focus()
+  if (kind === 'load') loadErrorRegion.value?.focus()
+  else actionErrorRegion.value?.focus()
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -235,8 +245,11 @@ function formatStartTime(value: string | null | undefined) {
       </div>
     </section>
 
-    <p v-if="pageError" ref="errorRegion" class="mt-5 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">
-      {{ pageError }}
+    <p v-if="loadError" ref="loadErrorRegion" class="mt-5 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">
+      {{ loadError }}
+    </p>
+    <p v-if="actionError" ref="actionErrorRegion" class="mt-5 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">
+      {{ actionError }}
     </p>
     <p v-if="successMessage" class="mt-5 rounded-[0.625rem] border border-accent-soft bg-accent-soft px-3.5 py-3 text-sm" role="status" aria-live="polite">
       {{ successMessage }}
@@ -247,16 +260,25 @@ function formatStartTime(value: string | null | undefined) {
       <span class="h-36 rounded-2xl bg-surface-soft" aria-hidden="true"></span>
     </div>
 
-    <div v-else-if="pageError" class="mt-6 grid gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="today-retry-title">
+    <div v-else-if="loadError" class="mt-6 grid gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="today-retry-title">
       <div class="grid gap-2">
         <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">需要再試一次</span>
         <h2 id="today-retry-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">今日資料還沒載入。</h2>
         <p class="text-sm leading-relaxed text-muted">確認網路連線後重試；這次失敗不會建立或修改出勤資料。</p>
       </div>
-      <button class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" type="button" :disabled="isLoading" :aria-busy="isLoading" @click="load">重新載入</button>
+      <button data-action="retry-load" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" type="button" :disabled="isLoading" :aria-busy="isLoading" @click="load">重新載入</button>
     </div>
 
-    <div v-else class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.75fr)]">
+    <section v-if="actionError && !isLoading && !loadError" class="mt-6 grid gap-4 rounded-2xl border border-[var(--error-line)] bg-[var(--error-surface)] p-5 sm:p-6" aria-labelledby="action-error-title">
+      <div class="grid gap-2">
+        <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-[var(--error-ink)]">打卡結果待確認</span>
+        <h2 id="action-error-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">先確認今日狀態。</h2>
+        <p class="text-sm leading-relaxed text-[var(--error-ink)]">打卡請求可能已由伺服器完成；重新讀取後，再決定下一步。</p>
+      </div>
+      <button data-action="reload-status" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-[var(--error-ink)] bg-surface px-4 py-2 font-semibold text-[var(--error-ink)] transition duration-200 ease-out hover:-translate-y-px hover:bg-canvas active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" type="button" :disabled="isLoading" :aria-busy="isLoading" @click="load">重新確認今日狀態</button>
+    </section>
+
+    <div v-else-if="!isLoading && !loadError" class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.75fr)]">
       <section v-if="viewState === 'preview'" class="grid gap-6 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="preview-title">
         <div class="flex flex-wrap items-start justify-between gap-5 border-b border-line pb-5">
           <div class="grid gap-1">
@@ -279,7 +301,7 @@ function formatStartTime(value: string | null | undefined) {
 
         <div class="grid gap-3 border-s-4 border-accent ps-4">
           <p class="text-sm leading-relaxed text-muted">目前只用瀏覽器時間預覽，不會寫入資料。按下按鈕後，才會由伺服器記錄實際上班時間。</p>
-          <button data-action="clock-in" class="inline-flex min-h-14 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-5 py-3 text-base font-bold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="button" :disabled="isBusy" :aria-busy="action === 'clock-in'" @click="handleClockIn">
+          <button data-action="clock-in" class="inline-flex min-h-14 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-5 py-3 text-base font-bold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="button" :disabled="isBusy || Boolean(actionError)" :aria-busy="action === 'clock-in'" @click="handleClockIn">
             {{ action === 'clock-in' ? '正在記錄…' : '開始上班打卡' }}
           </button>
         </div>
@@ -302,7 +324,7 @@ function formatStartTime(value: string | null | undefined) {
 
         <div class="grid gap-3 border-t border-line pt-5">
           <p class="text-sm leading-relaxed text-muted">下班時按下按鈕，系統會補齊同一筆今日出勤紀錄。</p>
-          <button class="inline-flex min-h-14 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-5 py-3 text-base font-bold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="button" :disabled="isBusy" :aria-busy="action === 'clock-out'" @click="handleClockOut">
+          <button data-action="clock-out" class="inline-flex min-h-14 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-5 py-3 text-base font-bold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="button" :disabled="isBusy || Boolean(actionError)" :aria-busy="action === 'clock-out'" @click="handleClockOut">
             {{ action === 'clock-out' ? '正在記錄…' : '完成下班打卡' }}
           </button>
         </div>

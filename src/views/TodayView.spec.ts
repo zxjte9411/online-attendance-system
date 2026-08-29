@@ -3,7 +3,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TodayView from './TodayView.vue'
-import { clockInToday, getTodayAttendanceRecord } from '../lib/attendance'
+import { clockInToday, clockOutToday, getTodayAttendanceRecord } from '../lib/attendance'
 import { getCurrentUserId, getSetupStatus } from '../lib/settings'
 
 vi.mock('../lib/attendance', () => ({
@@ -144,6 +144,82 @@ describe('TodayView', () => {
     expect(wrapper.get('summary').text()).toContain('詳細資訊')
     expect(wrapper.get('details').element.open).toBe(false)
     expect(wrapper.text()).toContain('歷史制度')
+    wrapper.unmount()
+  })
+
+  it('載入錯誤顯示載入提示，不混入打卡狀態不明提示', async () => {
+    vi.mocked(getTodayAttendanceRecord).mockRejectedValueOnce(new Error('讀取失敗'))
+
+    const wrapper = mount(TodayView, { attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('今日資料還沒載入')
+    expect(wrapper.text()).toContain('這次失敗不會建立或修改出勤資料')
+    expect(wrapper.text()).not.toContain('無法確認這次打卡是否完成')
+    expect(wrapper.get('[data-action="retry-load"]').text()).toContain('重新載入')
+    wrapper.unmount()
+  })
+
+  it('上班打卡錯誤顯示狀態不明提示，重新確認後以 server 紀錄恢復已上班', async () => {
+    vi.mocked(clockInToday).mockRejectedValueOnce(new Error('打卡逾時'))
+
+    const wrapper = mount(TodayView, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="clock-in"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('無法確認這次打卡是否完成，請重新載入今日狀態確認。')
+    expect(wrapper.text()).toContain('重新確認今日狀態')
+    expect(wrapper.text()).not.toContain('今日資料還沒載入')
+    expect(wrapper.text()).not.toContain('這次失敗不會建立或修改出勤資料')
+
+    vi.mocked(getTodayAttendanceRecord).mockResolvedValueOnce(clockedInRecord as never)
+    await wrapper.get('[data-action="reload-status"]').trigger('click')
+    await flushPromises()
+
+    expect(getTodayAttendanceRecord).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-state="clocked-in"]').text()).toContain('已上班')
+    wrapper.unmount()
+  })
+
+  it('打卡錯誤後重新確認仍失敗時，保留狀態不明提示而不改成載入錯誤語意', async () => {
+    vi.mocked(clockInToday).mockRejectedValueOnce(new Error('打卡逾時'))
+
+    const wrapper = mount(TodayView, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="clock-in"]').trigger('click')
+    await flushPromises()
+
+    vi.mocked(getTodayAttendanceRecord).mockRejectedValueOnce(new Error('重新讀取失敗'))
+    await wrapper.get('[data-action="reload-status"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('無法確認這次打卡是否完成，請重新載入今日狀態確認。')
+    expect(wrapper.text()).not.toContain('今日資料還沒載入')
+    expect(wrapper.text()).not.toContain('這次失敗不會建立或修改出勤資料')
+    expect(wrapper.get('[data-action="reload-status"]').text()).toContain('重新確認今日狀態')
+    wrapper.unmount()
+  })
+
+  it('下班打卡錯誤也維持狀態不明提示，不顯示載入錯誤內容', async () => {
+    vi.mocked(getTodayAttendanceRecord).mockResolvedValueOnce(clockedInRecord as never)
+    vi.mocked(getSetupStatus).mockResolvedValueOnce({
+      profile: null,
+      contexts: [],
+      defaultContext: null,
+      policies: [],
+      complete: false,
+    })
+    vi.mocked(clockOutToday).mockRejectedValueOnce(new Error('打卡逾時'))
+
+    const wrapper = mount(TodayView, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="clock-out"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('無法確認這次打卡是否完成，請重新載入今日狀態確認。')
+    expect(wrapper.text()).not.toContain('今日資料還沒載入')
+    expect(wrapper.text()).not.toContain('這次失敗不會建立或修改出勤資料')
     wrapper.unmount()
   })
 })
