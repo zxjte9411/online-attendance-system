@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { createSupabaseAuth } from './lib/auth'
 import SettingsView from './views/SettingsView.vue'
 import TodayView from './views/TodayView.vue'
+import AttendanceView from './views/AttendanceView.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -203,6 +204,7 @@ async function handleSignOut() {
 
       <main id="main-content" tabindex="-1" class="grid items-start px-5 py-10 pb-16 sm:px-10 md:py-12 md:pb-24 lg:px-16">
         <TodayView v-if="route.name === 'today'" />
+        <AttendanceView v-else-if="route.name === 'attendance'" />
         <SettingsView v-else-if="route.name === 'settings'" />
         <div v-else class="w-full max-w-6xl">
           <section class="grid max-w-[39rem] gap-4" aria-labelledby="page-title">
@@ -264,27 +266,7 @@ async function handleSignOut() {
               </div>
             </section>
 
-            <section v-else-if="route.name === 'attendance'" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="attendance-preview-title">
-              <div class="flex items-start justify-between gap-4 border-b border-line pb-5">
-                <div class="grid gap-1">
-                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">出勤時間軸 · 預覽資料</span>
-                  <h2 id="attendance-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">今日事件順序</h2>
-                </div>
-                <span class="rounded-[0.375rem] border border-line px-2 py-1 font-mono text-[0.6875rem] font-bold text-muted">只讀預覽</span>
-              </div>
-              <ol class="grid divide-y divide-line">
-                <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4 first:pt-0 last:pb-0">
-                  <time class="font-mono text-sm font-bold tabular-nums text-accent" datetime="09:00">範例：09:00</time>
-                  <div class="grid gap-0.5"><strong>範例事件：開始工作</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
-                </li>
-                <li class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-4 py-4 first:pt-0 last:pb-0">
-                  <time class="font-mono text-sm font-bold tabular-nums text-muted" datetime="18:00">範例：18:00</time>
-                  <div class="grid gap-0.5"><strong>範例事件：結束工作</strong><span class="text-[0.8125rem] text-muted">預覽資料，非實際紀錄</span></div>
-                </li>
-              </ol>
-            </section>
-
-            <div v-else-if="route.name === 'leave'" class="grid gap-4 lg:grid-cols-2">
+            <div v-if="route.name === 'leave'" class="grid gap-4 lg:grid-cols-2">
               <section class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-7 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="calendar-classification-title">
                 <div class="grid gap-1 border-b border-line pb-4">
                   <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">Calendar classification</span>
