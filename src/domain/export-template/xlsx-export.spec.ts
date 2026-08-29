@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs'
 import {
   exportReportToXlsx,
   parseDateCellValue,
+  isFormulaCell,
   ExportError,
 } from './xlsx-export'
 import type { ExportTemplateConfig } from './mapping-validator'
@@ -138,21 +139,37 @@ function createMockReport(yearMonth = '2026-08'): MonthlyReport {
 
 async function createSyntheticTemplateWorkbook(): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook()
-  
+
   // Sheet 1: 8月 (Target sheet)
   const ws1 = wb.addWorksheet('8月')
-  
-  // Static headers & unmapped formulas
-  ws1.getCell('A1').value = '出勤記錄表'
+
+  // Set column widths and row heights
+  ws1.getColumn('B').width = 15
+  ws1.getColumn('F').width = 12
+  ws1.getRow(1).height = 28
+  ws1.getRow(5).height = 20
+
+  // Static headers with styles & merged cells
+  const titleCell = ws1.getCell('A1')
+  titleCell.value = '出勤記錄表'
+  titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF1E293B' } }
+  titleCell.alignment = { vertical: 'middle', horizontal: 'center' }
+  titleCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFF1F5F9' },
+  }
+  ws1.mergeCells('A1:H1')
+
   ws1.getCell('B2').value = '民國 115 年 08 月' // Static year_month target
   ws1.getCell('D2').value = '公司識別碼' // Static company_identifier target
-  ws1.getCell('F2').value = '未對應公式'
-  ws1.getCell('F3').value = { formula: 'SUM(10, 20)', result: 30 } // Existing formula preservation
+  ws1.getCell('F2').value = '總工時公式：'
 
-  // Merged cells
-  ws1.mergeCells('A1:D1')
+  // Unmapped formula cell (must be preserved intact)
+  const unmappedFormulaCell = ws1.getCell('F3')
+  unmappedFormulaCell.value = { formula: 'SUM(F6:F8)', result: 8 }
 
-  // Table Headers at Row 5
+  // Table Headers at Row 5 with styling
   ws1.getCell('A5').value = '項次'
   ws1.getCell('B5').value = '日期'
   ws1.getCell('C5').value = '星期'
@@ -161,6 +178,11 @@ async function createSyntheticTemplateWorkbook(): Promise<Uint8Array> {
   ws1.getCell('F5').value = '工時(小時)'
   ws1.getCell('G5').value = '補休' // Unmapped compensatory leave column
   ws1.getCell('H5').value = '備註'
+
+  // Apply border and number format on column F
+  ws1.getCell('F6').numFmt = '0.0'
+  ws1.getCell('F7').numFmt = '0.0'
+  ws1.getCell('F8').numFmt = '0.0'
 
   // Data rows with dates
   ws1.getCell('B6').value = '2026-08-01'
@@ -174,6 +196,11 @@ async function createSyntheticTemplateWorkbook(): Promise<Uint8Array> {
   // Sheet 2: 其他月份 (Should remain untouched)
   const ws2 = wb.addWorksheet('9月')
   ws2.getCell('A1').value = '九月份工作表保持不變'
+
+  // Sheet 3: 備份工作表
+  const ws3 = wb.addWorksheet('統計備份')
+  ws3.getCell('A1').value = '備份'
+  ws3.getCell('B1').value = { formula: 'SUM(100, 200)', result: 300 }
 
   const buffer = await wb.xlsx.writeBuffer()
   return new Uint8Array(buffer)
@@ -204,7 +231,21 @@ describe('Domain: XLSX Export Engine', () => {
     })
   })
 
-  describe('exportReportToXlsx Round-trip', () => {
+  describe('isFormulaCell helper', () => {
+    it('identifies formula cell types correctly', () => {
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('test')
+      ws.getCell('A1').value = { formula: 'SUM(1,2)', result: 3 }
+      ws.getCell('A2').value = 'plain text'
+      ws.getCell('A3').value = 42
+
+      expect(isFormulaCell(ws.getCell('A1'))).toBe(true)
+      expect(isFormulaCell(ws.getCell('A2'))).toBe(false)
+      expect(isFormulaCell(ws.getCell('A3'))).toBe(false)
+    })
+  })
+
+  describe('exportReportToXlsx Round-trip & Edge Cases', () => {
     const config: ExportTemplateConfig = {
       name: '測試範本',
       monthWorksheetMapping: {
@@ -216,7 +257,11 @@ describe('Domain: XLSX Export Engine', () => {
         { sourceField: 'weekday', targetColumn: 'C', transforms: [{ type: 'WEEKDAY_ZH_TW' }] },
         { sourceField: 'actual_clock_in_at', targetColumn: 'D', transforms: [{ type: 'TIME_HH_MM' }] },
         { sourceField: 'actual_clock_out_at', targetColumn: 'E', transforms: [{ type: 'TIME_HH_MM' }] },
-        { sourceField: 'net_worked_minutes', targetColumn: 'F', transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }, { type: 'EMPTY_IF_ZERO' }] },
+        {
+          sourceField: 'net_worked_minutes',
+          targetColumn: 'F',
+          transforms: [{ type: 'MINUTES_TO_DECIMAL_HOURS' }, { type: 'EMPTY_IF_ZERO' }],
+        },
         { sourceField: 'note', targetColumn: 'H' },
       ],
       staticCellMapping: [
@@ -225,7 +270,7 @@ describe('Domain: XLSX Export Engine', () => {
       ],
     }
 
-    it('successfully exports workbook and preserves unmapped sheets/formulas/styles', async () => {
+    it('successfully exports workbook and preserves unmapped sheets/formulas/styles/dimensions', async () => {
       const templateBytes = await createSyntheticTemplateWorkbook()
       const report = createMockReport('2026-08')
 
@@ -246,17 +291,29 @@ describe('Domain: XLSX Export Engine', () => {
       const ws8 = readWb.getWorksheet('8月')
       expect(ws8).toBeDefined()
 
-      // Verify Static Cell writes
+      // 1. Verify dimensions preservation
+      expect(ws8?.getColumn('B').width).toBe(15)
+      expect(ws8?.getColumn('F').width).toBe(12)
+      expect(ws8?.getRow(1).height).toBe(28)
+
+      // 2. Verify merged cell and styles preservation
+      const titleCell = ws8?.getCell('A1')
+      expect(titleCell?.value).toBe('出勤記錄表')
+      expect(titleCell?.font?.bold).toBe(true)
+      expect(titleCell?.alignment?.horizontal).toBe('center')
+
+      // 3. Verify Static Cell writes
       expect(ws8?.getCell('B2').value).toBe('115 年 08 月')
       expect(ws8?.getCell('D2').value).toBe('ACME_CORP')
 
-      // Verify Row writes
+      // 4. Verify Row writes
       // 2026-08-01 (Row 6)
       expect(ws8?.getCell('B6').value).toBe('2026-08-01')
       expect(ws8?.getCell('C6').value).toBe('週六')
       expect(ws8?.getCell('D6').value).toBeNull() // No clock in
       expect(ws8?.getCell('E6').value).toBeNull() // No clock out
       expect(ws8?.getCell('F6').value).toBeNull() // 0 net minutes converted to null via EMPTY_IF_ZERO
+      expect(ws8?.getCell('F6').numFmt).toBe('0.0') // Preserves number format!
 
       // 2026-08-03 (Row 8)
       expect(ws8?.getCell('B8').value).toBe('2026-08-03')
@@ -265,23 +322,97 @@ describe('Domain: XLSX Export Engine', () => {
       expect(ws8?.getCell('E8').value).toBe('18:00')
       expect(ws8?.getCell('F8').value).toBe(8) // 480 mins / 60 = 8
 
-      // Formula injection safety: text '=SUM(1,2)' must be stored as literal string, not formula
+      // 5. Formula injection safety: text '=SUM(1,2)' must be stored as literal string, not formula
       const noteCell = ws8?.getCell('H8')
       expect(noteCell?.value).toBe('=SUM(1,2)')
       expect(typeof noteCell?.value).toBe('string')
       expect(noteCell?.type).not.toBe(ExcelJS.ValueType.Formula)
 
-      // Unmapped compensatory leave column intact
+      // 6. Unmapped compensatory leave column intact
       expect(ws8?.getCell('G6').value).toBe('原本補休文字1')
       expect(ws8?.getCell('G8').value).toBe('原本補休文字3')
 
-      // Unmapped existing formula intact
+      // 7. Unmapped existing formula intact
       const formulaCell = ws8?.getCell('F3')
-      expect(formulaCell?.formula).toBe('SUM(10, 20)')
+      expect(formulaCell?.formula).toBe('SUM(F6:F8)')
 
-      // Other worksheet (9月) untouched
+      // 8. Other worksheets (9月, 統計備份) untouched
       const ws9 = readWb.getWorksheet('9月')
       expect(ws9?.getCell('A1').value).toBe('九月份工作表保持不變')
+      const wsBackup = readWb.getWorksheet('統計備份')
+      expect(wsBackup?.getCell('B1').formula).toBe('SUM(100, 200)')
+    })
+
+    it('prevents destructive formula-cell overwrite on Static Cell target', async () => {
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('8月')
+      ws.getCell('B6').value = '2026-08-01'
+      ws.getCell('B7').value = '2026-08-02'
+      ws.getCell('B8').value = '2026-08-03'
+      // D2 is a formula cell mapped to company_identifier!
+      ws.getCell('D2').value = { formula: 'CONCATENATE("ACME", "_CORP")', result: 'ACME_CORP' }
+
+      const templateBytes = new Uint8Array(await wb.xlsx.writeBuffer())
+      const report = createMockReport('2026-08')
+
+      await expect(
+        exportReportToXlsx({
+          templateBytes,
+          report,
+          config, // config maps static company_identifier to D2
+          targetMonth: '2026-08',
+        })
+      ).rejects.toThrowError(
+        expect.objectContaining({ code: 'FORMULA_CELL_OVERWRITE' })
+      )
+    })
+
+    it('prevents destructive formula-cell overwrite on Daily Row target', async () => {
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('8月')
+      ws.getCell('B6').value = '2026-08-01'
+      ws.getCell('B7').value = '2026-08-02'
+      ws.getCell('B8').value = '2026-08-03'
+      // F8 (mapped to net_worked_minutes) is a formula cell!
+      ws.getCell('F8').value = { formula: 'E8-D8', result: 8 }
+
+      const templateBytes = new Uint8Array(await wb.xlsx.writeBuffer())
+      const report = createMockReport('2026-08')
+
+      await expect(
+        exportReportToXlsx({
+          templateBytes,
+          report,
+          config,
+          targetMonth: '2026-08',
+        })
+      ).rejects.toThrowError(
+        expect.objectContaining({ code: 'FORMULA_CELL_OVERWRITE' })
+      )
+    })
+
+    it('detects Row Mapping and Static Cell Mapping collisions and halts export before writes', async () => {
+      const templateBytes = await createSyntheticTemplateWorkbook()
+      const report = createMockReport('2026-08')
+
+      // Collision: static target set to D8, which is also written by Daily Row mapping for 2026-08-03
+      const collidingConfig: ExportTemplateConfig = {
+        ...config,
+        staticCellMapping: [
+          { sourceField: 'company_identifier', targetCell: 'D8' },
+        ],
+      }
+
+      await expect(
+        exportReportToXlsx({
+          templateBytes,
+          report,
+          config: collidingConfig,
+          targetMonth: '2026-08',
+        })
+      ).rejects.toThrowError(
+        expect.objectContaining({ code: 'CELL_COLLISION' })
+      )
     })
 
     it('throws WORKSHEET_MAPPING_MISSING when month not in mapping', async () => {

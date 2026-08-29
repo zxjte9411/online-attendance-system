@@ -13,6 +13,8 @@ export type ExportErrorCode =
   | 'MAPPING_INVALID'
   | 'TRANSFORM_INVALID'
   | 'WORKBOOK_UNSUPPORTED'
+  | 'FORMULA_CELL_OVERWRITE'
+  | 'CELL_COLLISION'
 
 export class ExportError extends Error {
   code: ExportErrorCode
@@ -22,6 +24,15 @@ export class ExportError extends Error {
     this.name = 'ExportError'
     this.code = code
   }
+}
+
+export function isFormulaCell(cell: ExcelJS.Cell): boolean {
+  if (cell.type === ExcelJS.ValueType.Formula) return true
+  if (cell.formula) return true
+  if (typeof cell.value === 'object' && cell.value !== null && 'formula' in cell.value) {
+    return true
+  }
+  return false
 }
 
 export function parseDateCellValue(
@@ -182,7 +193,51 @@ export async function exportReportToXlsx({
     }
   }
 
-  // 1. Write Static Cell Mappings
+  // Collision & Formula Checks BEFORE writing any cells
+
+  // 1. Collect all Daily row target addresses
+  const dailyTargetAddresses = new Set<string>()
+  for (const reportRow of report.rows) {
+    const rowNum = dateRowMap.get(reportRow.date)!
+    for (const rowEntry of config.rowMapping) {
+      const col = rowEntry.targetColumn.trim().toUpperCase()
+      const addr = `${col}${rowNum}`
+      dailyTargetAddresses.add(addr)
+
+      // Prevent destructive formula cell overwrite on Daily row targets
+      const cell = worksheet.getCell(addr)
+      if (isFormulaCell(cell)) {
+        throw new ExportError(
+          'FORMULA_CELL_OVERWRITE',
+          `目標每日列儲存格「${addr}」包含公式，為避免破壞公式已中止匯出。`
+        )
+      }
+    }
+  }
+
+  // 2. Collect Static target addresses, check collisions and formula overwrite
+  for (const staticEntry of config.staticCellMapping) {
+    const staticAddr = staticEntry.targetCell.trim().toUpperCase()
+
+    // Collision check
+    if (dailyTargetAddresses.has(staticAddr)) {
+      throw new ExportError(
+        'CELL_COLLISION',
+        `靜態儲存格與每日列目標位置衝突：「${staticAddr}」。`
+      )
+    }
+
+    // Formula cell overwrite check
+    const cell = worksheet.getCell(staticAddr)
+    if (isFormulaCell(cell)) {
+      throw new ExportError(
+        'FORMULA_CELL_OVERWRITE',
+        `目標靜態儲存格「${staticAddr}」包含公式，為避免破壞公式已中止匯出。`
+      )
+    }
+  }
+
+  // 3. Write Static Cell Mappings (Literal values)
   for (const staticEntry of config.staticCellMapping) {
     let rawValue: unknown = null
     if (staticEntry.sourceField === 'year_month') {
@@ -209,7 +264,7 @@ export async function exportReportToXlsx({
     }
   }
 
-  // 2. Write Daily Row Mappings
+  // 4. Write Daily Row Mappings (Literal values)
   for (const reportRow of report.rows) {
     const rowNum = dateRowMap.get(reportRow.date)!
 
