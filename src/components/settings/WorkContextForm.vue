@@ -53,15 +53,11 @@ async function submit() {
     }
 
     const shouldActivate = Boolean(props.context && !props.context.active && input.active)
-    let contexts = props.context
+    const contexts = props.context
       ? shouldActivate
-        ? await activateWorkContext(props.userId, props.context.id)
+        ? await activateWorkContext(props.userId, props.context.id, input)
         : await updateWorkContext(props.userId, props.context.id, input)
       : await createWorkContext(props.userId, input)
-
-    if (shouldActivate) {
-      contexts = await updateWorkContext(props.userId, props.context!.id, input)
-    }
 
     emit('saved', contexts)
     successMessage.value = props.context ? '工作情境已儲存。' : '工作情境已建立。'

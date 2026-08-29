@@ -125,9 +125,16 @@ export async function updateWorkContext(userId: string, contextId: string, input
   return listWorkContexts(userId)
 }
 
-export async function activateWorkContext(userId: string, contextId: string) {
+export async function activateWorkContext(
+  userId: string,
+  contextId: string,
+  input?: Partial<WorkContextInput>
+) {
   const { error } = await getSupabaseClient().rpc('activate_work_context', {
     p_context_id: contextId,
+    p_name: input?.name ?? null,
+    p_company_identifier: input?.company_identifier ?? null,
+    p_project_identifier: input?.project_identifier ?? null,
   })
 
   if (error) throw error

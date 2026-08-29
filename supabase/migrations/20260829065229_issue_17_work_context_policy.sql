@@ -91,6 +91,10 @@ grant select, insert, update
   on table public.profiles, public.work_contexts, public.work_policies
   to authenticated;
 
+revoke delete
+  on table public.profiles, public.work_contexts, public.work_policies
+  from authenticated, anon, public;
+
 create policy profiles_owner_select on public.profiles
   for select using (id = (select auth.uid()));
 create policy profiles_owner_insert on public.profiles
@@ -305,7 +309,12 @@ begin
 end;
 $$;
 
-create function public.activate_work_context(p_context_id uuid)
+create function public.activate_work_context(
+  p_context_id uuid,
+  p_name text default null,
+  p_company_identifier text default null,
+  p_project_identifier text default null
+)
 returns public.work_contexts
 language plpgsql
 security definer
@@ -313,6 +322,7 @@ set search_path = ''
 as $$
 declare
   owner_id uuid := (select auth.uid());
+  has_active_default boolean;
   selected_context public.work_contexts;
 begin
   if owner_id is null then
@@ -333,13 +343,20 @@ begin
     raise exception 'work context not found';
   end if;
 
+  select exists(
+    select 1 from public.work_contexts
+    where user_id = owner_id and active and is_default
+  ) into has_active_default;
+
   perform pg_catalog.set_config('app.work_context_default_rpc', 'on', true);
-  update public.work_contexts
-  set is_default = false
-  where user_id = owner_id and is_default;
 
   update public.work_contexts
-  set active = true, is_default = true
+  set
+    name = coalesce(p_name, name),
+    company_identifier = coalesce(p_company_identifier, company_identifier),
+    project_identifier = coalesce(p_project_identifier, project_identifier),
+    active = true,
+    is_default = case when has_active_default then is_default else true end
   where id = p_context_id and user_id = owner_id;
 
   perform pg_catalog.set_config('app.work_context_default_rpc', '', true);
@@ -354,5 +371,5 @@ revoke all on function public.create_work_context(text, text, text, boolean) fro
 grant execute on function public.create_work_context(text, text, text, boolean) to authenticated;
 revoke all on function public.set_default_work_context(uuid) from public;
 grant execute on function public.set_default_work_context(uuid) to authenticated;
-revoke all on function public.activate_work_context(uuid) from public;
-grant execute on function public.activate_work_context(uuid) to authenticated;
+revoke all on function public.activate_work_context(uuid, text, text, text) from public;
+grant execute on function public.activate_work_context(uuid, text, text, text) to authenticated;

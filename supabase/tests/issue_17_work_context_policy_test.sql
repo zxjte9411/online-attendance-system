@@ -2,7 +2,7 @@
 
 begin;
 
-select plan(52);
+select plan(65);
 
 select has_table('public', 'profiles', 'profiles table exists');
 select has_table('public', 'work_contexts', 'work_contexts table exists');
@@ -172,6 +172,11 @@ select is(
   true,
   'activation atomically sets the context as the active default'
 );
+select is(
+  (select count(*)::integer from public.work_contexts where is_default),
+  1,
+  'activation without existing default maintains a single default'
+);
 select is((select count(*)::integer from public.work_contexts), 1, 'context SELECT is isolated by owner');
 select is(
   (select count(*)::integer from public.profiles where id = '00000000-0000-0000-0000-000000000017'),
@@ -181,6 +186,70 @@ select is(
 select is((select count(*)::integer from public.work_policies), 0, 'policy SELECT is isolated by owner');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000017';
+select throws_ok(
+  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'other-user'))$$,
+  'P0001', null, 'activate_work_context rejects other users contexts'
+);
+
+select lives_ok(
+  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'inactive'))$$,
+  'activate_work_context succeeds when active default already exists'
+);
+select is(
+  (select active from public.work_contexts where id = (select id from issue_17_context_ids where label = 'inactive')),
+  true,
+  'activation with existing default sets active true'
+);
+select is(
+  (select is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'inactive')),
+  false,
+  'activation with existing default keeps is_default false'
+);
+select is(
+  (select name from public.work_contexts where is_default),
+  'Second',
+  'existing default remains unchanged after activating another context'
+);
+select is(
+  (select count(*)::integer from public.work_contexts where is_default),
+  1,
+  'default uniqueness invariant holds with existing default'
+);
+
+insert into issue_17_context_ids (label, id)
+select 'atomic-inactive', id
+from public.create_work_context('Old Atomic Name', 'Old Atomic Co', 'Old Atomic Proj', false);
+
+select lives_ok(
+  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'atomic-inactive'), 'New Atomic Name', 'New Atomic Co', 'New Atomic Proj')$$,
+  'activate_work_context atomically updates metadata and activates context'
+);
+select is(
+  (select name from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
+  'New Atomic Name',
+  'atomic activation updates name'
+);
+select is(
+  (select company_identifier from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
+  'New Atomic Co',
+  'atomic activation updates company identifier'
+);
+select is(
+  (select project_identifier from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
+  'New Atomic Proj',
+  'atomic activation updates project identifier'
+);
+select is(
+  (select active and not is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
+  true,
+  'atomic activation sets active true and keeps is_default false when default exists'
+);
+select is(
+  (select count(*)::integer from public.work_contexts where is_default),
+  1,
+  'default uniqueness holds after atomic activation'
+);
+
 select throws_ok(
   $$insert into public.work_policies (
       user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
