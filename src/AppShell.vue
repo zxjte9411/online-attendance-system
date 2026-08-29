@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { createSupabaseAuth } from './lib/auth'
 import SettingsView from './views/SettingsView.vue'
 import TodayView from './views/TodayView.vue'
+import AttendanceView from './views/AttendanceView.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -203,6 +204,7 @@ async function handleSignOut() {
 
       <main id="main-content" tabindex="-1" class="grid items-start px-5 py-10 pb-16 sm:px-10 md:py-12 md:pb-24 lg:px-16">
         <TodayView v-if="route.name === 'today'" />
+        <AttendanceView v-else-if="route.name === 'attendance'" />
         <SettingsView v-else-if="route.name === 'settings'" />
         <div v-else class="w-full max-w-6xl">
           <section class="grid max-w-[39rem] gap-4" aria-labelledby="page-title">
