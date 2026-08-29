@@ -1,3 +1,12 @@
+import {
+  resolveCalendarDay,
+  findApplicableWorkPolicy,
+  type CalendarResolutionSource,
+  type DgpaCalendarRow,
+  type DgpaBaseline,
+} from '../dgpa-calendar/resolver'
+import type { WorkPolicy } from '../../lib/settings'
+
 export type DayStatusType = 'LEAVE' | 'REMOTE' | 'BUSINESS_TRIP'
 export type CalendarDayType = 'WORKDAY' | 'HOLIDAY'
 
@@ -33,6 +42,10 @@ export type DailyOverview = {
   hasAttendance: boolean
   hasException: boolean
   exceptionHint: string | null
+  resolvedDayType: CalendarDayType
+  resolvedSource: CalendarResolutionSource
+  resolvedName: string | null
+  dgpaBaseline: DgpaBaseline | null
 }
 
 const WEEKDAY_LABELS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'] as const
@@ -57,13 +70,39 @@ export function formatCalendarOverrideLabel(dayType: CalendarDayType): string {
   }
 }
 
+export function formatCalendarResolutionLabel(
+  source: CalendarResolutionSource,
+  dayType: CalendarDayType
+): string {
+  switch (source) {
+    case 'MANUAL_OVERRIDE':
+      return dayType === 'WORKDAY' ? '人工工作日' : '人工假日'
+    case 'DGPA':
+      return dayType === 'WORKDAY' ? 'DGPA 補班日' : 'DGPA 假日'
+    case 'WORK_POLICY':
+      return dayType === 'WORKDAY' ? '制度工作日' : '制度非工作日'
+    case 'WEEKEND_FALLBACK':
+      return dayType === 'WORKDAY' ? '預設平日' : '週末預設'
+  }
+}
+
 export function buildMonthOverview(params: {
   yearMonth: string // YYYY-MM
   dayStatuses: DayStatus[]
   calendarOverrides: CalendarOverride[]
   attendanceDates: Set<string>
+  dgpaRows?: DgpaCalendarRow[]
+  workPolicies?: WorkPolicy[]
 }): DailyOverview[] {
-  const { yearMonth, dayStatuses, calendarOverrides, attendanceDates } = params
+  const {
+    yearMonth,
+    dayStatuses,
+    calendarOverrides,
+    attendanceDates,
+    dgpaRows = [],
+    workPolicies = [],
+  } = params
+
   const [yearStr, monthStr] = yearMonth.split('-')
   const year = Number(yearStr)
   const month = Number(monthStr) // 1-based
@@ -81,6 +120,11 @@ export function buildMonthOverview(params: {
     calendarOverrideMap.set(co.calendar_date, co)
   }
 
+  const dgpaMap = new Map<string, DgpaCalendarRow>()
+  for (const row of dgpaRows) {
+    dgpaMap.set(row.calendar_date, row)
+  }
+
   const days: DailyOverview[] = []
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -92,18 +136,27 @@ export function buildMonthOverview(params: {
 
     const dayStatus = dayStatusMap.get(date) ?? null
     const calendarOverride = calendarOverrideMap.get(date) ?? null
-    const hasAttendance = attendanceDates.has(date)
+    const dgpaRow = dgpaMap.get(date) ?? null
+    const applicableWorkPolicy = findApplicableWorkPolicy(date, workPolicies)
 
-    const isHolidayOverride = calendarOverride?.day_type === 'HOLIDAY'
+    const resolved = resolveCalendarDay({
+      date,
+      manualOverride: calendarOverride,
+      dgpaRow,
+      applicableWorkPolicy,
+    })
+
+    const hasAttendance = attendanceDates.has(date)
+    const isHoliday = resolved.dayType === 'HOLIDAY'
     const isLeaveStatus = dayStatus?.status === 'LEAVE'
-    const hasException = hasAttendance && (isHolidayOverride || isLeaveStatus)
+    const hasException = hasAttendance && (isHoliday || isLeaveStatus)
 
     let exceptionHint: string | null = null
     if (hasException) {
-      if (isHolidayOverride && isLeaveStatus) {
-        exceptionHint = '此日為人工假日且標記請假，但已有出勤紀錄'
-      } else if (isHolidayOverride) {
-        exceptionHint = '此日為人工假日，但已有出勤紀錄'
+      if (isHoliday && isLeaveStatus) {
+        exceptionHint = '此日為假日且標記請假，但已有出勤紀錄'
+      } else if (isHoliday) {
+        exceptionHint = '此日為假日，但已有出勤紀錄'
       } else if (isLeaveStatus) {
         exceptionHint = '此日標記請假，但已有出勤紀錄'
       }
@@ -120,6 +173,10 @@ export function buildMonthOverview(params: {
       hasAttendance,
       hasException,
       exceptionHint,
+      resolvedDayType: resolved.dayType,
+      resolvedSource: resolved.source,
+      resolvedName: resolved.name,
+      dgpaBaseline: resolved.dgpaBaseline,
     })
   }
 
