@@ -305,7 +305,54 @@ begin
 end;
 $$;
 
+create function public.activate_work_context(p_context_id uuid)
+returns public.work_contexts
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  owner_id uuid := (select auth.uid());
+  selected_context public.work_contexts;
+begin
+  if owner_id is null then
+    raise exception 'authenticated user required';
+  end if;
+
+  perform 1 from public.profiles where id = owner_id for update;
+  if not found then
+    raise exception 'profile required for user %', owner_id;
+  end if;
+
+  select * into selected_context
+  from public.work_contexts
+  where id = p_context_id and user_id = owner_id
+  for update;
+
+  if not found then
+    raise exception 'work context not found';
+  end if;
+
+  perform pg_catalog.set_config('app.work_context_default_rpc', 'on', true);
+  update public.work_contexts
+  set is_default = false
+  where user_id = owner_id and is_default;
+
+  update public.work_contexts
+  set active = true, is_default = true
+  where id = p_context_id and user_id = owner_id;
+
+  perform pg_catalog.set_config('app.work_context_default_rpc', '', true);
+  select * into selected_context
+  from public.work_contexts
+  where id = p_context_id;
+  return selected_context;
+end;
+$$;
+
 revoke all on function public.create_work_context(text, text, text, boolean) from public;
 grant execute on function public.create_work_context(text, text, text, boolean) to authenticated;
 revoke all on function public.set_default_work_context(uuid) from public;
 grant execute on function public.set_default_work_context(uuid) to authenticated;
+revoke all on function public.activate_work_context(uuid) from public;
+grant execute on function public.activate_work_context(uuid) to authenticated;

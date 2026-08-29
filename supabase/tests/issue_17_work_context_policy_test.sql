@@ -2,7 +2,7 @@
 
 begin;
 
-select plan(48);
+select plan(52);
 
 select has_table('public', 'profiles', 'profiles table exists');
 select has_table('public', 'work_contexts', 'work_contexts table exists');
@@ -150,7 +150,28 @@ select throws_ok(
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000018';
 insert into issue_17_context_ids (label, id)
 select 'other-user', id
-from public.create_work_context('Other user', 'Company B', 'Project A');
+from public.create_work_context('Other user', 'Company B', 'Project A', false);
+select is(
+  (select count(*)::integer from public.work_contexts where active and is_default),
+  0,
+  'an owner can have an inactive context without an active default'
+);
+select throws_ok(
+  $$update public.work_contexts
+    set active = true
+    where id = (select id from issue_17_context_ids where label = 'other-user')$$,
+  'P0001', null, 'direct activation cannot bypass default creation'
+);
+select lives_ok(
+  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'other-user'))$$,
+  'activate_work_context activates an owned inactive context'
+);
+select is(
+  (select active and is_default from public.work_contexts
+   where id = (select id from issue_17_context_ids where label = 'other-user')),
+  true,
+  'activation atomically sets the context as the active default'
+);
 select is((select count(*)::integer from public.work_contexts), 1, 'context SELECT is isolated by owner');
 select is(
   (select count(*)::integer from public.profiles where id = '00000000-0000-0000-0000-000000000017'),
