@@ -8,6 +8,7 @@ import {
   deleteExportTemplate,
   downloadExportTemplateFile,
   getWorkbookWorksheetNames,
+  validateXlsxFileInput,
   type ExportTemplate,
 } from './export-templates'
 import * as supabaseModule from './supabase'
@@ -36,6 +37,26 @@ describe('Lib: Export Templates Service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(supabaseModule.getSupabaseClient).mockReturnValue(mockSupabase as any)
+  })
+
+  describe('File validation', () => {
+    it('rejects files with non-.xlsx extension or invalid MIME', () => {
+      const csvFile = new File(['1,2,3'], 'report.csv', { type: 'text/csv' })
+      expect(() => validateXlsxFileInput(csvFile)).toThrow('僅支援 .xlsx 格式')
+
+      const xlsFile = new File(['binary'], 'report.xls', { type: 'application/vnd.ms-excel' })
+      expect(() => validateXlsxFileInput(xlsFile)).toThrow('僅支援 .xlsx 格式')
+
+      const xlsmFile = new File(['binary'], 'macro.xlsm', {
+        type: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+      })
+      expect(() => validateXlsxFileInput(xlsmFile)).toThrow('僅支援 .xlsx 格式')
+
+      const validFile = new File(['binary'], 'template.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      expect(() => validateXlsxFileInput(validFile)).not.toThrow()
+    })
   })
 
   it('getExportTemplate queries database by user_id and context_id', async () => {
@@ -173,85 +194,203 @@ describe('Lib: Export Templates Service', () => {
     })
   })
 
-  it('replaceExportTemplate uploads new file, updates DB, then removes old file', async () => {
-    const currentTemplate: ExportTemplate = {
-      id: 'tpl-1',
-      user_id: 'user-1',
-      context_id: 'ctx-1',
-      name: '舊範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
-      month_worksheet_mapping: { '2026-08': '8月' },
-      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
-      static_cell_mapping: [],
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-01T00:00:00Z',
-    }
+  describe('replaceExportTemplate', () => {
+    it('uploads new file, updates DB, then removes old file on successful replacement', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
 
-    const newFileBytes = await createDummyXlsxBuffer(['8月', '9月'])
+      const newFileBytes = await createDummyXlsxBuffer(['8月', '9月'])
 
-    const uploadMock = vi.fn().mockResolvedValue({ data: { path: 'new-path' }, error: null })
-    const removeMock = vi.fn().mockResolvedValue({ data: [], error: null })
+      const uploadMock = vi.fn().mockResolvedValue({ data: { path: 'new-path' }, error: null })
+      const removeMock = vi.fn().mockResolvedValue({ data: [], error: null })
 
-    mockSupabase.storage.from.mockReturnValue({
-      upload: uploadMock,
-      remove: removeMock,
-    } as any)
+      mockSupabase.storage.from.mockReturnValue({
+        upload: uploadMock,
+        remove: removeMock,
+      } as any)
 
-    const updatedData = { ...currentTemplate, name: '新範本' }
-    const singleMock = vi.fn().mockResolvedValue({ data: updatedData, error: null })
-    const selectMock = vi.fn().mockReturnValue({ single: singleMock })
-    const eqIdMock = vi.fn().mockReturnValue({ select: selectMock })
-    const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
-    const updateMock = vi.fn().mockReturnValue({ eq: eqUserMock })
+      const updatedData = { ...currentTemplate, name: '新範本' }
+      const singleMock = vi.fn().mockResolvedValue({ data: updatedData, error: null })
+      const selectMock = vi.fn().mockReturnValue({ single: singleMock })
+      const eqIdMock = vi.fn().mockReturnValue({ select: selectMock })
+      const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
+      const updateMock = vi.fn().mockReturnValue({ eq: eqUserMock })
 
-    mockSupabase.from.mockReturnValue({
-      update: updateMock,
-    } as any)
+      mockSupabase.from.mockReturnValue({
+        update: updateMock,
+      } as any)
 
-    const result = await replaceExportTemplate({
-      userId: 'user-1',
-      currentTemplate,
-      newFile: newFileBytes,
-      newName: '新範本',
+      const result = await replaceExportTemplate({
+        userId: 'user-1',
+        currentTemplate,
+        newFile: newFileBytes,
+        newName: '新範本',
+      })
+
+      expect(result).toEqual(updatedData)
+      expect(uploadMock).toHaveBeenCalled()
+      expect(updateMock).toHaveBeenCalled()
+      expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
     })
 
-    expect(result).toEqual(updatedData)
-    expect(uploadMock).toHaveBeenCalled()
-    expect(updateMock).toHaveBeenCalled()
-    expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+    it('rejects replacement if new workbook is missing configured month worksheets without touching storage or DB', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      // New file only has 8月, missing 9月!
+      const newFileBytes = await createDummyXlsxBuffer(['8月'])
+
+      const uploadMock = vi.fn()
+      const updateMock = vi.fn()
+      mockSupabase.storage.from.mockReturnValue({ upload: uploadMock } as any)
+      mockSupabase.from.mockReturnValue({ update: updateMock } as any)
+
+      await expect(
+        replaceExportTemplate({
+          userId: 'user-1',
+          currentTemplate,
+          newFile: newFileBytes,
+        })
+      ).rejects.toThrow('新範本檔案缺少目前已設定的月份工作表「9月」')
+
+      expect(uploadMock).not.toHaveBeenCalled()
+      expect(updateMock).not.toHaveBeenCalled()
+    })
+
+    it('performs best-effort cleanup on new file if DB update fails and preserves old template', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      const newFileBytes = await createDummyXlsxBuffer(['8月'])
+
+      const uploadMock = vi.fn().mockResolvedValue({ data: { path: 'new-path' }, error: null })
+      const removeMock = vi.fn().mockResolvedValue({ data: [], error: null })
+
+      mockSupabase.storage.from.mockReturnValue({
+        upload: uploadMock,
+        remove: removeMock,
+      } as any)
+
+      // DB update fails
+      const singleMock = vi.fn().mockResolvedValue({ data: null, error: new Error('DB connection timeout') })
+      const selectMock = vi.fn().mockReturnValue({ single: singleMock })
+      const eqIdMock = vi.fn().mockReturnValue({ select: selectMock })
+      const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
+      const updateMock = vi.fn().mockReturnValue({ eq: eqUserMock })
+
+      mockSupabase.from.mockReturnValue({
+        update: updateMock,
+      } as any)
+
+      await expect(
+        replaceExportTemplate({
+          userId: 'user-1',
+          currentTemplate,
+          newFile: newFileBytes,
+        })
+      ).rejects.toThrow('DB connection timeout')
+
+      // Verifies newly uploaded file was cleaned up and old file was not removed
+      expect(removeMock).toHaveBeenCalledTimes(1)
+      expect(removeMock).not.toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+    })
   })
 
-  it('deleteExportTemplate deletes DB metadata and Storage file', async () => {
-    const template: ExportTemplate = {
-      id: 'tpl-1',
-      user_id: 'user-1',
-      context_id: 'ctx-1',
-      name: '範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
-      month_worksheet_mapping: {},
-      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
-      static_cell_mapping: [],
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-01T00:00:00Z',
-    }
+  describe('deleteExportTemplate', () => {
+    it('deletes DB metadata and Storage file on success', async () => {
+      const template: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: {},
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
 
-    const eqIdMock = vi.fn().mockResolvedValue({ error: null })
-    const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
-    const deleteMock = vi.fn().mockReturnValue({ eq: eqUserMock })
+      const eqIdMock = vi.fn().mockResolvedValue({ error: null })
+      const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
+      const deleteMock = vi.fn().mockReturnValue({ eq: eqUserMock })
 
-    mockSupabase.from.mockReturnValue({
-      delete: deleteMock,
-    } as any)
+      mockSupabase.from.mockReturnValue({
+        delete: deleteMock,
+      } as any)
 
-    const removeMock = vi.fn().mockResolvedValue({ data: [], error: null })
-    mockSupabase.storage.from.mockReturnValue({
-      remove: removeMock,
-    } as any)
+      const removeMock = vi.fn().mockResolvedValue({ data: [], error: null })
+      mockSupabase.storage.from.mockReturnValue({
+        remove: removeMock,
+      } as any)
 
-    await deleteExportTemplate('user-1', template)
+      await deleteExportTemplate('user-1', template)
 
-    expect(deleteMock).toHaveBeenCalled()
-    expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+      expect(deleteMock).toHaveBeenCalled()
+      expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+    })
+
+    it('throws error when storage file cleanup fails and does not report clean success', async () => {
+      const template: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: {},
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      const eqIdMock = vi.fn().mockResolvedValue({ error: null })
+      const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
+      const deleteMock = vi.fn().mockReturnValue({ eq: eqUserMock })
+
+      mockSupabase.from.mockReturnValue({
+        delete: deleteMock,
+      } as any)
+
+      const removeMock = vi.fn().mockResolvedValue({ data: null, error: new Error('Storage bucket unavailable') })
+      mockSupabase.storage.from.mockReturnValue({
+        remove: removeMock,
+      } as any)
+
+      await expect(deleteExportTemplate('user-1', template)).rejects.toThrow(
+        '儲存庫檔案清理失敗'
+      )
+    })
   })
 
   it('downloadExportTemplateFile downloads ArrayBuffer from storage', async () => {

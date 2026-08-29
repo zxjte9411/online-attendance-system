@@ -19,6 +19,27 @@ export interface ExportTemplate {
   updated_at: string
 }
 
+export function validateXlsxFileInput(
+  file: File | Blob | Uint8Array | ArrayBuffer
+): void {
+  if (typeof File !== 'undefined' && file instanceof File) {
+    const name = file.name.toLowerCase()
+    if (!name.endsWith('.xlsx')) {
+      throw new Error('僅支援 .xlsx 格式之 Excel 活頁簿，不支援 .xls、.xlsm 或 .csv 檔案。')
+    }
+    if (file.type) {
+      const type = file.type.toLowerCase()
+      if (
+        type.includes('csv') ||
+        type === 'application/vnd.ms-excel' ||
+        type.includes('macroenabled')
+      ) {
+        throw new Error('僅支援 .xlsx 格式之 Excel 活頁簿，不支援 .xls、.xlsm 或 .csv 檔案。')
+      }
+    }
+  }
+}
+
 export async function getExportTemplate(
   userId: string,
   contextId: string
@@ -76,7 +97,10 @@ export async function uploadExportTemplate({
   name,
   file,
 }: UploadExportTemplateParams): Promise<ExportTemplate> {
-  // Validate workbook readability and non-empty sheets
+  // 1. Validate file extension and MIME
+  validateXlsxFileInput(file)
+
+  // 2. Validate workbook readability and non-empty sheets
   await getWorkbookWorksheetNames(file)
 
   const templateId = crypto.randomUUID()
@@ -122,8 +146,12 @@ export async function uploadExportTemplate({
     .single()
 
   if (insertError) {
-    // Cleanup storage object on insert failure
-    await supabase.storage.from('export-templates').remove([storagePath])
+    // Best-effort cleanup storage object on insert failure
+    try {
+      await supabase.storage.from('export-templates').remove([storagePath])
+    } catch {
+      // preserve primary insertError
+    }
     throw insertError
   }
 
@@ -192,17 +220,37 @@ export async function replaceExportTemplate({
   newFile,
   newName,
 }: ReplaceExportTemplateParams): Promise<ExportTemplate> {
-  // 1. Validate new workbook readability
-  await getWorkbookWorksheetNames(newFile)
+  // 1. Validate file extension and MIME
+  validateXlsxFileInput(newFile)
 
-  // 2. Upload to new storage path
+  // 2. Validate new workbook readability and get sheets
+  const newSheetNames = await getWorkbookWorksheetNames(newFile)
+
+  // 3. Compatibility Validation against current persisted configuration
+  const configuredMonths = Object.entries(currentTemplate.month_worksheet_mapping || {})
+  for (const [month, sheetName] of configuredMonths) {
+    if (!newSheetNames.includes(sheetName)) {
+      throw new Error(
+        `新範本檔案缺少目前已設定的月份工作表「${sheetName}」（對應月份 ${month}），無法替換。請先調整月份對應或提供包含該工作表的檔案。`
+      )
+    }
+  }
+
+  // 4. Upload to new storage path
   const newTemplateFileId = crypto.randomUUID()
   const newStoragePath = `${userId}/${currentTemplate.context_id}/${newTemplateFileId}/source.xlsx`
+
+  let uploadBody: Blob | Uint8Array | ArrayBuffer
+  if (newFile instanceof Blob || newFile instanceof Uint8Array || newFile instanceof ArrayBuffer) {
+    uploadBody = newFile
+  } else {
+    uploadBody = newFile
+  }
 
   const supabase = getSupabaseClient()
   const { error: uploadError } = await supabase.storage
     .from('export-templates')
-    .upload(newStoragePath, newFile, {
+    .upload(newStoragePath, uploadBody, {
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       upsert: false,
     })
@@ -211,7 +259,7 @@ export async function replaceExportTemplate({
     throw uploadError
   }
 
-  // 3. Update DB metadata
+  // 5. Update DB metadata
   const { data, error: updateError } = await supabase
     .from('export_templates')
     .update({
@@ -224,13 +272,23 @@ export async function replaceExportTemplate({
     .single()
 
   if (updateError) {
-    // Clean up newly uploaded file if DB update failed; preserve old file!
-    await supabase.storage.from('export-templates').remove([newStoragePath])
+    // Best-effort cleanup of new file; preserve original DB record and old storage file
+    try {
+      await supabase.storage.from('export-templates').remove([newStoragePath])
+    } catch {
+      // preserve primary updateError
+    }
     throw updateError
   }
 
-  // 4. Remove old storage object after successful DB update
-  await supabase.storage.from('export-templates').remove([currentTemplate.storage_path])
+  // 6. Remove old storage object after successful DB update
+  const { error: removeOldError } = await supabase.storage
+    .from('export-templates')
+    .remove([currentTemplate.storage_path])
+
+  if (removeOldError) {
+    console.warn(`Old template storage object removal warning: ${removeOldError.message}`)
+  }
 
   return data as ExportTemplate
 }
@@ -250,7 +308,15 @@ export async function deleteExportTemplate(
     throw deleteError
   }
 
-  await supabase.storage.from('export-templates').remove([template.storage_path])
+  const { error: removeError } = await supabase.storage
+    .from('export-templates')
+    .remove([template.storage_path])
+
+  if (removeError) {
+    throw new Error(
+      `範本資料庫紀錄已刪除，但儲存庫檔案清理失敗：${removeError.message || 'Storage error'}`
+    )
+  }
 }
 
 export async function downloadExportTemplateFile(
