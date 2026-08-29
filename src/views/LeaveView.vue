@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   buildMonthOverview,
   formatDayStatusLabel,
-  formatCalendarOverrideLabel,
+  formatCalendarResolutionLabel,
   type DailyOverview,
   type DayStatus,
   type CalendarOverride,
@@ -19,6 +19,16 @@ import {
   upsertCalendarOverride,
   deleteCalendarOverride,
 } from '../lib/day-status-calendar'
+import {
+  getDgpaCalendarForMonth,
+  syncDgpaCalendarYear,
+} from '../lib/dgpa-calendar'
+import type { DgpaCalendarRow } from '../domain/dgpa-calendar/resolver'
+import {
+  getSetupStatus,
+  getCurrentUserId,
+  type WorkPolicy,
+} from '../lib/settings'
 import { presentErrorMessage } from '../lib/error-presentation'
 import { getTaipeiToday } from '../lib/work-policy'
 
@@ -28,6 +38,13 @@ const loadError = ref('')
 const dayStatuses = ref<DayStatus[]>([])
 const calendarOverrides = ref<CalendarOverride[]>([])
 const attendanceDates = ref<Set<string>>(new Set())
+const dgpaRows = ref<DgpaCalendarRow[]>([])
+const workPolicies = ref<WorkPolicy[]>([])
+
+// DGPA Sync UI state
+const isSyncing = ref(false)
+const syncError = ref('')
+const syncSuccess = ref('')
 
 const editingDay = ref<DailyOverview | null>(null)
 const isSaving = ref(false)
@@ -47,12 +64,26 @@ const monthLabel = computed(() => {
   return `${year} 年 ${Number(month)} 月`
 })
 
+const dgpaStatusSummary = computed(() => {
+  if (dgpaRows.value.length === 0) {
+    return '尚未同步 DGPA 辦公日曆'
+  }
+  const first = dgpaRows.value[0]
+  const dateObj = new Date(first.fetched_at)
+  const timeStr = isNaN(dateObj.getTime())
+    ? first.fetched_at
+    : dateObj.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+  return `DGPA 日曆已同步（同步時間：${timeStr}）`
+})
+
 const overviewDays = computed(() => {
   return buildMonthOverview({
     yearMonth: currentMonth.value,
     dayStatuses: dayStatuses.value,
     calendarOverrides: calendarOverrides.value,
     attendanceDates: attendanceDates.value,
+    dgpaRows: dgpaRows.value,
+    workPolicies: workPolicies.value,
   })
 })
 
@@ -64,16 +95,26 @@ watch(currentMonth, (newMonth) => {
   void loadMonth(newMonth)
 })
 
+async function loadPolicies(): Promise<WorkPolicy[]> {
+  const userId = await getCurrentUserId()
+  const setup = await getSetupStatus(userId)
+  return setup.policies
+}
+
 async function loadMonth(yearMonth: string): Promise<boolean> {
   const requestId = ++currentRequestId
   isLoading.value = true
   loadError.value = ''
+  syncError.value = ''
+  syncSuccess.value = ''
 
   try {
-    const [statuses, overrides, attendances] = await Promise.all([
+    const [statuses, overrides, attendances, dgpas, policies] = await Promise.all([
       getDayStatusesForMonth(yearMonth),
       getCalendarOverridesForMonth(yearMonth),
       getMonthAttendanceDates(yearMonth),
+      getDgpaCalendarForMonth(yearMonth),
+      loadPolicies(),
     ])
 
     if (requestId !== currentRequestId) return false
@@ -81,6 +122,8 @@ async function loadMonth(yearMonth: string): Promise<boolean> {
     dayStatuses.value = statuses
     calendarOverrides.value = overrides
     attendanceDates.value = attendances
+    dgpaRows.value = dgpas
+    workPolicies.value = policies
     return true
   } catch (error) {
     if (requestId !== currentRequestId) return false
@@ -90,6 +133,26 @@ async function loadMonth(yearMonth: string): Promise<boolean> {
     if (requestId === currentRequestId) {
       isLoading.value = false
     }
+  }
+}
+
+async function handleSyncDgpa() {
+  if (isSyncing.value) return
+
+  const [yearStr] = currentMonth.value.split('-')
+  const year = Number(yearStr)
+  isSyncing.value = true
+  syncError.value = ''
+  syncSuccess.value = ''
+
+  try {
+    const res = await syncDgpaCalendarYear(year)
+    await loadMonth(currentMonth.value)
+    syncSuccess.value = `已成功同步 ${year} 年 DGPA 辦公日曆（共 ${res.count} 天）。`
+  } catch (err) {
+    syncError.value = presentErrorMessage(err, 'DGPA 日曆同步失敗，請稍後再試。')
+  } finally {
+    isSyncing.value = false
   }
 }
 
@@ -276,8 +339,41 @@ async function handleSaveDay() {
       </p>
     </section>
 
+    <!-- DGPA Calendar Sync Bar -->
+    <section class="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm" aria-label="DGPA 日曆狀態與同步">
+      <div class="flex items-center gap-3">
+        <span class="inline-block size-2.5 rounded-full" :class="dgpaRows.length > 0 ? 'bg-emerald-500' : 'bg-amber-400'" aria-hidden="true"></span>
+        <div class="grid gap-0.5">
+          <span class="text-xs font-semibold text-ink" data-testid="dgpa-status-summary">{{ dgpaStatusSummary }}</span>
+          <span class="text-[0.6875rem] text-muted">行政院人事行政總處 (DGPA) 政府辦公日曆表</span>
+        </div>
+      </div>
+      <button
+        data-action="sync-dgpa"
+        data-testid="sync-dgpa-button"
+        class="min-h-10 rounded-[0.625rem] border border-line bg-surface-soft px-4 py-1.5 text-sm font-semibold text-ink transition hover:border-accent hover:text-accent focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-60"
+        type="button"
+        :disabled="isSyncing"
+        @click="handleSyncDgpa"
+      >
+        <span v-if="isSyncing" class="inline-flex items-center gap-1.5">
+          <span class="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true"></span>
+          同步中…
+        </span>
+        <span v-else>更新 DGPA</span>
+      </button>
+    </section>
+
+    <!-- Sync Success/Error Alerts -->
+    <p v-if="syncSuccess" data-testid="sync-success-alert" class="mt-3 rounded-[0.625rem] border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-900" role="status">
+      ✓ {{ syncSuccess }}
+    </p>
+    <p v-if="syncError" data-testid="sync-error-alert" class="mt-3 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-4 py-2.5 text-xs text-[var(--error-ink)]" role="alert">
+      {{ syncError }}
+    </p>
+
     <!-- Month Navigation -->
-    <section class="mt-8 flex flex-wrap items-center justify-between gap-4 border-y border-line py-4" aria-label="月份導覽">
+    <section class="mt-6 flex flex-wrap items-center justify-between gap-4 border-y border-line py-4" aria-label="月份導覽">
       <div class="flex items-center gap-3">
         <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">檢視月份</span>
         <strong class="font-display text-xl font-semibold">{{ monthLabel }}</strong>
@@ -331,14 +427,14 @@ async function handleSaveDay() {
     </div>
 
     <!-- Days List Table -->
-    <div v-else class="mt-6 overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow)]">
+    <div v-else-if="!loadError" class="mt-6 overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow)]">
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm" aria-label="月份日曆與狀態表">
           <thead class="border-b border-line bg-surface-soft text-[0.6875rem] font-bold tracking-[0.1em] text-muted">
             <tr>
               <th scope="col" class="px-4 py-3 sm:px-6">日期</th>
               <th scope="col" class="px-4 py-3 sm:px-6">當日狀態（特殊狀態）</th>
-              <th scope="col" class="px-4 py-3 sm:px-6">日曆分類（覆寫）</th>
+              <th scope="col" class="px-4 py-3 sm:px-6">日曆分類（解析結果）</th>
               <th scope="col" class="px-4 py-3 sm:px-6">出勤</th>
               <th scope="col" class="px-4 py-3 sm:px-6 text-end">操作</th>
             </tr>
@@ -375,19 +471,23 @@ async function handleSaveDay() {
                 <span v-else class="text-xs text-muted">未設定</span>
               </td>
 
-              <!-- Calendar Override Column -->
+              <!-- Calendar Resolution Column -->
               <td class="px-4 py-4 sm:px-6" :data-testid="`calendar-cell-${d.date}`">
-                <div v-if="d.calendarOverride" class="grid gap-0.5">
-                  <span
-                    class="w-fit rounded-[0.375rem] px-2 py-0.5 text-xs font-bold"
-                    :class="d.calendarOverride.day_type === 'HOLIDAY' ? 'border border-amber-300 bg-amber-50 text-amber-800' : 'border border-blue-300 bg-blue-50 text-blue-800'"
-                  >
-                    {{ formatCalendarOverrideLabel(d.calendarOverride.day_type) }}
-                  </span>
-                  <span v-if="d.calendarOverride.name" class="font-medium text-xs">{{ d.calendarOverride.name }}</span>
-                  <span v-if="d.calendarOverride.note" class="text-xs text-muted">{{ d.calendarOverride.note }}</span>
+                <div class="grid gap-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      class="w-fit rounded-[0.375rem] px-2 py-0.5 text-xs font-bold"
+                      :class="d.resolvedDayType === 'HOLIDAY' ? 'border border-amber-300 bg-amber-50 text-amber-800' : 'border border-blue-300 bg-blue-50 text-blue-800'"
+                    >
+                      {{ formatCalendarResolutionLabel(d.resolvedSource, d.resolvedDayType, d.isWeekend) }}
+                    </span>
+                    <span v-if="d.resolvedName" class="font-medium text-xs text-ink">{{ d.resolvedName }}</span>
+                  </div>
+                  <!-- Underlying DGPA Baseline notice when manual override is present -->
+                  <div v-if="d.calendarOverride && d.dgpaBaseline" class="text-[0.6875rem] text-muted">
+                    原 DGPA: {{ d.dgpaBaseline.dayType === 'HOLIDAY' ? '假日' : '工作日' }}{{ d.dgpaBaseline.name ? ` - ${d.dgpaBaseline.name}` : '' }}
+                  </div>
                 </div>
-                <span v-else class="text-xs text-muted">未覆寫</span>
               </td>
 
               <!-- Attendance & Exception Column -->
@@ -455,11 +555,21 @@ async function handleSaveDay() {
           </button>
         </div>
 
+        <!-- DGPA Baseline Information -->
+        <div class="mt-4 rounded-[0.5rem] border border-line bg-surface-soft p-3 text-xs leading-relaxed text-muted">
+          <strong>DGPA 官方基準：</strong>
+          <span v-if="editingDay.dgpaBaseline" class="text-ink font-medium">
+            {{ editingDay.dgpaBaseline.dayType === 'HOLIDAY' ? '假日' : '工作日' }}
+            <span v-if="editingDay.dgpaBaseline.name"> ({{ editingDay.dgpaBaseline.name }})</span>
+          </span>
+          <span v-else class="text-muted">尚無該日快取資料</span>
+        </div>
+
         <!-- Attendance Retention Notice -->
         <div
           v-if="editingDay.hasAttendance"
           data-testid="attendance-retention-notice"
-          class="mt-4 rounded-[0.625rem] border border-blue-200 bg-blue-50 p-3.5 text-xs leading-relaxed text-blue-950"
+          class="mt-3 rounded-[0.625rem] border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-950"
           role="note"
         >
           <strong>出勤紀錄保留提示：</strong>此日已有出勤紀錄。儲存變更不會修改、刪除或重算出勤紀錄。
@@ -512,7 +622,7 @@ async function handleSaveDay() {
                 data-testid="calendar-override-type"
                 class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
-                <option value="NONE">無覆寫（依未來預設日曆）</option>
+                <option value="NONE">無覆寫（依 DGPA 日曆／工作制度）</option>
                 <option value="WORKDAY">人工工作日 (WORKDAY)</option>
                 <option value="HOLIDAY">人工假日 (HOLIDAY)</option>
               </select>

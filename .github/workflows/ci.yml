@@ -22,7 +22,8 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.115.0
-      - run: supabase start --exclude edge-runtime
+      - run: supabase start
       - run: supabase db reset
       - run: supabase test db
       - run: supabase db advisors --local --fail-on error
+      - run: ./scripts/smoke-edge-function.sh
