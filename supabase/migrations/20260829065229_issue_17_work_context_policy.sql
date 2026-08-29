@@ -58,6 +58,10 @@ create table public.work_policies (
     or (clock_out_rounding_mode in ('CEIL', 'FLOOR') and clock_out_rounding_minutes > 0)
   ),
   constraint work_policies_working_days_not_empty check (cardinality(working_days) > 0),
+  constraint work_policies_working_days_values check (
+    array_position(working_days, null::text) is null
+    and working_days <@ array['0', '1', '2', '3', '4', '5', '6']::text[]
+  ),
   constraint work_policies_effective_dates check (effective_to is null or effective_to >= effective_from),
   constraint work_policies_context_owner_fkey
     foreign key (context_id, user_id)

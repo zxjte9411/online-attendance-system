@@ -2,7 +2,7 @@
 
 begin;
 
-select plan(33);
+select plan(34);
 
 select has_table('public', 'profiles');
 select has_table('public', 'work_contexts');
@@ -118,7 +118,7 @@ select throws_ok(
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'other-user'),
-      'Cross-account', '09:00', 480, 60, 'STANDARD_START', array['MONDAY'], '2026-01-01'
+      'Cross-account', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-01'
     )$$,
   '23503', '.*', 'composite FK prevents cross-account policy contexts'
 );
@@ -129,7 +129,7 @@ insert into public.work_policies (
 )
 select
   '00000000-0000-0000-0000-000000000017', id, 'Valid policy', '09:00', 480, 60,
-  'STANDARD_START', array['MONDAY', 'TUESDAY'], '2026-01-01', '2026-01-31'
+  'STANDARD_START', array['1', '2'], '2026-01-01', '2026-01-31'
 from issue_17_context_ids
 where label = 'first';
 
@@ -154,7 +154,7 @@ insert into public.work_policies (
 )
 select
   '00000000-0000-0000-0000-000000000017', id, 'Second valid policy', '09:00', 480, 60,
-  'STANDARD_START', array['MONDAY'], '2026-02-01', '2026-02-28'
+  'STANDARD_START', array['1'], '2026-02-01', '2026-02-28'
 from issue_17_context_ids
 where label = 'first';
 
@@ -166,7 +166,7 @@ select throws_ok(
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
-      'Bad rounding', '09:00', 480, 60, 'STANDARD_START', 'CEIL', 0, array['MONDAY'], '2027-01-01'
+      'Bad rounding', '09:00', 480, 60, 'STANDARD_START', 'CEIL', 0, array['1'], '2027-01-01'
     )$$,
   '23514', '.*', 'rounding minutes must be positive when rounding is enabled'
 );
@@ -177,7 +177,7 @@ select throws_ok(
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
-      'Bad dates', '09:00', 480, 60, 'STANDARD_START', array['MONDAY'], '2027-02-01', '2027-01-01'
+      'Bad dates', '09:00', 480, 60, 'STANDARD_START', array['1'], '2027-02-01', '2027-01-01'
     )$$,
   '23514', '.*', 'effective_to cannot precede effective_from'
 );
@@ -195,11 +195,22 @@ select throws_ok(
 select throws_ok(
   $$insert into public.work_policies (
       user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      early_arrival_policy, working_days, effective_from
+    ) values (
+      '00000000-0000-0000-0000-000000000017',
+      (select id from issue_17_context_ids where label = 'first'),
+      'Invalid day', '09:00', 480, 60, 'STANDARD_START', array['MONDAY'], '2027-03-01'
+    )$$,
+  '23514', '.*', 'working_days accepts only numeric day values'
+);
+select throws_ok(
+  $$insert into public.work_policies (
+      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
       early_arrival_policy, working_days, effective_from, effective_to
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
-      'Overlapping', '09:00', 480, 60, 'STANDARD_START', array['MONDAY'], '2026-01-15', '2026-02-01'
+      'Overlapping', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-15', '2026-02-01'
     )$$,
   '23P01', '.*', 'overlapping policy effective dates are rejected'
 );
