@@ -29,6 +29,7 @@ export type WorkContextInput = Pick<WorkContext, 'name' | 'company_identifier' |
 export type EarlyArrivalPolicy = 'STANDARD_START' | 'ACTUAL'
 export type ClockInRoundingMode = 'NONE' | 'CEIL'
 export type ClockOutRoundingMode = 'NONE' | 'CEIL' | 'FLOOR'
+export type WorkingDay = '0' | '1' | '2' | '3' | '4' | '5' | '6'
 
 export type WorkPolicy = {
   id: string
@@ -43,7 +44,7 @@ export type WorkPolicy = {
   clock_in_rounding_minutes: number | null
   clock_out_rounding_mode: ClockOutRoundingMode
   clock_out_rounding_minutes: number | null
-  working_days: string[]
+  working_days: WorkingDay[]
   effective_from: string
   effective_to: string | null
   timezone: string
@@ -148,6 +149,38 @@ export async function createWorkPolicy(userId: string, contextId: string, input:
   const { data, error } = await getSupabaseClient()
     .from('work_policies')
     .insert({ user_id: userId, context_id: contextId, ...input })
+    .select(policyFields)
+    .single()
+
+  if (error) throw error
+  return data as WorkPolicy
+}
+
+export async function updateWorkPolicyEffectiveTo(userId: string, policyId: string, effectiveTo: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) {
+    throw new Error('請提供有效的制度結束日期。')
+  }
+
+  const client = getSupabaseClient()
+  const { data: policy, error: readError } = await client
+    .from('work_policies')
+    .select('effective_from')
+    .eq('id', policyId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (readError) throw readError
+  if (!policy) throw new Error('找不到要結束的 Work Policy。')
+  if (effectiveTo < policy.effective_from) {
+    throw new Error('制度結束日期不能早於生效起日。')
+  }
+
+  const { data, error } = await client
+    .from('work_policies')
+    .update({ effective_to: effectiveTo })
+    .eq('id', policyId)
+    .eq('user_id', userId)
+    .is('effective_to', null)
     .select(policyFields)
     .single()
 

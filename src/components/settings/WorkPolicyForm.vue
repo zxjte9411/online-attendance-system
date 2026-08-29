@@ -6,6 +6,7 @@ import {
   type ClockOutRoundingMode,
   type EarlyArrivalPolicy,
   type WorkPolicy,
+  type WorkingDay,
 } from '../../lib/settings'
 
 const props = defineProps<{
@@ -25,14 +26,14 @@ const clockInRoundingMode = ref<ClockInRoundingMode>('NONE')
 const clockInRoundingMinutes = ref(30)
 const clockOutRoundingMode = ref<ClockOutRoundingMode>('NONE')
 const clockOutRoundingMinutes = ref(30)
-const workingDays = ref(['1', '2', '3', '4', '5'])
+const workingDays = ref<WorkingDay[]>(['1', '2', '3', '4', '5'])
 const effectiveFrom = ref('')
 const effectiveTo = ref('')
 const isSaving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const errorRegion = ref<HTMLElement | null>(null)
-const dayOptions = [
+const dayOptions: ReadonlyArray<readonly [WorkingDay, string]> = [
   ['1', '週一'], ['2', '週二'], ['3', '週三'], ['4', '週四'],
   ['5', '週五'], ['6', '週六'], ['0', '週日'],
 ] as const
