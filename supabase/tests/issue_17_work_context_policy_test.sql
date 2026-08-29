@@ -2,7 +2,7 @@
 
 begin;
 
-select plan(36);
+select plan(37);
 
 select has_table('public', 'profiles');
 select has_table('public', 'work_contexts');
@@ -157,6 +157,12 @@ select throws_ok(
     set name = 'Valid policy updated'
     where name = 'Valid policy'$$,
   'P0001', '.*', 'work policy name cannot be changed after creation'
+);
+select throws_ok(
+  $$update public.work_policies
+    set effective_to = '2026-02-01'
+    where name = 'Valid policy'$$,
+  'P0001', '.*', 'work policy effective_to cannot be changed twice'
 );
 
 insert into public.work_policies (
