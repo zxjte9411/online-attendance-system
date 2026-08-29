@@ -16,20 +16,20 @@
 
 - 使用者能在今日頁完成上班、下班打卡，且不會因單純開啟頁面而自動寫入。
 - 月列表能清楚呈現實際時間、計算時間、狀態與統計數字。
-- CSV 可直接以 Microsoft Excel 開啟中文內容；基本 XLSX 範本能依 Mapping 填入當月資料。
+- CSV 可直接以 Microsoft Excel 開啟中文內容；每個工作情境的一份多月份 XLSX 範本能依 Mapping 填入選定月份資料。
 - 使用者只能讀取、修改及刪除自己的資料。
 
 ## 2. 名詞與範圍定義
 
 | 名詞 | 定義 |
 |---|---|
-| 個人帳號 | 由 Supabase Auth 驗證的單一使用者帳號。V1 不提供團隊成員、主管或多租戶權限。 |
+| 個人帳號 | 由 Supabase Auth 驗證的單一使用者帳號；本產品不承諾特定身分提供者。V1 不提供團隊成員、主管或多租戶權限。 |
 | Company / Project | 工作情境識別。保存公司識別與專案識別，供工作制度、出勤紀錄與範本歸類；不是權限邊界。 |
 | Work Policy（工作制度） | 某個工作情境在一段期間適用的上班、工時、固定休息及時間計算規則。 |
 | 實際時間 | 使用者按下打卡或在補登表單輸入的原始上、下班時間，不可被有效時間覆蓋；CLOCK 由 server／DB 時間保存，MANUAL 由使用者輸入。 |
 | 實際經過分鐘數 | `actual_elapsed_minutes`：同一工作日內，實際下班減實際上班的分鐘數；任一實際時間缺漏時為未完成，不產生此結果。 |
 | 有效時間 | 套用當日工作制度後，用於工時計算的衍生時間，包含 `effective_clock_in_at` 與 `effective_clock_out_at`。 |
-| 有效下班時間 | `effective_clock_out_at`：由 `actual_clock_out_at` 依 `clock_out_rounding_mode` 與分鐘數衍生；模式為 `NONE` 時等於實際下班。CLOCK-OUT 的既定模式未預設為 FLOOR，詳見 OD-01。 |
+| 有效下班時間 | `effective_clock_out_at`：由 `actual_clock_out_at` 依 `clock_out_rounding_mode` 與分鐘數衍生；模式預設為 `NONE`，模式為 `NONE` 時等於實際下班。未設定時不得靜默套用其他模式。 |
 | 預計下班 | 依有效上班時間、每日工作分鐘數及固定休息分鐘數推算的提示，不代表實際下班。 |
 | 日曆 | 用來判斷工作日、週末、假日或補班日的資料；包含 DGPA 辦公日曆快取及使用者人工覆寫。 |
 | 特殊狀態 | `LEAVE`、`REMOTE`、`BUSINESS_TRIP` 三種單日狀態，均可附備註。 |
@@ -72,21 +72,21 @@ V1 在 MVP 基礎上加入可正式取代月度 Excel 整理的功能：
 - 技術約束：前端使用 Vue 3；後端資料與驗證使用 Supabase PostgreSQL、Supabase Auth、Supabase Storage 及 Row Level Security（RLS）。不因本產品需求另建獨立 API Server。
 - Work Policy 依生效日期版本化，出勤紀錄保存使用過的工作制度快照與計算結果歷史快照。
 - `LEAVE`、`REMOTE`、`BUSINESS_TRIP` 單日狀態及備註；不提供假別餘額或簽核。
-- DGPA 行政機關辦公日曆表同步；canonical 資料存於 Supabase，optional browser read cache 只供離線唯讀並顯示資料時間；人工日曆覆寫優先。
+- DGPA 行政機關辦公日曆表同步並使用實際解析的國定假日資料；canonical 資料存於 Supabase，optional browser read cache 只供離線唯讀並顯示資料時間；人工日曆覆寫優先。
 - 週末、假日、補班日及打卡例外的辨識與顯示。
 - 自動計算正常工時、加班及缺勤月統計；加班不簽核、不補休。
 - 月曆、月表、單日編輯及報表頁。
-- CSV 匯出（UTF-8 BOM）及基本 XLSX 原始範本 Mapping 匯出。
+- CSV 匯出（UTF-8 BOM）及每個工作情境一份多月份 XLSX 原始範本 Mapping 匯出。
 - 使用者可刪除自己的出勤、狀態、日曆覆寫及匯出範本；平台保留 Supabase 資料備份能力。
 - V1 驗收涵蓋計算測試、手算月統計、Excel 相容性及 RLS 隔離。
 - V1 另須驗收獨立的 rounding、Policy 日期重疊、default context、calculation version、server time、export transform、LEAVE 及 template-specific conversion 測試。
 
-### 4.3 技術約束與 XLSX 技術 Spike
+### 4.3 技術約束與 XLSX 匯出
 
 - V1 前端使用 Vue 3；資料與驗證使用 Supabase PostgreSQL、Auth、Storage 及 RLS。
 - 不加入獨立 API；需要原子寫入或 server time 時，可使用 Supabase RPC／PostgreSQL function。
-- XLSX 匯出在正式選定 library 前，先以真實甲方範本進行 technical spike，確認工作表、日期／時間儲存格、合併儲存格、既有格式、公式、Logo 及未 Mapping 內容的相容性。
-- XLSX library 不在本 PRD 預先指定；Spike 結果須記錄可支援與不可支援的範圍，再決定實作方案。Spike 失敗時不得以「可保留原格式」作為 V1 已驗收能力。
+- XLSX library 對工作表、日期／時間儲存格、合併儲存格、既有格式、公式、Logo 及未 Mapping 內容的支援，必須以真實甲方範本驗證，並記錄可支援與不可支援的範圍。
+- 範本格式或 library 不支援的內容應回報匯出錯誤，不得以「可保留原格式」或其他說法宣稱未驗證的能力。
 
 ## 5. 功能需求
 
@@ -105,6 +105,7 @@ V1 在 MVP 基礎上加入可正式取代月度 Excel 整理的功能：
 - 公司或專案識別變更不得改寫既有出勤的 company/project 識別；出勤保存當時的工作情境快照，既有紀錄仍可匯出。
 - V1 多個 work context 僅用於不同公司、專案、任職期間或報表設定；不代表同日可建立多筆出勤。每位使用者同一 `work_date` 仍只能有一筆 attendance，且該筆只屬一個 context。
 - 工作情境包含 `is_default`。同一使用者最多一個 `active = true` 且 `is_default = true` 的工作情境；切換預設值須以原子操作完成。
+- 首次建立的 active 工作情境自動成為 default；後續建立的工作情境不會自動取代既有 default。
 - 今日頁自動使用唯一的 active default context；沒有 active default 時，要求使用者選擇或完成設定，不得任意挑選工作情境。
 
 ### 5.2 Work Policy
@@ -119,7 +120,7 @@ V1 在 MVP 基礎上加入可正式取代月度 Excel 整理的功能：
 | `early_arrival_policy` | 早到採標準上班時間或採實際到班時間。 |
 | `clock_in_rounding_mode` | 上班時間模式，只允許已確認的 `NONE` 或 `CEIL`。 |
 | `clock_in_rounding_minutes` | 上班進位分鐘數；使用 `CEIL` 時必須為正值，`NONE` 時不套用。 |
-| `clock_out_rounding_mode` | 下班時間模式，可為 `NONE`、`CEIL` 或 `FLOOR`；採用哪一種商業規則及預設值列於 OD-01，不得自行假定。 |
+| `clock_out_rounding_mode` | 下班時間模式，預設為 `NONE`，可明確設定為 `NONE`、`CEIL` 或 `FLOOR`；選用 `CEIL`／`FLOOR` 時分鐘數必須為正值，未設定時不得靜默套用其他模式。 |
 | `clock_out_rounding_minutes` | 下班進位分鐘數；選用 `CEIL`／`FLOOR` 時必須為正值，`NONE` 時不套用。 |
 | `working_days` | 未有日曆資料時的例行工作日設定。 |
 | `timezone` | V1 固定為 `Asia/Taipei`。 |
@@ -173,10 +174,12 @@ V1 在 MVP 基礎上加入可正式取代月度 Excel 整理的功能：
 
 #### DGPA 同步與快取
 
-- V1 支援取得 DGPA 行政機關辦公日曆表，至少涵蓋日期、工作日／休假日分類及名稱（若來源提供）。
+- V1 支援取得並使用實際解析的 DGPA 行政機關辦公日曆表，至少涵蓋日期、工作日／休假日分類及名稱（若來源提供）。
 - 同步資料保存於 Supabase 的 canonical `dgpa_calendar_cache`，並記錄來源與更新時間；optional browser read cache 僅為讀取加速。
 - 同步失敗時不得清空 canonical 資料；有 browser read cache 時可離線唯讀顯示，頁面須標示目前使用的資料時間，且允許人工覆寫。
 - 人工覆寫不修改 DGPA 原始資料；刪除覆寫後才恢復採用日曆基準。
+
+- 未工作的 `HOLIDAY` 即使沒有出勤紀錄，`scheduled_minutes` 與 `absence_minutes` 均為 0。
 
 #### 打卡例外
 
@@ -192,18 +195,18 @@ V1 在 MVP 基礎上加入可正式取代月度 Excel 整理的功能：
 
 - 早到採標準上班：`actual_clock_in_at <= standard_start_time` 時，有效上班為 `standard_start_time`。
 - 早到採實際時間：有效上班先採 `actual_clock_in_at`。
-- `clock_in_rounding_mode = NONE` 時，不套用上班進位；`clock_in_rounding_mode = CEIL` 時，晚於標準上班時間的實際上班時間向上進位至 `clock_in_rounding_minutes` 邊界；等於邊界時不再進到下一格。
-- 上述邊界採 calendar boundary 或 standard-start anchored 的選擇尚由 OD-04 決定；本 PRD 不替使用者選擇 anchor，也不把任一示例視為 V1 預設。
+- `clock_in_rounding_mode = NONE` 時，不套用上班進位；`clock_in_rounding_mode = CEIL` 時，晚於標準上班時間的實際上班時間以 calendar boundary 為 anchor，向上進位至 `clock_in_rounding_minutes` 邊界；等於邊界時不再進到下一格。
+- clock-in 與 clock-out 共用 calendar-boundary rounding anchor；V1 不提供 standard-start anchored 或分別設定 anchor 的選項。
 
 早到規則與進位規則都要保存於使用的 Work Policy 快照，不得由頁面自行另解。
 
 #### 有效下班時間
 
-令 `actual_clock_out_at` 為實際下班時間。有效下班時間必須由實際下班時間衍生，但採用哪一種 clock-out 商業規則尚由 OD-01 決定：
+令 `actual_clock_out_at` 為實際下班時間。有效下班時間必須由實際下班時間衍生，並依 Work Policy 明確設定的模式處理：
 
-- 本文件移除「clock-out 一律向下取整」的既定規則；`FLOOR` 僅是可選模式，不是 V1 預設。
+- clock-out rounding mode 預設為 `NONE`；未設定時依 `NONE` 處理，不得靜默套用 `CEIL` 或 `FLOOR`。
 - `clock_out_rounding_mode = NONE` 時，`effective_clock_out_at = actual_clock_out_at`。
-- `clock_out_rounding_mode = CEIL` 或 `FLOOR` 時，分別依 `clock_out_rounding_minutes` 向上或向下取整至時間邊界；邊界 anchor 尚由 OD-04 決定，這只描述模式語意，不表示 V1 已選定任一模式或預設值。
+- `clock_out_rounding_mode = CEIL` 或 `FLOOR` 時，分別依正值的 `clock_out_rounding_minutes`，以與 clock-in 共用的 calendar boundary 為 anchor 向上或向下取整至時間邊界。
 - `actual_clock_out_at` 永遠保存，不能以 `effective_clock_out_at` 或 `expected_clock_out_at` 取代。
 
 #### 預計下班（提示）
@@ -229,12 +232,13 @@ expected_clock_out_at
 
 選定月份後，系統按每一天適用的日曆分類及 Work Policy 計算：
 
-- 應工作時數：原本依日曆及制度判定為應工作日的每日 `work_minutes` 加總；假日及週末不列入，原本應工作日的 `LEAVE` 仍列入應工作基準並另列請假，但不列缺勤。
-- `scheduled_minutes`：逐日依解析後的 Calendar／Day Status 結果及適用 Work Policy 產生的應工作分鐘數；應工作日為政策的 `work_minutes`，非應工作日為 0。此值由 Domain 產生。
+- 應工作時數：原本依實際解析日曆及制度判定為應工作日的每日 `work_minutes` 加總；`HOLIDAY` 及週末不列入，原本應工作日的 `LEAVE` 仍列入應工作基準並另列請假，但不列缺勤。
+- `scheduled_minutes`：逐日依解析後的 Calendar／Day Status 結果及適用 Work Policy 產生的應工作分鐘數；應工作日為政策的 `work_minutes`，非應工作日為 0。未工作的 `HOLIDAY` 為 0。此值由 Domain 產生。
 - 正常出勤：出勤紀錄的正常工時加總。
 - `leave_minutes`：底層日曆為應工作日、當日有 `LEAVE` 且沒有出勤紀錄時，等於該日 `scheduled_minutes`；不管理餘額。
 - 加班：依有效上／下班相減並扣除固定休息後產生的 `overtime_minutes` 加總。
 - `absence_minutes`：底層日曆為應工作日、沒有出勤紀錄且沒有 `LEAVE` 時，等於該日 `scheduled_minutes`。
+- `work_minutes` 是 Work Policy 可設定的每日值，用於正常工作日的出勤、請假及缺勤基準；不得從既有或 legacy XLSX 範本的常數推導。
 - `REMOTE`、`BUSINESS_TRIP` 依工作日的應工作時數及出勤資料統計，狀態另行呈現。
 
 未完成的當日紀錄不應被當作完整正常出勤；月統計須能識別待補下班資料。
@@ -398,11 +402,9 @@ user_id
 context_id
 name
 storage_path
-sheet_name
-start_row
+month_worksheet_mapping
 row_mapping
 static_cell_mapping
-monthly_strategy
 created_at
 updated_at
 ```
@@ -410,25 +412,25 @@ updated_at
 `row_mapping` 只保存逐日欄位到工作表欄位的基本對應，例如：
 
 ```text
-date                   -> A8:A38 [DATE_YYYY_MM_DD]
-weekday                -> B8:B38 [WEEKDAY_ZH_TW]
-effective_clock_in_at  -> C8:C38 [TIME_HH_MM]
-effective_clock_out_at -> D8:D38 [TIME_HH_MM]
-regular_minutes        -> E8:E38 [MINUTES_TO_DECIMAL_HOURS]
-overtime_minutes       -> F8:F38 [MINUTES_TO_DECIMAL_HOURS]
-leave_minutes          -> G8:G38 [MINUTES_TO_DECIMAL_HOURS]
-absence_minutes        -> H8:H38 [MINUTES_TO_DECIMAL_HOURS]
-status                 -> I8:I38 [VALUE_MAP]
-scheduled_minutes      -> J8:J38 [MINUTES_TO_DECIMAL_HOURS]
-actual_clock_in_at     -> K8:K38 [TIME_HH_MM]
-actual_clock_out_at    -> L8:L38 [TIME_HH_MM]
-expected_clock_out_at  -> M8:M38 [TIME_HH_MM]
-actual_elapsed_minutes -> N8:N38
-net_worked_minutes     -> O8:O38
-created_source         -> P8:P38
-manually_adjusted      -> Q8:Q38
-calculation_version    -> R8:R38
-note                   -> S8:S38
+date                   -> A [DATE_YYYY_MM_DD]
+weekday                -> B [WEEKDAY_ZH_TW]
+effective_clock_in_at  -> C [TIME_HH_MM]
+effective_clock_out_at -> D [TIME_HH_MM]
+regular_minutes        -> E [MINUTES_TO_DECIMAL_HOURS]
+overtime_minutes       -> F [MINUTES_TO_DECIMAL_HOURS]
+leave_minutes          -> G [MINUTES_TO_DECIMAL_HOURS]
+absence_minutes        -> H [MINUTES_TO_DECIMAL_HOURS]
+status                 -> I [VALUE_MAP]
+scheduled_minutes      -> J [MINUTES_TO_DECIMAL_HOURS]
+actual_clock_in_at     -> K [TIME_HH_MM]
+actual_clock_out_at    -> L [TIME_HH_MM]
+expected_clock_out_at  -> M [TIME_HH_MM]
+actual_elapsed_minutes -> N
+net_worked_minutes     -> O
+created_source         -> P
+manually_adjusted      -> Q
+calculation_version    -> R
+note                   -> S
 ```
 
 `static_cell_mapping` 只保存一次性固定儲存格，例如：
@@ -441,19 +443,20 @@ project_identifier     -> B5
 
 `VALUE_MAP` 的宣告式例子可為 `LEAVE → 請假`、`REMOTE → 遠端`、`BUSINESS_TRIP → 出差`、`ABSENT → 缺勤`；這只是 template／export 的文字對照，不是 Domain enum 定義，也不可用來計算 `leave_minutes` 或 `absence_minutes`。
 
-`paid_hours`／`reported_hours` 可作為 Row Mapping 欄位，但假日的值與是否輸出須先依 OD-02 決定；範本專屬的欄位轉換不得替 Domain 補上未決的商業規則。
+每個 work context 在 V1 僅有一份上傳的多月份 XLSX 範本；`month_worksheet_mapping` 以月份對應該範本的工作表，Row Mapping 以欄位對應每日資料，Static Cell Mapping 對應一次性固定儲存格。
 
-`sheet_name`、`start_row` 是否使用及其月份選擇方式依 `monthly_strategy` 與 OD-03 決定；在決策前不視為固定範本行為。
+匯出選定月份時，必須使用 `month_worksheet_mapping` 指定的工作表，並依 Row Mapping 的日期欄位和值尋找每日資料列；不得依賴固定列號、style ID 或檔名推測。範本專屬的欄位轉換不得改變 Domain 計算或補上 V1 未支援的商業規則。
 
-範本檔案放在 Supabase Storage 的使用者專屬路徑；Mapping 僅支援 V1 所需的工作表、起始列、欄位及固定儲存格，不承諾任意公式或複雜範本語言。
+範本檔案放在 Supabase Storage 的使用者專屬路徑；Mapping 僅支援 V1 所需的工作表、日期欄位、每日欄位及固定儲存格，不承諾任意公式或複雜範本語言。
 
 ### 6.9 資料庫驗證
 
 - `work_contexts` 以概念 CHECK 保證 `is_default = true` implies `active = true`，並建立 partial unique constraint／index，限制同一 `user_id` 至多一個 `active = true AND is_default = true` 的工作情境。
 - `work_policies` 由資料庫以同一 `user_id`、同一 `context_id` 的日期區間重疊驗證拒絕衝突寫入；`effective_from`／`effective_to` 不合法時也拒絕。應用程式驗證只提供較早的提示，不能取代 DB validation。
 - `attendance_records` 以 `(user_id, work_date)` 唯一限制每日一筆；關聯的 context 與 policy 必須屬於同一使用者。
+- `export_templates` 同一工作情境至多一份；範本的 `month_worksheet_mapping`、Row Mapping 與 Static Cell Mapping 必須屬於目前使用者及該工作情境。
 - context／policy 被 attendance 引用時，外鍵 DELETE 使用 RESTRICT；不得以 cascade 或 set null 破壞歷史關聯，未被引用時才可由產品流程 hard delete。
-- clock-in／clock-out rounding mode 僅允許列舉值，使用 CEIL／FLOOR 時對應分鐘數須為正值；`NONE` 不得套用 rounding minutes。Anchor 在 OD-04 決定前不得由 DB 或 Domain 默認。
+- clock-in／clock-out rounding mode 僅允許列舉值，使用 CEIL／FLOOR 時對應分鐘數須為正值；`NONE` 不得套用 rounding minutes。clock-in 與 clock-out 均使用 calendar boundary 作為唯一 rounding anchor。
 - `actual_elapsed_minutes`、`net_worked_minutes`、`regular_minutes`、`overtime_minutes` 不接受負值；缺少實際下班時，依未完成紀錄規則不寫入完成計算結果。
 
 ## 7. 頁面、Domain 與使用流程
@@ -471,9 +474,9 @@ Attendance Domain
 ```
 
 - **Attendance Domain**：依實際時間、Work Policy、Calendar、Day Status 產生有效時間、`actual_elapsed_minutes`、`net_worked_minutes`、`regular_minutes`、`overtime_minutes`，並為每日報表產生 `scheduled_minutes`、`leave_minutes`、`absence_minutes` 及月統計。
-- **Report Model**：提供匯出穩定欄位，至少包含日期、星期、company/project 識別、狀態、實際／有效／預計上下班、`scheduled_minutes`、`actual_elapsed_minutes`、`net_worked_minutes`、`regular_minutes`、`overtime_minutes`、`leave_minutes`、`absence_minutes`、建立來源、人工修正標記、計算版本及備註。假日的 `paid_hours`／`reported_hours` 僅是 OD-02 決定後才可啟用的 optional extension，不是標準 Report Model contract。
+- **Report Model**：提供匯出穩定欄位，至少包含日期、星期、company/project 識別、狀態、實際／有效／預計上下班、`scheduled_minutes`、`actual_elapsed_minutes`、`net_worked_minutes`、`regular_minutes`、`overtime_minutes`、`leave_minutes`、`absence_minutes`、建立來源、人工修正標記、計算版本及備註。
 - **Export Transformation**：只讀取 Domain／Report Model 已算好的值，執行欄位格式與有限值轉換；不能重新推導 Calendar、Day Status、Work Policy 或任何工時結果。
-- **Template Mapping**：分別處理逐日 Row Mapping 與一次性的 Static Cell Mapping；範本專屬轉換只存在這一層，不回寫 Domain 或 Report Model。
+- **Template Mapping**：依每份範本的月份／工作表對應處理逐日 Row Mapping 與一次性的 Static Cell Mapping；範本專屬轉換只存在這一層，不回寫 Domain 或 Report Model。
 - **CSV／XLSX**：都從同一個 Report Model 產生，差異只限輸出格式及已確認的 Mapping；Export 不查詢或重算 Calendar／Status／Policy。
 
 每日報表欄位的層級責任如下：
@@ -563,12 +566,12 @@ V1 允許的 transforms 僅有：
 
 - 選擇工作情境與月份。
 - 顯示應工作、正常出勤、請假、加班、缺勤及未完成紀錄；逐日資料可檢視四種分鐘數與其計算來源。
-- 提供 CSV 下載及選擇已上傳範本後的 XLSX 下載。
+- 提供 CSV 下載及選擇已上傳範本、月份對應工作表後的 XLSX 下載。
 
 ### 7.8 設定頁
 
 - 管理工作情境、Work Policy 及生效區間。
-- 上傳、刪除及設定基本 XLSX 範本 Mapping。
+- 為工作情境上傳、刪除及設定一份多月份 XLSX 範本的月份／工作表、Row Mapping 與 Static Cell Mapping。
 - 提供刪除個別資料及帳號所屬資料的明確操作與二次確認。
 
 ## 8. 匯出規格
@@ -592,17 +595,16 @@ note
 
 - 無值欄位保持空白，不以猜測值補入；時間與日期以 Asia/Taipei 顯示。`actual_clock_out_at`、`effective_clock_out_at` 與 `expected_clock_out_at` 為不同欄位，不得互相代填。
 - CSV 匯出應包含狀態與備註，讓 `LEAVE`、`REMOTE`、`BUSINESS_TRIP` 及打卡例外可被辨識；`actual_elapsed_minutes` 與 `net_worked_minutes` 不可互換。
-- `paid_hours` 與 `reported_hours` 不屬於標準 CSV／Report Model contract；只有 OD-02 決定後且匯出設定明確啟用時，才可作為 conditional optional 欄位，決策前不得以 0、固定工時或其他值代填。
 
-### 8.2 基本 XLSX 範本 Mapping
+### 8.2 多月份 XLSX 範本 Mapping
 
-1. 使用者上傳甲方原始 XLSX，儲存於 Supabase Storage。
-2. 以 Row Mapping 將每一筆 Report Model 日資料寫入資料列，欄位可套用有限 transforms。
-3. 以 Static Cell Mapping 寫入月份、公司／專案等不隨資料列重複的值；不與 Row Mapping 混用。
-4. 範本每月採用何種工作表／資料列策略，須先依 OD-03 決定，不在本 PRD 預設固定工作表或複製方式。
-5. 匯出時複製原始範本，只將已設定 Mapping 的位置寫入；盡可能保留原始格式、欄寬、列高、合併儲存格、Logo、公司資訊及頁面設定。
-6. 先完成真實甲方範本 technical spike；若範本格式本身不支援，應回報匯出錯誤，不靜默產生錯誤資料。
-7. V1 不承諾自動理解未知欄位、任意公式、簽核流程或跨工作表資料關聯。
+1. 使用者為工作情境上傳一份可涵蓋多月份的甲方原始 XLSX，儲存於 Supabase Storage。
+2. 每份範本設定月份／工作表對應、每日 Row Mapping 及 Static Cell Mapping；Row Mapping 的日期欄位用於辨識每日資料列。
+3. 匯出選定月份時，使用該月份對應的工作表，並依日期欄位和值尋找每日資料列後套用 Row Mapping；不得依賴固定列號、style ID 或檔名推測工作表或資料列。
+4. Static Cell Mapping 寫入月份、公司／專案等不隨資料列重複的值，且不與 Row Mapping 混用；`work_minutes` 及其他工時計算值均取自 Domain／Report Model，不得從 legacy XLSX 範本常數推導。
+5. 匯出時複製原始範本，只將已設定 Mapping 的位置寫入；所有未 Mapping 的原始範本儲存格內容及原始格式均予以保留。
+6. legacy 範本的「補休」欄位在 V1 不設定 Mapping，維持複製後的範本空白；不寫入、不推導，且 V1 不建立補休 Domain model 或計算規則。
+7. XLSX library 對實際範本的支援若不足，應回報匯出錯誤，不靜默產生錯誤資料；V1 不承諾任意公式、簽核流程或跨工作表資料關聯。
 
 ## 9. 資安、資料刪除與備份
 
@@ -637,9 +639,9 @@ note
 
 計算邏輯應可在不依賴 Vue 畫面或 Supabase 的情況下測試，至少涵蓋：
 
-- clock-in `NONE` 與 `CEIL` 必須獨立測試；`CEIL` 測試須分別帶入明確的 calendar-boundary 與 standard-start anchored fixture，標準 09:00、30 分鐘案例僅是已指定 anchor 的測試資料。
-- clock-out `NONE`、`CEIL`、`FLOOR` 必須獨立測試；各模式依明確設定及 anchor 產生 `effective_clock_out_at`，不可把 `FLOOR` 當成預設或既定商業規則。
-- 只在明確指定模式與 anchor 的函式測試中驗證向上／向下結果；測試不得替 OD-01 或 OD-04 做商業決定。
+- clock-in `NONE` 與 `CEIL` 必須獨立測試；`CEIL` 測試須帶入明確的 calendar-boundary fixture，標準 09:00、30 分鐘案例僅是測試資料。
+- clock-out 未設定 mode 時必須驗證預設為 `NONE`；`NONE`、`CEIL`、`FLOOR` 也必須獨立測試，各模式依明確設定及共用的 calendar-boundary anchor 產生 `effective_clock_out_at`，不得把 `CEIL` 或 `FLOOR` 當成預設。
+- 只在明確指定模式的函式測試中驗證向上／向下結果；測試不得替 Work Policy 的預設模式或 rounding anchor 做其他商業決定。
 - 早到採標準時間與採實際時間兩種設定。
 - 各 rounding mode 為 `NONE`、不同固定休息分鐘數、每日 7.5 小時與 8 小時。
 - 預計下班等於有效上班＋工作分鐘數＋固定休息分鐘數，且不冒充實際下班。
@@ -701,20 +703,22 @@ note
 - 週末、假日或 `LEAVE` 有既有打卡時，打卡資料仍可查詢、匯出及修正。
 - Calendar 與 Day Status 分開測試：特殊狀態 → 手動日曆覆寫 → DGPA／週末基準的解析／呈現優先序成立，且不會把其中一種資料寫入另一種資料表。
 - 另以 Calendar = `HOLIDAY`、Day Status = `LEAVE` 測試：解析／呈現優先顯示 `LEAVE`，但 underlying calendar classification 仍為 `HOLIDAY`。
+- 以實際解析的國定假日資料測試未工作的 `HOLIDAY`：`scheduled_minutes` 與 `absence_minutes` 均為 0，不從範本常數推導工作分鐘數。
 - `LEAVE`、`REMOTE`、`BUSINESS_TRIP` 僅接受單日狀態與備註，不建立假別餘額；部分時段、更多假別及流程留待未來擴充。
 
 ### 10.4 Excel 相容性
 
 - CSV 檔案以 UTF-8 BOM 開頭，中文欄位及備註可由 Microsoft Excel 正確開啟。
-- 使用一份真實甲方 XLSX 範本進行 technical spike，確認實際 library 對工作表、日期／時間儲存格、合併儲存格、既有格式、公式、Logo 及未 Mapping 內容的支援；library 選擇不在測試前預定。
-- 使用同一份範本確認 Row Mapping 能填入正確資料列，Static Cell Mapping 能填入固定儲存格，兩者不互相取代。
+- 使用真實甲方 XLSX 範本確認實際 library 對工作表、日期／時間儲存格、合併儲存格、既有格式、公式、Logo 及未 Mapping 內容的支援，並記錄可支援與不可支援的範圍。
+- 使用同一份多月份範本確認選定月份會使用其對應工作表，並由日期欄位和值找到每日資料列後套用 Row Mapping；Static Cell Mapping 能填入固定儲存格，兩者不互相取代。
+- 確認每日資料列定位不依賴固定列號、style ID 或檔名推測。
 - 逐一測試 `MINUTES_TO_DECIMAL_HOURS`、`TIME_HH_MM`、`DATE_YYYY_MM_DD`、`WEEKDAY_ZH_TW`、`ROC_YEAR_MONTH`、`EMPTY_IF_ZERO`、`ZERO_IF_EMPTY`、`VALUE_MAP`；確認 transform 不會重新計算工時、查詢 DB 或執行 script。
 - 確認 `leave_minutes`／`absence_minutes` 的小時欄位只能透過 `MINUTES_TO_DECIMAL_HOURS` 產生，不能以 `VALUE_MAP` 硬編或運算；`status` 可透過宣告式 `VALUE_MAP` 轉為範本文字。
 - Export 測試須以既有每日 Report Model A–E 為輸入，確認 Export 只讀取 Domain／Report Model 值，不重新推導 Calendar、Day Status 或 Work Policy。
-- OD-02 未決時，標準 CSV、標準 Report Model 及標準 Row／Static Mapping 均不得輸出 `paid_hours`／`reported_hours`；未來若 OD-02 決定並由匯出設定明確啟用，只能輸出既有 Report Model 已提供的值，不得在 Export 衍生任何假日商業規則。
-- XLSX 匯出後仍可由 Excel 開啟，未 Mapping 的範本內容不被清空，且原始基本格式可保留。
+- XLSX 匯出後仍可由 Excel 開啟，所有未 Mapping 的範本儲存格內容不被清空，且原始格式可保留。
 - `actual_clock_out_at`、`effective_clock_out_at` 與 `expected_clock_out_at` 的 Mapping 可分別填入；空白實際下班時不得產生有效下班，也不得以預計下班冒充實際下班。
-- `LEAVE` 的 Domain／Report Model 值在 template-specific conversion 測試中可轉為範本所需文字或空值，但不得回頭改變 Domain 計算；假日 `paid_hours`／`reported_hours` 與範本每月策略分別受 OD-02／OD-03 約束。
+- legacy 範本的「補休」欄位不在 V1 Mapping 內，匯出後維持複製的範本空白，且不建立補休 Domain model 或計算規則。
+- `LEAVE` 的 Domain／Report Model 值在 template-specific conversion 測試中可轉為範本所需文字或空值，但不得回頭改變 Domain 計算；`work_minutes` 不得由範本常數推導。
 
 ### 10.5 RLS 隔離
 
@@ -731,35 +735,7 @@ note
 - 先在 Supabase canonical `dgpa_calendar_cache` 保存一筆資料，再模擬 DGPA 同步失敗；失敗後原有 canonical 資料不得被清空，且來源／資料時間仍可查詢。
 - 有 optional browser read cache 時，離線只能唯讀顯示快取內容並顯示資料時間；離線不得新增、修改或刪除出勤，也不得建立任何同步 queue。恢復連線後亦不得把離線操作當成已保存資料。
 
-## 11. Open Decisions
-
-本章集中列出尚未確認的商業規則。除已明確寫出的資料結構與模式語意外，其他章節不得替下列決策填入預設答案。
-
-### OD-01 Clock-out rounding
-
-- 待決定：V1 實際採用 `clock_out_rounding_mode` 的哪些值（`NONE`／`CEIL`／`FLOOR`）、各自分鐘數及未設定時的處理方式。
-- 已知約束：資料模型可保存三種模式；`FLOOR` 不得被視為既定規則。只有明確選定的 mode 才能產生 `effective_clock_out_at`。
-- 影響：有效下班、`net_worked_minutes`、正常工時、加班、今日頁、月統計、CSV 及 XLSX 匯出。
-
-### OD-02 假日 paid／reported hours
-
-- 待決定：假日或其他非一般工作日是否產生 `paid_hours`、`reported_hours`，兩者是否相同，以及各自如何納入月統計與範本報表。
-- 已知約束：這兩個欄位可存在於 Report Model 與匯出欄位，但決策前不得以 0、固定工時或其他值代填，也不得由 `LEAVE` 界線推導出未確認的假日商業規則。
-- 影響：假日月統計、報表顯示、CSV 欄位值、XLSX Row Mapping 及範本專屬轉換。
-
-### OD-03 Template monthly strategy
-
-- 待決定：月份與 XLSX 範本的關係，例如工作表選擇、固定工作表或每月資料列策略；本文件不選定其中一種。
-- 已知約束：Row Mapping 與 Static Cell Mapping 必須分離；匯出前須有明確 monthly strategy，不能從範本名稱或目前月份自行猜測。
-- 影響：`sheet_name`／資料列範圍、`ROC_YEAR_MONTH` 的 Static Cell Mapping、範本複製流程、匯出錯誤處理及 XLSX 相容性驗收。
-
-### OD-04 Rounding Anchor
-
-- 待決定：clock-in／clock-out rounding 的分鐘邊界採 calendar boundary，或以 `standard_start_time` 為 anchor；是否兩種 clock 分別決定也尚未確認。
-- 已知約束：`clock_in_rounding_mode`／minutes 與 `clock_out_rounding_mode`／minutes 仍是獨立設定；anchor 未決前，Domain、DB validation、預覽與匯出不得自行選擇任一 anchor。
-- 影響：`effective_clock_in_at`、`effective_clock_out_at`、預計下班、`net_worked_minutes`、正常工時、加班、歷史 snapshot、CSV 及 XLSX Mapping。
-
-## 12. 非目標（MVP 與 V1 均不做）
+## 11. 非目標（MVP 與 V1 均不做）
 
 - 多人協作、主管檢視、複雜 RBAC、多租戶 SaaS 或公司 HR 後台。
 - 假別餘額、假單簽核、加班簽核、補休換算或薪資／勞健保計算。
@@ -770,7 +746,7 @@ note
 - V1 以外的複雜 XLSX 自動解析、任意公式引擎、跨工作表 Mapping 及完全自動排版。
 - 以沒有紀錄直接推定假日；所有日曆判定須遵循既定優先序。
 
-## 13. 未來擴充方向
+## 12. 未來擴充方向
 
 依實際需求再評估，不影響 V1 的資料模型原則：
 
@@ -784,7 +760,7 @@ note
 - 更彈性的 Excel 範本預覽、選取儲存格 Mapping、公式及多工作表處理。
 - 年度出勤 Dashboard、行事曆整合及其他報表格式。
 
-## 14. 實作原則摘要
+## 13. 實作原則摘要
 
 ```text
 個人帳號
@@ -797,7 +773,7 @@ Work Policy（依日期版本化）
   ↓
 月統計
   ↓
-UTF-8 BOM CSV / 基本 XLSX Template Mapping
+UTF-8 BOM CSV / 多月份 XLSX Template Mapping
 ```
 
 所有功能以「不丟失原始打卡、不把政策寫死、不以畫面代替 RLS、不把推算值當成實際值」為驗收底線。
