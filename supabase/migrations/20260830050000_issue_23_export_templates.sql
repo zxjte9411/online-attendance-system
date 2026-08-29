@@ -25,9 +25,6 @@ create table public.export_templates (
     check (jsonb_typeof(static_cell_mapping) = 'array')
 );
 
-create index export_templates_user_context_idx
-  on public.export_templates (user_id, context_id);
-
 alter table public.export_templates enable row level security;
 
 revoke all
