@@ -228,9 +228,14 @@ async function handleSaveDay() {
     editingDay.value = null
   } catch (error) {
     // Partial success handling: If Calendar Override succeeded but Day Status failed,
-    // reload month data so UI reflects persisted state, and display informative error.
+    // reload month data so UI reflects persisted state, rebase editingDay to persisted state,
+    // and display informative error while preserving user's form input for retry.
     if (calendarMutationSucceeded) {
       await loadMonth(currentMonth.value)
+      const freshDay = overviewDays.value.find((d) => d.date === date)
+      if (freshDay) {
+        editingDay.value = freshDay
+      }
       const detailMsg = presentErrorMessage(error, '特殊狀態儲存失敗。')
       modalError.value = `日曆覆寫已更新，但特殊狀態儲存失敗：${detailMsg}`
     } else {

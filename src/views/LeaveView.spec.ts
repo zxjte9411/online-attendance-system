@@ -328,6 +328,83 @@ describe('LeaveView', () => {
     expect(modal.text()).toContain('日曆覆寫已更新，但特殊狀態儲存失敗：權限不足，無法執行此操作。')
   })
 
+  it('partial-success reload 後重新同步 baseline，使用者直接 retry 時不再重複寫入已成功的日曆覆寫', async () => {
+    const newOverride: CalendarOverride = {
+      id: 'co-new-retry',
+      user_id: 'user-1',
+      calendar_date: '2026-08-20',
+      day_type: 'HOLIDAY',
+      name: '特別假日',
+      note: null,
+    }
+
+    vi.mocked(upsertCalendarOverride).mockResolvedValue(newOverride)
+    vi.mocked(upsertDayStatus).mockRejectedValueOnce({
+      code: '42501',
+      message: 'new row violates row-level security policy for table "day_statuses"',
+    })
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    // 點擊 2026-08-20 編輯按鈕（初始無 override、無 status）
+    const editBtn = wrapper.find('[data-testid="day-row-2026-08-20"] [data-action="edit-day"]')
+    await editBtn.trigger('click')
+
+    // 同時修改兩層
+    await wrapper.find('[data-testid="calendar-override-type"]').setValue('HOLIDAY')
+    await wrapper.find('[data-testid="calendar-override-name"]').setValue('特別假日')
+    await wrapper.find('[data-testid="day-status-type"]').setValue('LEAVE')
+    await wrapper.find('[data-testid="day-status-note"]').setValue('個人事假')
+
+    // 第一次送出：Calendar Override 成功，Day Status 失敗
+    // 當 partial failure 觸發 loadMonth 時，回傳包含已成功寫入的 newOverride
+    vi.mocked(getCalendarOverridesForMonth).mockResolvedValue([...mockCalendarOverrides, newOverride])
+
+    await wrapper.find('[data-action="save-day"]').trigger('click')
+    await flushPromises()
+
+    // 1. modal 仍開啟並顯示 partial-success 訊息
+    const modal = wrapper.find('[role="dialog"]')
+    expect(modal.exists()).toBe(true)
+    expect(modal.text()).toContain('日曆覆寫已更新，但特殊狀態儲存失敗：權限不足，無法執行此操作。')
+
+    // 2. 使用者的 LEAVE form selection 與 note 仍保留
+    const statusSelect = wrapper.find('[data-testid="day-status-type"]') as { element: HTMLSelectElement }
+    expect(statusSelect.element.value).toBe('LEAVE')
+    const statusNote = wrapper.find('[data-testid="day-status-note"]') as { element: HTMLInputElement }
+    expect(statusNote.element.value).toBe('個人事假')
+
+    // 3. 清除 mock 呼叫歷史，並將 upsertDayStatus 改為成功
+    vi.mocked(upsertCalendarOverride).mockClear()
+    vi.mocked(deleteCalendarOverride).mockClear()
+    vi.mocked(upsertDayStatus).mockClear()
+    vi.mocked(upsertDayStatus).mockResolvedValueOnce({
+      id: 'ds-new-retry',
+      user_id: 'user-1',
+      work_date: '2026-08-20',
+      status: 'LEAVE',
+      note: '個人事假',
+    })
+
+    // 4. 不修改任何 form，直接再次按 Save
+    await wrapper.find('[data-action="save-day"]').trigger('click')
+    await flushPromises()
+
+    // 5. 第二次 Save：upsertDayStatus 被 retry，upsertCalendarOverride / deleteCalendarOverride 完全沒有被呼叫
+    expect(upsertDayStatus).toHaveBeenCalledTimes(1)
+    expect(upsertDayStatus).toHaveBeenCalledWith({
+      work_date: '2026-08-20',
+      status: 'LEAVE',
+      note: '個人事假',
+    })
+    expect(upsertCalendarOverride).not.toHaveBeenCalled()
+    expect(deleteCalendarOverride).not.toHaveBeenCalled()
+
+    // 6. 最終儲存成功後 modal 正常關閉
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
   it('將 Supabase/PostgREST 原始錯誤轉換為繁體中文友善訊息', async () => {
     // 測試 Unique Constraint 衝突錯誤
     vi.mocked(upsertDayStatus).mockRejectedValueOnce({
