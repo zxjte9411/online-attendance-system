@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from './supabase'
 
 export type AuthAdapter = Pick<
   SupabaseClient['auth'],
@@ -6,16 +7,7 @@ export type AuthAdapter = Pick<
 >
 
 export function createSupabaseAuth(): AuthAdapter {
-  const url = import.meta.env.VITE_SUPABASE_URL
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-  if (!url || !anonKey) {
-    throw new Error('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required')
-  }
-
-  return createClient(url, anonKey, {
-    auth: { flowType: 'pkce', detectSessionInUrl: false },
-  }).auth
+  return getSupabaseClient().auth
 }
 
 export function authCallbackUrl(
