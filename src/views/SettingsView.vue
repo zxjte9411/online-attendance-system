@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
-import { getWorkPolicyStatus, isCurrentPolicyRequest } from '../lib/work-policy'
+import { getWorkPolicyStatus } from '../lib/work-policy'
 import {
   getCurrentUserId,
   getProfile,
@@ -22,6 +22,8 @@ const contexts = ref<WorkContext[]>([])
 const policies = ref<WorkPolicy[]>([])
 const selectedContextId = ref('')
 let policyRequestToken = 0
+const isLoadingPolicies = ref(false)
+const policyError = ref('')
 const editingContext = ref<WorkContext | null>(null)
 const showContextForm = ref(false)
 const showPolicyForm = ref(false)
@@ -71,15 +73,31 @@ async function load() {
 async function loadPolicies() {
   const requestToken = ++policyRequestToken
   const contextId = selectedContextId.value
+  const contextName = contexts.value.find((context) => context.id === contextId)?.name ?? contextId
 
   if (!userId.value || !contextId) {
     policies.value = []
+    policyError.value = ''
+    isLoadingPolicies.value = false
     return
   }
 
-  const loadedPolicies = await listWorkPolicies(userId.value, contextId)
-  if (isCurrentPolicyRequest(contextId, selectedContextId.value, requestToken, policyRequestToken)) {
+  policies.value = []
+  policyError.value = ''
+  isLoadingPolicies.value = true
+
+  try {
+    const loadedPolicies = await listWorkPolicies(userId.value, contextId)
+    if (requestToken !== policyRequestToken || contextId !== selectedContextId.value) return
     policies.value = loadedPolicies
+  } catch {
+    if (requestToken !== policyRequestToken || contextId !== selectedContextId.value) return
+    policies.value = []
+    policyError.value = `無法載入「${contextName}」的 Work Policy，請稍後再試。`
+  } finally {
+    if (requestToken === policyRequestToken && contextId === selectedContextId.value) {
+      isLoadingPolicies.value = false
+    }
   }
 }
 
@@ -181,6 +199,8 @@ async function handleEndPolicy(policy: WorkPolicy) {
 
 async function selectContext(contextId: string) {
   selectedContextId.value = contextId
+  policies.value = []
+  policyError.value = ''
   showPolicyForm.value = false
   resetPolicyEnding()
   await loadPolicies()
@@ -263,7 +283,7 @@ async function selectContext(contextId: string) {
             <h2 id="settings-policies-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">Work Policy 版本</h2>
             <p class="text-sm leading-relaxed text-muted">同一工作情境的生效日期不可重疊；歷史關聯會保留。</p>
           </div>
-          <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="!selectedContext" @click="showPolicyForm = !showPolicyForm">{{ showPolicyForm ? '取消新增' : '新增 Work Policy' }}</button>
+          <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="!selectedContext || isLoadingPolicies || Boolean(policyError)" @click="showPolicyForm = !showPolicyForm">{{ showPolicyForm ? '取消新增' : '新增 Work Policy' }}</button>
         </div>
 
         <div class="grid gap-1.5">
@@ -274,33 +294,37 @@ async function selectContext(contextId: string) {
         </div>
 
         <div v-if="selectedContext" class="grid gap-3">
-          <ul v-if="policies.length" class="grid divide-y divide-line border-y border-line" aria-label="Work Policy 版本列表">
-            <li v-for="policy in policies" :key="policy.id" class="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-              <div class="grid gap-1">
-                <strong>{{ policy.name }}</strong>
-                <span class="text-sm text-muted">{{ policy.effective_from }} 至 {{ policy.effective_to || '未定' }} · {{ policy.standard_start_time }} 開始 · {{ policy.work_minutes }} 分鐘工作</span>
-              </div>
-              <div class="flex flex-wrap items-center gap-2 sm:justify-end">
-                <span class="text-xs font-semibold text-muted">{{ getWorkPolicyStatus(policy) }}</span>
-                <button v-if="!policy.effective_to" class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="toggleEndingPolicy(policy)">
-                  {{ endingPolicyId === policy.id ? '取消' : '結束版本' }}
-                </button>
-              </div>
-              <form v-if="endingPolicyId === policy.id" class="col-span-full grid gap-3 border-t border-line pt-4 sm:grid-cols-[minmax(0,16rem)_auto] sm:items-end" :aria-label="`結束 ${policy.name} 版本`" @submit.prevent="handleEndPolicy(policy)">
-                <div class="grid gap-1.5">
-                  <label class="font-semibold" :for="`policy-end-${policy.id}`">結束日期</label>
-                  <input :id="`policy-end-${policy.id}`" :ref="setPolicyEndInput" v-model="endingPolicyDate" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 font-mono text-base focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="effective_to" type="date" :min="policy.effective_from" :aria-describedby="endingPolicyMessage ? `policy-end-help-${policy.id} policy-end-error-${policy.id}` : `policy-end-help-${policy.id}`" :aria-invalid="endingPolicyMessage ? 'true' : undefined" required>
-                  <span :id="`policy-end-help-${policy.id}`" class="text-sm text-muted">不可早於生效起日 {{ policy.effective_from }}。</span>
+          <p v-if="isLoadingPolicies" class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted" role="status" aria-live="polite">正在載入「{{ selectedContext.name }}」的 Work Policy…</p>
+          <p v-else-if="policyError" class="border-s-4 border-[var(--error-line)] ps-4 text-sm leading-relaxed text-[var(--error-ink)]" role="alert">{{ policyError }}</p>
+          <template v-else>
+            <ul v-if="policies.length" class="grid divide-y divide-line border-y border-line" aria-label="Work Policy 版本列表">
+              <li v-for="policy in policies" :key="policy.id" class="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div class="grid gap-1">
+                  <strong>{{ policy.name }}</strong>
+                  <span class="text-sm text-muted">{{ policy.effective_from }} 至 {{ policy.effective_to || '未定' }} · {{ policy.standard_start_time }} 開始 · {{ policy.work_minutes }} 分鐘工作</span>
                 </div>
-                <button class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="submit" :disabled="isEndingPolicy" :aria-busy="isEndingPolicy">{{ isEndingPolicy ? '儲存中…' : '儲存結束日期' }}</button>
-                <p v-if="endingPolicyMessage" :id="`policy-end-error-${policy.id}`" ref="policyEndErrorRegion" class="col-span-full rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">{{ endingPolicyMessage }}</p>
-              </form>
-            </li>
-          </ul>
-          <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">這個工作情境還沒有 Work Policy。新增後，今日頁才會有可套用的制度。</p>
+                <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+                  <span class="text-xs font-semibold text-muted">{{ getWorkPolicyStatus(policy) }}</span>
+                  <button v-if="!policy.effective_to" class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="toggleEndingPolicy(policy)">
+                    {{ endingPolicyId === policy.id ? '取消' : '結束版本' }}
+                  </button>
+                </div>
+                <form v-if="endingPolicyId === policy.id" class="col-span-full grid gap-3 border-t border-line pt-4 sm:grid-cols-[minmax(0,16rem)_auto] sm:items-end" :aria-label="`結束 ${policy.name} 版本`" @submit.prevent="handleEndPolicy(policy)">
+                  <div class="grid gap-1.5">
+                    <label class="font-semibold" :for="`policy-end-${policy.id}`">結束日期</label>
+                    <input :id="`policy-end-${policy.id}`" :ref="setPolicyEndInput" v-model="endingPolicyDate" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 font-mono text-base focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="effective_to" type="date" :min="policy.effective_from" :aria-describedby="endingPolicyMessage ? `policy-end-help-${policy.id} policy-end-error-${policy.id}` : `policy-end-help-${policy.id}`" :aria-invalid="endingPolicyMessage ? 'true' : undefined" required>
+                    <span :id="`policy-end-help-${policy.id}`" class="text-sm text-muted">不可早於生效起日 {{ policy.effective_from }}。</span>
+                  </div>
+                  <button class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="submit" :disabled="isEndingPolicy" :aria-busy="isEndingPolicy">{{ isEndingPolicy ? '儲存中…' : '儲存結束日期' }}</button>
+                  <p v-if="endingPolicyMessage" :id="`policy-end-error-${policy.id}`" ref="policyEndErrorRegion" class="col-span-full rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">{{ endingPolicyMessage }}</p>
+                </form>
+              </li>
+            </ul>
+            <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">這個工作情境還沒有 Work Policy。新增後，今日頁才會有可套用的制度。</p>
+          </template>
         </div>
 
-        <div v-if="showPolicyForm && selectedContext" class="border-t border-line pt-5">
+        <div v-if="showPolicyForm && selectedContext && !isLoadingPolicies && !policyError" class="border-t border-line pt-5">
           <WorkPolicyForm :user-id="userId" :context-id="selectedContext.id" :policies="policies" @saved="handlePolicySaved" />
         </div>
       </section>
