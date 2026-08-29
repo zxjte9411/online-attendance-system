@@ -19,6 +19,7 @@ import {
   upsertCalendarOverride,
   deleteCalendarOverride,
 } from '../lib/day-status-calendar'
+import { presentErrorMessage } from '../lib/error-presentation'
 import { getTaipeiToday } from '../lib/work-policy'
 
 const currentMonth = ref(getTaipeiToday().slice(0, 7))
@@ -32,6 +33,9 @@ const editingDay = ref<DailyOverview | null>(null)
 const isSaving = ref(false)
 const modalError = ref('')
 
+let currentRequestId = 0
+
+// Form state
 const formCalendarOverrideType = ref<'NONE' | CalendarDayType>('NONE')
 const formCalendarOverrideName = ref('')
 const formCalendarOverrideNote = ref('')
@@ -40,7 +44,7 @@ const formDayStatusNote = ref('')
 
 const monthLabel = computed(() => {
   const [year, month] = currentMonth.value.split('-')
-  return `${year} 年 ${month} 月`
+  return `${year} 年 ${Number(month)} 月`
 })
 
 const overviewDays = computed(() => {
@@ -61,6 +65,7 @@ watch(currentMonth, (newMonth) => {
 })
 
 async function loadMonth(yearMonth: string) {
+  const requestId = ++currentRequestId
   isLoading.value = true
   loadError.value = ''
 
@@ -71,13 +76,18 @@ async function loadMonth(yearMonth: string) {
       getMonthAttendanceDates(yearMonth),
     ])
 
+    if (requestId !== currentRequestId) return
+
     dayStatuses.value = statuses
     calendarOverrides.value = overrides
     attendanceDates.value = attendances
   } catch (error) {
-    loadError.value = error instanceof Error && error.message ? error.message : '日曆與狀態資料載入失敗，請稍後再試。'
+    if (requestId !== currentRequestId) return
+    loadError.value = presentErrorMessage(error, '日曆與狀態資料載入失敗，請稍後再試。')
   } finally {
-    isLoading.value = false
+    if (requestId === currentRequestId) {
+      isLoading.value = false
+    }
   }
 }
 
@@ -133,46 +143,99 @@ function closeEditModal() {
 async function handleSaveDay() {
   if (!editingDay.value || isSaving.value) return
 
+  const day = editingDay.value
+  const date = day.date
+  const initialOverride = day.calendarOverride
+  const initialStatus = day.dayStatus
+
+  // Normalization
+  const normOverrideName = formCalendarOverrideName.value.trim() || null
+  const normOverrideNote = formCalendarOverrideNote.value.trim() || null
+  const normStatusNote = formDayStatusNote.value.trim() || null
+
+  const initialOverrideType = initialOverride ? initialOverride.day_type : 'NONE'
+  const initialOverrideName = initialOverride?.name?.trim() || null
+  const initialOverrideNote = initialOverride?.note?.trim() || null
+
+  const initialStatusType = initialStatus ? initialStatus.status : 'NONE'
+  const initialStatusNote = initialStatus?.note?.trim() || null
+
+  // Change detection
+  let hasOverrideChanged = false
+  if (formCalendarOverrideType.value !== initialOverrideType) {
+    hasOverrideChanged = true
+  } else if (formCalendarOverrideType.value !== 'NONE') {
+    if (normOverrideName !== initialOverrideName || normOverrideNote !== initialOverrideNote) {
+      hasOverrideChanged = true
+    }
+  }
+
+  let hasStatusChanged = false
+  if (formDayStatusType.value !== initialStatusType) {
+    hasStatusChanged = true
+  } else if (formDayStatusType.value !== 'NONE') {
+    if (normStatusNote !== initialStatusNote) {
+      hasStatusChanged = true
+    }
+  }
+
+  // If no changes, close modal without triggering writes or reloads
+  if (!hasOverrideChanged && !hasStatusChanged) {
+    editingDay.value = null
+    return
+  }
+
   isSaving.value = true
   modalError.value = ''
 
-  const date = editingDay.value.date
-  const currentStatus = editingDay.value.dayStatus
-  const currentOverride = editingDay.value.calendarOverride
+  let calendarMutationSucceeded = false
 
   try {
-    // 1. Handle Calendar Override mutation
-    if (formCalendarOverrideType.value === 'NONE') {
-      if (currentOverride) {
-        await deleteCalendarOverride(currentOverride.id)
+    // 1. Calendar Override mutation if changed
+    if (hasOverrideChanged) {
+      if (formCalendarOverrideType.value === 'NONE') {
+        if (initialOverride) {
+          await deleteCalendarOverride(initialOverride.id)
+        }
+      } else {
+        await upsertCalendarOverride({
+          calendar_date: date,
+          day_type: formCalendarOverrideType.value,
+          name: normOverrideName,
+          note: normOverrideNote,
+        })
       }
-    } else {
-      await upsertCalendarOverride({
-        calendar_date: date,
-        day_type: formCalendarOverrideType.value,
-        name: formCalendarOverrideName.value || null,
-        note: formCalendarOverrideNote.value || null,
-      })
+      calendarMutationSucceeded = true
     }
 
-    // 2. Handle Day Status mutation
-    if (formDayStatusType.value === 'NONE') {
-      if (currentStatus) {
-        await deleteDayStatus(currentStatus.id)
+    // 2. Day Status mutation if changed
+    if (hasStatusChanged) {
+      if (formDayStatusType.value === 'NONE') {
+        if (initialStatus) {
+          await deleteDayStatus(initialStatus.id)
+        }
+      } else {
+        await upsertDayStatus({
+          work_date: date,
+          status: formDayStatusType.value,
+          note: normStatusNote,
+        })
       }
-    } else {
-      await upsertDayStatus({
-        work_date: date,
-        status: formDayStatusType.value,
-        note: formDayStatusNote.value || null,
-      })
     }
 
-    // Reload month to refresh
+    // Successful save: reload month data & close modal
     await loadMonth(currentMonth.value)
     editingDay.value = null
   } catch (error) {
-    modalError.value = error instanceof Error && error.message ? error.message : '儲存失敗，請稍後再試。'
+    // Partial success handling: If Calendar Override succeeded but Day Status failed,
+    // reload month data so UI reflects persisted state, and display informative error.
+    if (calendarMutationSucceeded) {
+      await loadMonth(currentMonth.value)
+      const detailMsg = presentErrorMessage(error, '特殊狀態儲存失敗。')
+      modalError.value = `日曆覆寫已更新，但特殊狀態儲存失敗：${detailMsg}`
+    } else {
+      modalError.value = presentErrorMessage(error, '儲存失敗，請稍後再試。')
+    }
   } finally {
     isSaving.value = false
   }
@@ -255,8 +318,8 @@ async function handleSaveDay() {
           <thead class="border-b border-line bg-surface-soft text-[0.6875rem] font-bold tracking-[0.1em] text-muted">
             <tr>
               <th scope="col" class="px-4 py-3 sm:px-6">日期</th>
+              <th scope="col" class="px-4 py-3 sm:px-6">當日狀態（特殊狀態）</th>
               <th scope="col" class="px-4 py-3 sm:px-6">日曆分類（覆寫）</th>
-              <th scope="col" class="px-4 py-3 sm:px-6">當日安排（狀態）</th>
               <th scope="col" class="px-4 py-3 sm:px-6">出勤</th>
               <th scope="col" class="px-4 py-3 sm:px-6 text-end">操作</th>
             </tr>
@@ -279,6 +342,20 @@ async function handleSaveDay() {
                 </div>
               </td>
 
+              <!-- Day Status Column (Primary Presentation) -->
+              <td class="px-4 py-4 sm:px-6" :data-testid="`status-cell-${d.date}`">
+                <div v-if="d.dayStatus" class="grid gap-0.5">
+                  <span
+                    class="w-fit rounded-[0.375rem] px-2 py-0.5 text-xs font-bold"
+                    :class="d.dayStatus.status === 'LEAVE' ? 'border border-rose-300 bg-rose-50 text-rose-800' : d.dayStatus.status === 'REMOTE' ? 'border border-teal-300 bg-teal-50 text-teal-800' : 'border border-purple-300 bg-purple-50 text-purple-800'"
+                  >
+                    {{ formatDayStatusLabel(d.dayStatus.status) }}
+                  </span>
+                  <span v-if="d.dayStatus.note" class="text-xs text-muted">{{ d.dayStatus.note }}</span>
+                </div>
+                <span v-else class="text-xs text-muted">未設定</span>
+              </td>
+
               <!-- Calendar Override Column -->
               <td class="px-4 py-4 sm:px-6" :data-testid="`calendar-cell-${d.date}`">
                 <div v-if="d.calendarOverride" class="grid gap-0.5">
@@ -292,20 +369,6 @@ async function handleSaveDay() {
                   <span v-if="d.calendarOverride.note" class="text-xs text-muted">{{ d.calendarOverride.note }}</span>
                 </div>
                 <span v-else class="text-xs text-muted">未覆寫</span>
-              </td>
-
-              <!-- Day Status Column -->
-              <td class="px-4 py-4 sm:px-6" :data-testid="`status-cell-${d.date}`">
-                <div v-if="d.dayStatus" class="grid gap-0.5">
-                  <span
-                    class="w-fit rounded-[0.375rem] px-2 py-0.5 text-xs font-bold"
-                    :class="d.dayStatus.status === 'LEAVE' ? 'border border-rose-300 bg-rose-50 text-rose-800' : d.dayStatus.status === 'REMOTE' ? 'border border-teal-300 bg-teal-50 text-teal-800' : 'border border-purple-300 bg-purple-50 text-purple-800'"
-                  >
-                    {{ formatDayStatusLabel(d.dayStatus.status) }}
-                  </span>
-                  <span v-if="d.dayStatus.note" class="text-xs text-muted">{{ d.dayStatus.note }}</span>
-                </div>
-                <span v-else class="text-xs text-muted">未設定</span>
               </td>
 
               <!-- Attendance & Exception Column -->
@@ -384,10 +447,43 @@ async function handleSaveDay() {
         </div>
 
         <form class="mt-4 grid gap-5" @submit.prevent="handleSaveDay">
-          <!-- Section 1: Calendar Classification -->
+          <!-- Section 1: Special Day Status -->
           <fieldset class="grid gap-3 rounded-[0.625rem] border border-line p-4">
             <legend class="px-1 text-xs font-bold tracking-[0.08em] text-accent">
-              1. 日曆分類（人工覆寫）
+              1. 特殊狀態（當日安排）
+            </legend>
+            <div class="grid gap-1.5">
+              <label class="text-xs font-semibold text-muted" for="day-status-type">狀態類別</label>
+              <select
+                id="day-status-type"
+                v-model="formDayStatusType"
+                data-testid="day-status-type"
+                class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                <option value="NONE">無特殊狀態</option>
+                <option value="LEAVE">請假 (LEAVE)</option>
+                <option value="REMOTE">遠端 (REMOTE)</option>
+                <option value="BUSINESS_TRIP">出差 (BUSINESS_TRIP)</option>
+              </select>
+            </div>
+
+            <div v-if="formDayStatusType !== 'NONE'" class="grid gap-1.5">
+              <label class="text-xs font-semibold text-muted" for="day-status-note">狀態備註（可選）</label>
+              <input
+                id="day-status-note"
+                v-model="formDayStatusNote"
+                data-testid="day-status-note"
+                type="text"
+                placeholder="例如：特休、客戶端開會"
+                class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              />
+            </div>
+          </fieldset>
+
+          <!-- Section 2: Calendar Classification -->
+          <fieldset class="grid gap-3 rounded-[0.625rem] border border-line p-4">
+            <legend class="px-1 text-xs font-bold tracking-[0.08em] text-accent">
+              2. 日曆分類（人工覆寫）
             </legend>
             <div class="grid gap-1.5">
               <label class="text-xs font-semibold text-muted" for="cal-override-type">覆寫類別</label>
@@ -423,39 +519,6 @@ async function handleSaveDay() {
                 data-testid="calendar-override-note"
                 type="text"
                 placeholder="說明或備註"
-                class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              />
-            </div>
-          </fieldset>
-
-          <!-- Section 2: Special Day Status -->
-          <fieldset class="grid gap-3 rounded-[0.625rem] border border-line p-4">
-            <legend class="px-1 text-xs font-bold tracking-[0.08em] text-accent">
-              2. 特殊狀態（當日安排）
-            </legend>
-            <div class="grid gap-1.5">
-              <label class="text-xs font-semibold text-muted" for="day-status-type">狀態類別</label>
-              <select
-                id="day-status-type"
-                v-model="formDayStatusType"
-                data-testid="day-status-type"
-                class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              >
-                <option value="NONE">無特殊狀態</option>
-                <option value="LEAVE">請假 (LEAVE)</option>
-                <option value="REMOTE">遠端 (REMOTE)</option>
-                <option value="BUSINESS_TRIP">出差 (BUSINESS_TRIP)</option>
-              </select>
-            </div>
-
-            <div v-if="formDayStatusType !== 'NONE'" class="grid gap-1.5">
-              <label class="text-xs font-semibold text-muted" for="day-status-note">狀態備註（可選）</label>
-              <input
-                id="day-status-note"
-                v-model="formDayStatusNote"
-                data-testid="day-status-note"
-                type="text"
-                placeholder="例如：特休、客戶端開會"
                 class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
             </div>
