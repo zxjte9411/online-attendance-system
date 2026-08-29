@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { createSupabaseAuth } from './lib/auth'
 import LeaveView from './views/LeaveView.vue'
+import ReportView from './views/ReportView.vue'
 import SettingsView from './views/SettingsView.vue'
 import TodayView from './views/TodayView.vue'
 import AttendanceView from './views/AttendanceView.vue'
@@ -207,6 +208,7 @@ async function handleSignOut() {
         <TodayView v-if="route.name === 'today'" />
         <AttendanceView v-else-if="route.name === 'attendance'" />
         <LeaveView v-else-if="route.name === 'leave'" />
+        <ReportView v-else-if="route.name === 'reports'" />
         <SettingsView v-else-if="route.name === 'settings'" />
         <div v-else class="w-full max-w-6xl">
           <section class="grid max-w-[39rem] gap-4" aria-labelledby="page-title">
@@ -266,19 +268,6 @@ async function handleSignOut() {
                 <strong class="font-display text-xl tracking-[-0.03em]">預覽：開始上班打卡</strong>
                 <p class="max-w-[48ch] text-[0.875rem] leading-relaxed text-muted">這裡只展示未來動作的位置，不會送出打卡或建立 Attendance Record。</p>
               </div>
-            </section>
-
-            <section v-else-if="route.name === 'reports'" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="reports-preview-title">
-              <div class="grid gap-1 border-b border-line pb-5">
-                <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">報表摘要</span>
-                <h2 id="reports-preview-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">本週工作日概況 · 預覽資料</h2>
-              </div>
-              <dl class="grid gap-3 sm:grid-cols-3">
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">日期區間</dt><dd class="font-semibold">本週預覽</dd></div>
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">工作日</dt><dd class="font-mono text-2xl font-bold tabular-nums">範例：5 日</dd></div>
-                <div class="grid gap-1 rounded-[0.625rem] border border-line bg-surface-soft p-4 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]"><dt class="text-[0.75rem] text-muted">已記錄</dt><dd class="font-mono text-2xl font-bold tabular-nums">範例：0 筆</dd></div>
-              </dl>
-              <p class="border-s-4 border-accent ps-4 text-[0.875rem] leading-relaxed text-muted">這是報表結構預覽，不代表已產生正式統計，也不會修改任何資料。</p>
             </section>
 
             <section v-else class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="settings-preview-title">
