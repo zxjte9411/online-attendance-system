@@ -1,5 +1,8 @@
 import ExcelJS from 'exceljs'
-import type { ExportTemplateConfig } from './mapping-validator'
+import {
+  validateExportTemplateConfig,
+  type ExportTemplateConfig,
+} from './mapping-validator'
 import type { MonthlyReport } from '../report/monthly-report'
 import { applyTransformPipeline } from './transforms'
 
@@ -128,6 +131,14 @@ export async function exportReportToXlsx({
 }: ExportReportToXlsxParams): Promise<Uint8Array> {
   if (!templateBytes || (templateBytes instanceof Uint8Array && templateBytes.length === 0)) {
     throw new ExportError('TEMPLATE_NOT_FOUND', '找不到 XLSX 範本內容。')
+  }
+
+  const validation = validateExportTemplateConfig(config)
+  if (!validation.isValid) {
+    throw new ExportError(
+      'MAPPING_INVALID',
+      `範本對應設定無效：${validation.errors.join('；')}`
+    )
   }
 
   const worksheetName = config.monthWorksheetMapping[targetMonth]
@@ -289,5 +300,18 @@ export async function exportReportToXlsx({
   }
 
   const outputBuffer = await workbook.xlsx.writeBuffer()
-  return new Uint8Array(outputBuffer)
+  const outputBytes = new Uint8Array(outputBuffer)
+
+  // Reopen gate: ensure generated workbook can be successfully reopened
+  const verifyWorkbook = new ExcelJS.Workbook()
+  try {
+    await verifyWorkbook.xlsx.load(outputBytes.slice().buffer as ArrayBuffer)
+  } catch {
+    throw new ExportError(
+      'WORKBOOK_UNSUPPORTED',
+      '產生的 Excel 檔案無法重新讀取驗證，匯出失敗。'
+    )
+  }
+
+  return outputBytes
 }

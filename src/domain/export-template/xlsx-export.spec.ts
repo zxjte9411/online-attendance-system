@@ -510,5 +510,28 @@ describe('Domain: XLSX Export Engine', () => {
         expect.objectContaining({ code: 'WORKBOOK_UNSUPPORTED' })
       )
     })
+
+    it('throws MAPPING_INVALID when template configuration is invalid', async () => {
+      const templateBytes = await createSyntheticTemplateWorkbook()
+      const report = createMockReport('2026-08')
+      const invalidConfig: ExportTemplateConfig = {
+        ...config,
+        rowMapping: [
+          // Missing date locator!
+          { sourceField: 'actual_clock_in_at', targetColumn: 'D' },
+        ],
+      }
+
+      await expect(
+        exportReportToXlsx({
+          templateBytes,
+          report,
+          config: invalidConfig,
+          targetMonth: '2026-08',
+        })
+      ).rejects.toThrowError(
+        expect.objectContaining({ code: 'MAPPING_INVALID' })
+      )
+    })
   })
 })

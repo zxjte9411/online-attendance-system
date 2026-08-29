@@ -301,16 +301,20 @@ async function handleReplace() {
   isReplacing.value = true
 
   try {
-    const updated = await replaceExportTemplate({
+    const result = await replaceExportTemplate({
       userId: props.userId,
       currentTemplate: template.value,
       newFile: replaceFile.value,
       newName: replaceName.value.trim() || undefined,
     })
-    template.value = updated
+    template.value = result.template
     showReplaceForm.value = false
     replaceFile.value = null
-    successMessage.value = 'XLSX 範本檔案已成功更換。'
+    if (result.warning) {
+      successMessage.value = `XLSX 範本檔案已成功更換，但舊檔案清理未完成：${result.warning}`
+    } else {
+      successMessage.value = 'XLSX 範本檔案已成功更換。'
+    }
     await loadTemplate()
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '更換範本檔案失敗。'
@@ -430,25 +434,31 @@ function buildTransformsForEntry(
     return undefined
   }
 
-  // If entry had a multi-stage pipeline and transformType matches the 1st transform, preserve the rest of the pipeline
-  if (existingTransforms.length > 1 && existingTransforms[0].type === transformType) {
-    return existingTransforms
-  }
+  const isPreservingTail =
+    existingTransforms.length > 1 && existingTransforms[0].type === transformType
 
+  let firstStage: TransformConfig
   if (transformType === 'VALUE_MAP') {
     const map = parseValueMapFromText(valueMapText)
-    return [
-      {
-        type: 'VALUE_MAP',
-        options: {
-          map,
-          unmappedBehavior: valueMapFallback,
-        },
+    firstStage = {
+      type: 'VALUE_MAP',
+      options: {
+        map,
+        unmappedBehavior: valueMapFallback,
       },
-    ]
+    }
+  } else {
+    firstStage =
+      existingTransforms.length > 0 && existingTransforms[0].type === transformType
+        ? { ...existingTransforms[0] }
+        : { type: transformType as TransformType }
   }
 
-  return [{ type: transformType as TransformType }]
+  if (isPreservingTail) {
+    return [firstStage, ...existingTransforms.slice(1)]
+  }
+
+  return [firstStage]
 }
 
 async function handleSaveMapping() {

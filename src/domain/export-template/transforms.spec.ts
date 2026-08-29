@@ -162,6 +162,35 @@ describe('Domain: Export Template Transforms', () => {
       }
       expect(applyTransform(null, config)).toBeNull()
     })
+
+    it('throws TRANSFORM_INVALID on missing or invalid unmappedBehavior', () => {
+      const missingBehaviorConfig: any = {
+        type: 'VALUE_MAP',
+        options: {
+          map: { LEAVE: '請假' },
+        },
+      }
+      expect(() => applyTransform('WORK', missingBehaviorConfig)).toThrow('Missing or invalid unmappedBehavior')
+
+      const invalidBehaviorConfig: any = {
+        type: 'VALUE_MAP',
+        options: {
+          map: { LEAVE: '請假' },
+          unmappedBehavior: 'invalid_mode',
+        },
+      }
+      expect(() => applyTransform('WORK', invalidBehaviorConfig)).toThrow('Missing or invalid unmappedBehavior')
+    })
+
+    it('throws TRANSFORM_INVALID on missing map', () => {
+      const missingMapConfig: any = {
+        type: 'VALUE_MAP',
+        options: {
+          unmappedBehavior: 'keep',
+        },
+      }
+      expect(() => applyTransform('WORK', missingMapConfig)).toThrow('Missing map in VALUE_MAP options')
+    })
   })
 
   describe('Transform Pipeline', () => {

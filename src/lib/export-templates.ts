@@ -5,6 +5,7 @@ import {
   type RowMappingEntry,
   type StaticCellMappingEntry,
 } from '../domain/export-template/mapping-validator'
+import { parseDateCellValue } from '../domain/export-template/xlsx-export'
 
 export interface ExportTemplate {
   id: string
@@ -214,25 +215,78 @@ export interface ReplaceExportTemplateParams {
   newName?: string
 }
 
+export interface ReplaceExportTemplateResult {
+  template: ExportTemplate
+  warning?: string | null
+}
+
 export async function replaceExportTemplate({
   userId,
   currentTemplate,
   newFile,
   newName,
-}: ReplaceExportTemplateParams): Promise<ExportTemplate> {
+}: ReplaceExportTemplateParams): Promise<ReplaceExportTemplateResult> {
   // 1. Validate file extension and MIME
   validateXlsxFileInput(newFile)
 
   // 2. Validate new workbook readability and get sheets
-  const newSheetNames = await getWorkbookWorksheetNames(newFile)
+  let buffer: ArrayBuffer
+  if (newFile instanceof Blob) {
+    buffer = await newFile.arrayBuffer()
+  } else if (newFile instanceof Uint8Array) {
+    buffer = newFile.slice().buffer as ArrayBuffer
+  } else {
+    buffer = newFile
+  }
+
+  const workbook = new ExcelJS.Workbook()
+  try {
+    await workbook.xlsx.load(buffer as any)
+  } catch {
+    throw new Error('無法解析範本檔案，請確認上傳的為有效 .xlsx 活頁簿。')
+  }
+
+  if (workbook.worksheets.length === 0) {
+    throw new Error('範本檔案中沒有任何工作表。')
+  }
 
   // 3. Compatibility Validation against current persisted configuration
   const configuredMonths = Object.entries(currentTemplate.month_worksheet_mapping || {})
+  const dateLocator = (currentTemplate.row_mapping || []).find((e) => e.sourceField === 'date')
+  const dateCol = dateLocator?.targetColumn ? dateLocator.targetColumn.trim().toUpperCase() : null
+
   for (const [month, sheetName] of configuredMonths) {
-    if (!newSheetNames.includes(sheetName)) {
+    const worksheet = workbook.getWorksheet(sheetName)
+    if (!worksheet) {
       throw new Error(
         `新範本檔案缺少目前已設定的月份工作表「${sheetName}」（對應月份 ${month}），無法替換。請先調整月份對應或提供包含該工作表的檔案。`
       )
+    }
+
+    if (dateCol) {
+      const seenDates = new Set<string>()
+      let foundDatesCount = 0
+      const rowCount = Math.max(worksheet.rowCount, 100)
+
+      for (let r = 1; r <= rowCount; r++) {
+        const cell = worksheet.getCell(`${dateCol}${r}`)
+        const parsedDate = parseDateCellValue(cell.value, month)
+        if (parsedDate && parsedDate.startsWith(month)) {
+          if (seenDates.has(parsedDate)) {
+            throw new Error(
+              `新範本工作表「${sheetName}」在欄位 ${dateCol} 出現重複日期「${parsedDate}」，無法替換。`
+            )
+          }
+          seenDates.add(parsedDate)
+          foundDatesCount++
+        }
+      }
+
+      if (foundDatesCount === 0) {
+        throw new Error(
+          `新範本工作表「${sheetName}」在欄位 ${dateCol} 未找到任何對應月份 ${month} 的日期資料，無法替換。請確認日期定位欄位或工作表內容。`
+        )
+      }
     }
   }
 
@@ -286,11 +340,16 @@ export async function replaceExportTemplate({
     .from('export-templates')
     .remove([currentTemplate.storage_path])
 
+  let warning: string | null = null
   if (removeOldError) {
     console.warn(`Old template storage object removal warning: ${removeOldError.message}`)
+    warning = `舊範本檔案清理失敗：${removeOldError.message || 'Storage error'}`
   }
 
-  return data as ExportTemplate
+  return {
+    template: data as ExportTemplate,
+    warning,
+  }
 }
 
 export async function deleteExportTemplate(

@@ -2,7 +2,7 @@ create extension if not exists pgtap with schema extensions;
 
 begin;
 
-select plan(31);
+select plan(33);
 
 -- 1. Schema & Structure
 select has_table('public', 'export_templates', 'export_templates table exists');
@@ -185,6 +185,19 @@ select throws_ok(
   'User B cannot insert into User A storage folder'
 );
 
+-- 11. User B cannot update User A storage object (RLS blocks row visibility and update)
+update storage.objects
+set metadata = '{"hacked": true}'::jsonb
+where bucket_id = 'export-templates'
+  and id = '00000000-0000-0000-0000-000000000888';
+
+-- 12. User B cannot delete User A storage object (RLS blocks row visibility and delete)
+set local storage.allow_delete_query = 'true';
+delete from storage.objects
+where bucket_id = 'export-templates'
+  and id = '00000000-0000-0000-0000-000000000888';
+set local storage.allow_delete_query = 'false';
+
 -- Switch back to User A
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000023';
 
@@ -192,6 +205,25 @@ select is(
   (select name from public.export_templates where id = '00000000-0000-0000-0000-000000000999'),
   'Updated Template Name',
   'User A template was not altered by User B'
+);
+
+select is(
+  (select count(*)::integer from storage.objects where bucket_id = 'export-templates' and id = '00000000-0000-0000-0000-000000000888'),
+  1,
+  'User A storage object was not deleted or altered by User B'
+);
+
+-- User A deletes own storage object
+set local storage.allow_delete_query = 'true';
+delete from storage.objects
+where bucket_id = 'export-templates'
+  and id = '00000000-0000-0000-0000-000000000888';
+set local storage.allow_delete_query = 'false';
+
+select is(
+  (select count(*)::integer from storage.objects where bucket_id = 'export-templates'),
+  0,
+  'User A can delete own storage object'
 );
 
 -- User A deletes own template

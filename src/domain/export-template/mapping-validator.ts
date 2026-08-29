@@ -174,8 +174,8 @@ export function validateTransformOptions(config: TransformConfig): string[] {
           errors.push(`VALUE_MAP「${k}」的值必須為字串或數字。`)
         }
       }
-      if (opts.unmappedBehavior && !['keep', 'empty', 'error'].includes(opts.unmappedBehavior)) {
-        errors.push('VALUE_MAP unmappedBehavior 無效，必須為 keep、empty 或 error。')
+      if (!opts.unmappedBehavior || !['keep', 'empty', 'error'].includes(opts.unmappedBehavior)) {
+        errors.push('VALUE_MAP 必須明確設定 unmappedBehavior（keep、empty 或 error）。')
       }
     }
   } else if (config.type === 'ROC_YEAR_MONTH') {

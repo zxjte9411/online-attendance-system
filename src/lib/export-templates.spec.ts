@@ -24,10 +24,23 @@ vi.mock('./supabase', () => ({
   getSupabaseClient: vi.fn(),
 }))
 
-async function createDummyXlsxBuffer(sheetNames = ['8月', '9月']): Promise<Uint8Array> {
+async function createDummyXlsxBuffer(
+  sheetNames = ['8月', '9月'],
+  withDates: Record<string, { col: string; dates: (string | number)[] }> = {}
+): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook()
   for (const name of sheetNames) {
-    wb.addWorksheet(name)
+    const ws = wb.addWorksheet(name)
+    const conf = withDates[name]
+    if (conf) {
+      conf.dates.forEach((d, idx) => {
+        ws.getCell(`${conf.col}${idx + 1}`).value = d
+      })
+    } else {
+      for (let day = 1; day <= 31; day++) {
+        ws.getCell(`B${day}`).value = day
+      }
+    }
   }
   const buf = await wb.xlsx.writeBuffer()
   return new Uint8Array(buf)
@@ -237,9 +250,55 @@ describe('Lib: Export Templates Service', () => {
         newName: '新範本',
       })
 
-      expect(result).toEqual(updatedData)
+      expect(result).toEqual({ template: updatedData, warning: null })
       expect(uploadMock).toHaveBeenCalled()
       expect(updateMock).toHaveBeenCalled()
+      expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+    })
+
+    it('reports partial-success warning when old storage file cleanup fails', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      const newFileBytes = await createDummyXlsxBuffer(['8月'])
+
+      const uploadMock = vi.fn().mockResolvedValue({ data: { path: 'new-path' }, error: null })
+      const removeMock = vi.fn().mockResolvedValue({ data: null, error: new Error('Storage network timeout') })
+
+      mockSupabase.storage.from.mockReturnValue({
+        upload: uploadMock,
+        remove: removeMock,
+      } as any)
+
+      const updatedData = { ...currentTemplate, name: '新範本' }
+      const singleMock = vi.fn().mockResolvedValue({ data: updatedData, error: null })
+      const selectMock = vi.fn().mockReturnValue({ single: singleMock })
+      const eqIdMock = vi.fn().mockReturnValue({ select: selectMock })
+      const eqUserMock = vi.fn().mockReturnValue({ eq: eqIdMock })
+      const updateMock = vi.fn().mockReturnValue({ eq: eqUserMock })
+
+      mockSupabase.from.mockReturnValue({
+        update: updateMock,
+      } as any)
+
+      const result = await replaceExportTemplate({
+        userId: 'user-1',
+        currentTemplate,
+        newFile: newFileBytes,
+      })
+
+      expect(result.template).toEqual(updatedData)
+      expect(result.warning).toContain('舊範本檔案清理失敗')
       expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
     })
 
@@ -272,6 +331,78 @@ describe('Lib: Export Templates Service', () => {
           newFile: newFileBytes,
         })
       ).rejects.toThrow('新範本檔案缺少目前已設定的月份工作表「9月」')
+
+      expect(uploadMock).not.toHaveBeenCalled()
+      expect(updateMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects replacement if new workbook date column contains no usable dates for configured month', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      // In new file, dates moved to column A, column B only has non-date text
+      const newFileBytes = await createDummyXlsxBuffer(['8月'], {
+        '8月': { col: 'B', dates: ['Header', 'Note', 'Other'] },
+      })
+
+      const uploadMock = vi.fn()
+      const updateMock = vi.fn()
+      mockSupabase.storage.from.mockReturnValue({ upload: uploadMock } as any)
+      mockSupabase.from.mockReturnValue({ update: updateMock } as any)
+
+      await expect(
+        replaceExportTemplate({
+          userId: 'user-1',
+          currentTemplate,
+          newFile: newFileBytes,
+        })
+      ).rejects.toThrow('未找到任何對應月份 2026-08 的日期資料')
+
+      expect(uploadMock).not.toHaveBeenCalled()
+      expect(updateMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects replacement if new workbook date column contains duplicate dates for configured month', async () => {
+      const currentTemplate: ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+
+      // Duplicate date 2026-08-01 in column B
+      const newFileBytes = await createDummyXlsxBuffer(['8月'], {
+        '8月': { col: 'B', dates: ['2026-08-01', '2026-08-01', '2026-08-03'] },
+      })
+
+      const uploadMock = vi.fn()
+      const updateMock = vi.fn()
+      mockSupabase.storage.from.mockReturnValue({ upload: uploadMock } as any)
+      mockSupabase.from.mockReturnValue({ update: updateMock } as any)
+
+      await expect(
+        replaceExportTemplate({
+          userId: 'user-1',
+          currentTemplate,
+          newFile: newFileBytes,
+        })
+      ).rejects.toThrow('出現重複日期「2026-08-01」')
 
       expect(uploadMock).not.toHaveBeenCalled()
       expect(updateMock).not.toHaveBeenCalled()

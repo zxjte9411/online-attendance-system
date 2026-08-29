@@ -153,12 +153,18 @@ describe('Domain: Export Template Mapping Validator', () => {
       ).toEqual([])
     })
 
-    it('rejects invalid VALUE_MAP unmappedBehavior', () => {
-      const errors = validateTransformOptions({
+    it('rejects invalid or missing VALUE_MAP unmappedBehavior', () => {
+      const missingBehaviorErrors = validateTransformOptions({
+        type: 'VALUE_MAP',
+        options: { map: { A: 'B' } as any },
+      })
+      expect(missingBehaviorErrors.some((e) => e.includes('unmappedBehavior'))).toBe(true)
+
+      const invalidBehaviorErrors = validateTransformOptions({
         type: 'VALUE_MAP',
         options: { map: { A: 'B' }, unmappedBehavior: 'invalid_mode' as any },
       })
-      expect(errors.some((e) => e.includes('unmappedBehavior'))).toBe(true)
+      expect(invalidBehaviorErrors.some((e) => e.includes('unmappedBehavior'))).toBe(true)
     })
 
     it('validates multi-stage pipeline type compatibility correctly', () => {

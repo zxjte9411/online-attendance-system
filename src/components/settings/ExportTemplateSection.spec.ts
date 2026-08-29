@@ -199,4 +199,78 @@ describe('Component: ExportTemplateSection', () => {
       })
     )
   })
+
+  it('updates first VALUE_MAP stage from UI while preserving tail stages in multi-stage pipeline', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [
+        { sourceField: 'date', targetColumn: 'B' },
+        {
+          sourceField: 'status',
+          targetColumn: 'C',
+          transforms: [
+            {
+              type: 'VALUE_MAP',
+              options: {
+                map: { WORK: '出勤' },
+                unmappedBehavior: 'keep',
+              },
+            },
+            { type: 'EMPTY_IF_ZERO' },
+          ],
+        },
+      ],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+    vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: {
+        userId: 'user-1',
+        contextId: 'ctx-1',
+        contextName: '測試情境',
+      },
+    })
+
+    await flushPromises()
+
+    // Edit textarea value
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('WORK=出勤\nLEAVE=請假')
+
+    const saveForm = wrapper.find('[data-test="mapping-form"]')
+    await saveForm.trigger('submit')
+    await flushPromises()
+
+    expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowMapping: expect.arrayContaining([
+          expect.objectContaining({
+            sourceField: 'status',
+            transforms: [
+              {
+                type: 'VALUE_MAP',
+                options: {
+                  map: { WORK: '出勤', LEAVE: '請假' },
+                  unmappedBehavior: 'keep',
+                },
+              },
+              { type: 'EMPTY_IF_ZERO' },
+            ],
+          }),
+        ]),
+      })
+    )
+  })
 })
