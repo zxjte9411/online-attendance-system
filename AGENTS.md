@@ -2,6 +2,7 @@
 
 * 使用繁體中文台灣用語回覆；需要使用者回覆時，列出選項並透過提問工具詢問。
 * 本專案在開發容器內執行；注意容器與主機的 IP 及互動。
+* **Local Supabase**：在開發容器執行 migration、reset 或資料庫測試而無法連上本機 Docker 服務時，先依 `README.md` 的「開發容器中的 Local Supabase」確認拓樸與指令。
 
 ## Work discipline
 
