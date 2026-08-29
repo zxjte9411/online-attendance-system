@@ -25,8 +25,7 @@ import {
 } from '../lib/dgpa-calendar'
 import type { DgpaCalendarRow } from '../domain/dgpa-calendar/resolver'
 import {
-  listWorkContexts,
-  listWorkPolicies,
+  getSetupStatus,
   getCurrentUserId,
   type WorkPolicy,
 } from '../lib/settings'
@@ -97,16 +96,9 @@ watch(currentMonth, (newMonth) => {
 })
 
 async function loadPolicies(): Promise<WorkPolicy[]> {
-  try {
-    const userId = await getCurrentUserId()
-    const contexts = await listWorkContexts(userId)
-    const defaultContext = contexts.find((c) => c.active && c.is_default) ?? null
-    if (!defaultContext) return []
-    return await listWorkPolicies(userId, defaultContext.id)
-  } catch {
-    // If not logged in or query fails, let loadMonth handle error or empty list
-    return []
-  }
+  const userId = await getCurrentUserId()
+  const setup = await getSetupStatus(userId)
+  return setup.policies
 }
 
 async function loadMonth(yearMonth: string): Promise<boolean> {
@@ -435,7 +427,7 @@ async function handleSaveDay() {
     </div>
 
     <!-- Days List Table -->
-    <div v-else class="mt-6 overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow)]">
+    <div v-else-if="!loadError" class="mt-6 overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow)]">
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm" aria-label="月份日曆與狀態表">
           <thead class="border-b border-line bg-surface-soft text-[0.6875rem] font-bold tracking-[0.1em] text-muted">
@@ -487,7 +479,7 @@ async function handleSaveDay() {
                       class="w-fit rounded-[0.375rem] px-2 py-0.5 text-xs font-bold"
                       :class="d.resolvedDayType === 'HOLIDAY' ? 'border border-amber-300 bg-amber-50 text-amber-800' : 'border border-blue-300 bg-blue-50 text-blue-800'"
                     >
-                      {{ formatCalendarResolutionLabel(d.resolvedSource, d.resolvedDayType) }}
+                      {{ formatCalendarResolutionLabel(d.resolvedSource, d.resolvedDayType, d.isWeekend) }}
                     </span>
                     <span v-if="d.resolvedName" class="font-medium text-xs text-ink">{{ d.resolvedName }}</span>
                   </div>

@@ -72,13 +72,15 @@ export function formatCalendarOverrideLabel(dayType: CalendarDayType): string {
 
 export function formatCalendarResolutionLabel(
   source: CalendarResolutionSource,
-  dayType: CalendarDayType
+  dayType: CalendarDayType,
+  isWeekend = false
 ): string {
   switch (source) {
     case 'MANUAL_OVERRIDE':
       return dayType === 'WORKDAY' ? '人工工作日' : '人工假日'
     case 'DGPA':
-      return dayType === 'WORKDAY' ? 'DGPA 補班日' : 'DGPA 假日'
+      if (dayType === 'HOLIDAY') return 'DGPA 假日'
+      return isWeekend ? 'DGPA 補班日' : 'DGPA 工作日'
     case 'WORK_POLICY':
       return dayType === 'WORKDAY' ? '制度工作日' : '制度非工作日'
     case 'WEEKEND_FALLBACK':

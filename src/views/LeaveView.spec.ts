@@ -20,8 +20,7 @@ import {
 } from '../lib/dgpa-calendar'
 import type { DgpaCalendarRow } from '../domain/dgpa-calendar/resolver'
 import {
-  listWorkContexts,
-  listWorkPolicies,
+  getSetupStatus,
   getCurrentUserId,
 } from '../lib/settings'
 
@@ -42,8 +41,7 @@ vi.mock('../lib/dgpa-calendar', () => ({
 
 vi.mock('../lib/settings', () => ({
   getCurrentUserId: vi.fn(),
-  listWorkContexts: vi.fn(),
-  listWorkPolicies: vi.fn(),
+  getSetupStatus: vi.fn(),
 }))
 
 vi.mock('../lib/work-policy', () => ({
@@ -88,28 +86,42 @@ const mockCalendarOverrides: CalendarOverride[] = [
     user_id: 'user-1',
     calendar_date: '2026-08-15',
     day_type: 'WORKDAY',
-    name: '補行上班',
+    name: '特別工作日',
     note: null,
   },
 ]
 
 const mockDgpaRows: DgpaCalendarRow[] = [
   {
-    calendar_date: '2026-08-10',
+    calendar_date: '2026-08-03', // Monday normal DGPA workday
     day_type: 'WORKDAY',
     name: null,
     source: 'https://data.gov.tw/dataset/14718/test',
     fetched_at: '2026-08-01T10:00:00Z',
   },
   {
-    calendar_date: '2026-08-15',
+    calendar_date: '2026-08-08', // Saturday DGPA makeup workday
+    day_type: 'WORKDAY',
+    name: '補行上班',
+    source: 'https://data.gov.tw/dataset/14718/test',
+    fetched_at: '2026-08-01T10:00:00Z',
+  },
+  {
+    calendar_date: '2026-08-10', // Monday DGPA workday
+    day_type: 'WORKDAY',
+    name: null,
+    source: 'https://data.gov.tw/dataset/14718/test',
+    fetched_at: '2026-08-01T10:00:00Z',
+  },
+  {
+    calendar_date: '2026-08-15', // Saturday DGPA holiday
     day_type: 'HOLIDAY',
     name: '中元節',
     source: 'https://data.gov.tw/dataset/14718/test',
     fetched_at: '2026-08-01T10:00:00Z',
   },
   {
-    calendar_date: '2026-08-20',
+    calendar_date: '2026-08-20', // Thursday DGPA holiday
     day_type: 'HOLIDAY',
     name: '國定假日',
     source: 'https://data.gov.tw/dataset/14718/test',
@@ -127,8 +139,20 @@ describe('LeaveView', () => {
     vi.mocked(getMonthAttendanceDates).mockResolvedValue(new Set(mockAttendanceDates))
     vi.mocked(getDgpaCalendarForMonth).mockResolvedValue([...mockDgpaRows])
     vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
-    vi.mocked(listWorkContexts).mockResolvedValue([
-      {
+    vi.mocked(getSetupStatus).mockResolvedValue({
+      profile: { id: 'user-1', display_name: '測試使用者', timezone: 'Asia/Taipei' },
+      contexts: [
+        {
+          id: 'ctx-1',
+          user_id: 'user-1',
+          name: '預設工作',
+          company_identifier: 'C1',
+          project_identifier: 'P1',
+          active: true,
+          is_default: true,
+        },
+      ],
+      defaultContext: {
         id: 'ctx-1',
         user_id: 'user-1',
         name: '預設工作',
@@ -137,27 +161,28 @@ describe('LeaveView', () => {
         active: true,
         is_default: true,
       },
-    ])
-    vi.mocked(listWorkPolicies).mockResolvedValue([
-      {
-        id: 'pol-1',
-        user_id: 'user-1',
-        context_id: 'ctx-1',
-        name: '標準制度',
-        standard_start_time: '09:00:00',
-        work_minutes: 480,
-        fixed_break_minutes: 60,
-        early_arrival_policy: 'STANDARD_START',
-        clock_in_rounding_mode: 'NONE',
-        clock_in_rounding_minutes: null,
-        clock_out_rounding_mode: 'NONE',
-        clock_out_rounding_minutes: null,
-        working_days: ['1', '2', '3', '4', '5'],
-        effective_from: '2026-01-01',
-        effective_to: null,
-        timezone: 'Asia/Taipei',
-      },
-    ])
+      policies: [
+        {
+          id: 'pol-1',
+          user_id: 'user-1',
+          context_id: 'ctx-1',
+          name: '標準制度',
+          standard_start_time: '09:00:00',
+          work_minutes: 480,
+          fixed_break_minutes: 60,
+          early_arrival_policy: 'STANDARD_START',
+          clock_in_rounding_mode: 'NONE',
+          clock_in_rounding_minutes: null,
+          clock_out_rounding_mode: 'NONE',
+          clock_out_rounding_minutes: null,
+          working_days: ['1', '2', '3', '4', '5'],
+          effective_from: '2026-01-01',
+          effective_to: null,
+          timezone: 'Asia/Taipei',
+        },
+      ],
+      complete: true,
+    })
   })
 
   it('載入當前月份並呈現 DGPA 狀態、特殊狀態優先、日曆覆寫與出勤共存之列表', async () => {
@@ -173,6 +198,17 @@ describe('LeaveView', () => {
     const dgpaStatus = wrapper.find('[data-testid="dgpa-status-summary"]')
     expect(dgpaStatus.exists()).toBe(true)
     expect(dgpaStatus.text()).toContain('DGPA 日曆已同步')
+
+    // 檢查 2026-08-03（週一 DGPA 工作日，一般平日）
+    const rowAug03 = wrapper.find('[data-testid="day-row-2026-08-03"]')
+    expect(rowAug03.exists()).toBe(true)
+    expect(rowAug03.text()).toContain('DGPA 工作日')
+
+    // 檢查 2026-08-08（週六 DGPA 補班日，週末工作日）
+    const rowAug08 = wrapper.find('[data-testid="day-row-2026-08-08"]')
+    expect(rowAug08.exists()).toBe(true)
+    expect(rowAug08.text()).toContain('DGPA 補班日')
+    expect(rowAug08.text()).toContain('補行上班')
 
     // 檢查 2026-08-10 同日共存與例外標記、人工覆寫與 DGPA 基準
     const rowAug10 = wrapper.find('[data-testid="day-row-2026-08-10"]')
@@ -196,13 +232,90 @@ describe('LeaveView', () => {
     // 檢查 2026-08-15 人工工作日與原 DGPA 假日基準
     const rowAug15 = wrapper.find('[data-testid="day-row-2026-08-15"]')
     expect(rowAug15.text()).toContain('人工工作日')
-    expect(rowAug15.text()).toContain('補行上班')
+    expect(rowAug15.text()).toContain('特別工作日')
     expect(rowAug15.text()).toContain('原 DGPA: 假日 - 中元節')
 
     // 檢查 2026-08-20 DGPA 假日
     const rowAug20 = wrapper.find('[data-testid="day-row-2026-08-20"]')
     expect(rowAug20.text()).toContain('DGPA 假日')
     expect(rowAug20.text()).toContain('國定假日')
+  })
+
+  it('Work Policy 查詢失敗時正確傳播錯誤並呈現 load error，而非靜默轉為 empty policies', async () => {
+    vi.mocked(getSetupStatus).mockRejectedValueOnce(new Error('Work policy database query failed'))
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    const errorAlert = wrapper.find('[role="alert"]')
+    expect(errorAlert.exists()).toBe(true)
+    expect(errorAlert.text()).toContain('日曆與狀態資料載入失敗')
+    // 列表表格不應在載入失敗時正常渲染假資料
+    expect(wrapper.find('table').exists()).toBe(false)
+  })
+
+  it('真正沒有 default context 時正常解析為空制度並允許週末預設 fallback', async () => {
+    vi.mocked(getSetupStatus).mockResolvedValueOnce({
+      profile: null,
+      contexts: [],
+      defaultContext: null,
+      policies: [],
+      complete: false,
+    })
+    // 且該月份無 DGPA 資料
+    vi.mocked(getDgpaCalendarForMonth).mockResolvedValueOnce([])
+    vi.mocked(getCalendarOverridesForMonth).mockResolvedValueOnce([])
+    vi.mocked(getDayStatusesForMonth).mockResolvedValueOnce([])
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    // 2026-08-01 為週六 -> 週末預設 (HOLIDAY)
+    const rowAug01 = wrapper.find('[data-testid="day-row-2026-08-01"]')
+    expect(rowAug01.text()).toContain('週末預設')
+    // 2026-08-03 為週一 -> 預設平日 (WORKDAY)
+    const rowAug03 = wrapper.find('[data-testid="day-row-2026-08-03"]')
+    expect(rowAug03.text()).toContain('預設平日')
+  })
+
+  it('有 default context 但特定日期無適用制度時才正確 fallback 至預設平日或週末預設', async () => {
+    vi.mocked(getSetupStatus).mockResolvedValueOnce({
+      profile: { id: 'user-1', display_name: 'Test', timezone: 'Asia/Taipei' },
+      contexts: [{ id: 'ctx-1', user_id: 'user-1', name: '預設工作', company_identifier: 'C1', project_identifier: 'P1', active: true, is_default: true }],
+      defaultContext: { id: 'ctx-1', user_id: 'user-1', name: '預設工作', company_identifier: 'C1', project_identifier: 'P1', active: true, is_default: true },
+      policies: [
+        {
+          id: 'pol-future',
+          user_id: 'user-1',
+          context_id: 'ctx-1',
+          name: '未來制度',
+          standard_start_time: '09:00:00',
+          work_minutes: 480,
+          fixed_break_minutes: 60,
+          early_arrival_policy: 'STANDARD_START',
+          clock_in_rounding_mode: 'NONE',
+          clock_in_rounding_minutes: null,
+          clock_out_rounding_mode: 'NONE',
+          clock_out_rounding_minutes: null,
+          working_days: ['1', '2', '3', '4', '5'],
+          effective_from: '2026-09-01', // 2026-08 尚未生效
+          effective_to: null,
+          timezone: 'Asia/Taipei',
+        },
+      ],
+      complete: true,
+    })
+    vi.mocked(getDgpaCalendarForMonth).mockResolvedValueOnce([])
+    vi.mocked(getCalendarOverridesForMonth).mockResolvedValueOnce([])
+    vi.mocked(getDayStatusesForMonth).mockResolvedValueOnce([])
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    // 2026-08-03 (週一) 由於 8 月沒有適用 policy，fallback 至 預設平日
+    const rowAug03 = wrapper.find('[data-testid="day-row-2026-08-03"]')
+    expect(rowAug03.text()).toContain('預設平日')
   })
 
   it('支援點擊「更新 DGPA」呼叫 Edge Function 並在成功後重新載入資料', async () => {
@@ -217,7 +330,6 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 初始載入 1 次
     expect(getDgpaCalendarForMonth).toHaveBeenCalledTimes(1)
 
     const syncBtn = wrapper.find('[data-testid="sync-dgpa-button"]')
@@ -225,7 +337,6 @@ describe('LeaveView', () => {
     await flushPromises()
 
     expect(syncDgpaCalendarYear).toHaveBeenCalledWith(2026)
-    // 成功後重新載入資料 (第 2 次呼叫)
     expect(getDgpaCalendarForMonth).toHaveBeenCalledTimes(2)
 
     const successAlert = wrapper.find('[data-testid="sync-success-alert"]')
@@ -247,7 +358,6 @@ describe('LeaveView', () => {
     expect(errorAlert.exists()).toBe(true)
     expect(errorAlert.text()).toContain('找不到 2026 年的合法 DGPA CSV 資源。')
 
-    // 既有快取資料仍正常呈現
     const rowAug20 = wrapper.find('[data-testid="day-row-2026-08-20"]')
     expect(rowAug20.text()).toContain('DGPA 假日')
   })
@@ -290,25 +400,21 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 編輯 2026-08-10 (已有 co-1 及 ds-1)
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-10"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 
-    // 只變更 Day Status
     await wrapper.find('[data-testid="day-status-type"]').setValue('REMOTE')
     await wrapper.find('[data-testid="day-status-note"]').setValue('改為遠端工作')
 
     await wrapper.find('[data-action="save-day"]').trigger('click')
     await flushPromises()
 
-    // Day Status 有被更新
     expect(upsertDayStatus).toHaveBeenCalledWith({
       work_date: '2026-08-10',
       status: 'REMOTE',
       note: '改為遠端工作',
     })
 
-    // Calendar Override 完全沒有被呼叫
     expect(upsertCalendarOverride).not.toHaveBeenCalled()
     expect(deleteCalendarOverride).not.toHaveBeenCalled()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
@@ -327,11 +433,9 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 編輯 2026-08-10 (已有 co-1 及 ds-1)
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-10"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 
-    // 只變更 Calendar Override
     await wrapper.find('[data-testid="calendar-override-type"]').setValue('WORKDAY')
     await wrapper.find('[data-testid="calendar-override-name"]').setValue('特別工作日')
     await wrapper.find('[data-testid="calendar-override-note"]').setValue('專案衝刺')
@@ -339,7 +443,6 @@ describe('LeaveView', () => {
     await wrapper.find('[data-action="save-day"]').trigger('click')
     await flushPromises()
 
-    // Calendar Override 有被更新
     expect(upsertCalendarOverride).toHaveBeenCalledWith({
       calendar_date: '2026-08-10',
       day_type: 'WORKDAY',
@@ -347,7 +450,6 @@ describe('LeaveView', () => {
       note: '專案衝刺',
     })
 
-    // Day Status 完全沒有被呼叫
     expect(upsertDayStatus).not.toHaveBeenCalled()
     expect(deleteDayStatus).not.toHaveBeenCalled()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
@@ -360,7 +462,6 @@ describe('LeaveView', () => {
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-10"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 
-    // 直接點擊儲存，沒有改任何值
     await wrapper.find('[data-action="save-day"]').trigger('click')
     await flushPromises()
 
@@ -375,11 +476,9 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 編輯 2026-08-10 (co-1: name='特別紀念日', note='公司放假'; ds-1: note='個人事假')
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-10"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 
-    // 前後加入空白，實際正規化後內容相同
     await wrapper.find('[data-testid="calendar-override-name"]').setValue('  特別紀念日  ')
     await wrapper.find('[data-testid="calendar-override-note"]').setValue('  公司放假  ')
     await wrapper.find('[data-testid="day-status-note"]').setValue('  個人事假  ')
@@ -439,13 +538,11 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 初始載入 1 次
     expect(getDayStatusesForMonth).toHaveBeenCalledTimes(1)
 
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-20"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 
-    // 同時修改兩層
     await wrapper.find('[data-testid="calendar-override-type"]').setValue('HOLIDAY')
     await wrapper.find('[data-testid="calendar-override-name"]').setValue('特別假日')
     await wrapper.find('[data-testid="day-status-type"]').setValue('LEAVE')
@@ -453,7 +550,6 @@ describe('LeaveView', () => {
     await wrapper.find('[data-action="save-day"]').trigger('click')
     await flushPromises()
 
-    // Calendar override 成功，Day status 失敗 -> 重新從 server loadMonth (第 2 次呼叫)
     expect(getDayStatusesForMonth).toHaveBeenCalledTimes(2)
 
     const modal = wrapper.find('[role="dialog"]')
@@ -480,34 +576,28 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 點擊 2026-08-20 編輯按鈕
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-20"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 
-    // 同時修改兩層
     await wrapper.find('[data-testid="calendar-override-type"]').setValue('HOLIDAY')
     await wrapper.find('[data-testid="calendar-override-name"]').setValue('特別假日')
     await wrapper.find('[data-testid="day-status-type"]').setValue('LEAVE')
     await wrapper.find('[data-testid="day-status-note"]').setValue('個人事假')
 
-    // 第一次送出：Calendar Override 成功，Day Status 失敗
     vi.mocked(getCalendarOverridesForMonth).mockResolvedValue([...mockCalendarOverrides, newOverride])
 
     await wrapper.find('[data-action="save-day"]').trigger('click')
     await flushPromises()
 
-    // 1. modal 仍開啟並顯示 partial-success 訊息
     const modal = wrapper.find('[role="dialog"]')
     expect(modal.exists()).toBe(true)
     expect(modal.text()).toContain('日曆覆寫已更新，但特殊狀態儲存失敗：權限不足，無法執行此操作。')
 
-    // 2. 使用者的 LEAVE form selection 與 note 仍保留
     const statusSelect = wrapper.find('[data-testid="day-status-type"]') as { element: HTMLSelectElement }
     expect(statusSelect.element.value).toBe('LEAVE')
     const statusNote = wrapper.find('[data-testid="day-status-note"]') as { element: HTMLInputElement }
     expect(statusNote.element.value).toBe('個人事假')
 
-    // 3. 清除 mock 呼叫歷史，並將 upsertDayStatus 改為成功
     vi.mocked(upsertCalendarOverride).mockClear()
     vi.mocked(deleteCalendarOverride).mockClear()
     vi.mocked(upsertDayStatus).mockClear()
@@ -519,11 +609,9 @@ describe('LeaveView', () => {
       note: '個人事假',
     })
 
-    // 4. 不修改任何 form，直接再次按 Save
     await wrapper.find('[data-action="save-day"]').trigger('click')
     await flushPromises()
 
-    // 5. 第二次 Save：upsertDayStatus 被 retry，upsertCalendarOverride / deleteCalendarOverride 完全沒有被呼叫
     expect(upsertDayStatus).toHaveBeenCalledTimes(1)
     expect(upsertDayStatus).toHaveBeenCalledWith({
       work_date: '2026-08-20',
@@ -532,8 +620,6 @@ describe('LeaveView', () => {
     })
     expect(upsertCalendarOverride).not.toHaveBeenCalled()
     expect(deleteCalendarOverride).not.toHaveBeenCalled()
-
-    // 6. 最終儲存成功後 modal 正常關閉
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
@@ -678,7 +764,6 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
-    // 點擊 2026-08-10 (已有出勤且有 DGPA 工作日基準)
     const editBtn = wrapper.find('[data-testid="day-row-2026-08-10"] [data-action="edit-day"]')
     await editBtn.trigger('click')
 

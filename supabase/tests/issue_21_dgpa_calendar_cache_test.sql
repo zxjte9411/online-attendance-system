@@ -16,7 +16,9 @@ values
   ('00000000-0000-0000-0000-000000000022', 'user21b@example.com')
 on conflict do nothing;
 
--- Insert baseline test data directly as superuser/service_role
+-- Clean up and insert baseline test data directly as superuser/service_role
+truncate table public.dgpa_calendar_cache cascade;
+
 insert into public.dgpa_calendar_cache (calendar_date, day_type, name, source, fetched_at)
 values
   ('2026-01-01', 'HOLIDAY', '中華民國開國紀念日', 'https://data.gov.tw/dataset/14718/test', '2026-01-01 00:00:00+00'),

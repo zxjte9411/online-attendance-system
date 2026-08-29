@@ -64,26 +64,32 @@ export function selectDgpaResource(metadata: DgpaDatasetMetadata, targetYear: nu
       return false
     }
 
-    // 5. Must have supported character encoding
-    const enc = (res.resourceCharacterEncoding ?? 'utf-8').trim().toLowerCase()
+    // 5. Must have explicitly provided supported character encoding
+    if (!res.resourceCharacterEncoding || typeof res.resourceCharacterEncoding !== 'string' || !res.resourceCharacterEncoding.trim()) {
+      return false
+    }
+    const enc = res.resourceCharacterEncoding.trim().toLowerCase()
     if (!SUPPORTED_ENCODINGS.has(enc)) return false
 
-    // 6. Required fields check if resourceField metadata is provided
-    if (res.resourceField) {
-      const requiredFields = ['西元日期', '星期', '是否放假', '備註']
-      if (Array.isArray(res.resourceField)) {
-        const fieldNames = res.resourceField.map((f: any) =>
-          typeof f === 'object' && f !== null && f.name ? String(f.name).trim() : String(f).trim()
-        )
-        const fieldSet = new Set(fieldNames)
-        if (!requiredFields.every((rf) => fieldSet.has(rf))) {
-          return false
-        }
-      } else if (typeof res.resourceField === 'string') {
-        if (!requiredFields.every((rf) => (res.resourceField as string).includes(rf))) {
-          return false
-        }
+    // 6. Required fields check: resourceField metadata must be explicitly provided and contain all 4 fields
+    if (!res.resourceField) {
+      return false
+    }
+    const requiredFields = ['西元日期', '星期', '是否放假', '備註']
+    if (Array.isArray(res.resourceField)) {
+      const fieldNames = res.resourceField.map((f: any) =>
+        typeof f === 'object' && f !== null && f.name ? String(f.name).trim() : String(f).trim()
+      )
+      const fieldSet = new Set(fieldNames)
+      if (!requiredFields.every((rf) => fieldSet.has(rf))) {
+        return false
       }
+    } else if (typeof res.resourceField === 'string') {
+      if (!requiredFields.every((rf) => (res.resourceField as string).includes(rf))) {
+        return false
+      }
+    } else {
+      return false
     }
 
     return true
@@ -97,23 +103,25 @@ export function selectDgpaResource(metadata: DgpaDatasetMetadata, targetYear: nu
     return candidates[0]
   }
 
-  // Multiple candidates: resolve by latest timestamp
-  const getTimestampMs = (res: DgpaResource): number => {
-    const rawTs = res.resourceQualityCheckTime || res.resourceModifyDate || res.resourceReleaseDate
-    if (!rawTs) return -1
-    const ms = Date.parse(rawTs)
-    return isNaN(ms) ? -1 : ms
+  // Multiple candidates: resolve strictly by resourceQualityCheckTime (no fallback to other dates)
+  const candidatesWithTime = candidates.map((res) => {
+    if (!res.resourceQualityCheckTime || typeof res.resourceQualityCheckTime !== 'string' || !res.resourceQualityCheckTime.trim()) {
+      throw new Error(`候選資源缺少 resourceQualityCheckTime，無法唯一判定最新版本。`)
+    }
+    const ms = Date.parse(res.resourceQualityCheckTime.trim())
+    if (isNaN(ms)) {
+      throw new Error(`候選資源之 resourceQualityCheckTime 無效: ${res.resourceQualityCheckTime}`)
+    }
+    return { res, ms }
+  })
+
+  candidatesWithTime.sort((a, b) => b.ms - a.ms)
+
+  if (candidatesWithTime[0].ms === candidatesWithTime[1].ms) {
+    throw new Error(`無法唯一判定 ${targetYear} 年的最新 DGPA 資源版本（最高品質檢查時間重複）。`)
   }
 
-  const sorted = [...candidates].sort((a, b) => getTimestampMs(b) - getTimestampMs(a))
-  const topMs = getTimestampMs(sorted[0])
-  const secondMs = getTimestampMs(sorted[1])
-
-  if (topMs === -1 || topMs === secondMs) {
-    throw new Error(`無法唯一判定 ${targetYear} 年的最新 DGPA 資源版本。`)
-  }
-
-  return sorted[0]
+  return candidatesWithTime[0].res
 }
 
 export function parseCsvRecords(csvText: string): string[][] {
@@ -200,11 +208,12 @@ export function parseDgpaCalendarCsv(csvText: string, targetYear: number): Parse
 
   const header = records[0].map((h) => h.trim())
   const dateIdx = header.findIndex((h) => h === '西元日期')
+  const weekdayIdx = header.findIndex((h) => h === '星期')
   const holidayIdx = header.findIndex((h) => h === '是否放假')
   const noteIdx = header.findIndex((h) => h === '備註')
 
-  if (dateIdx === -1 || holidayIdx === -1) {
-    throw new Error('CSV 標頭缺失必要欄位（西元日期、是否放假）。')
+  if (dateIdx === -1 || weekdayIdx === -1 || holidayIdx === -1 || noteIdx === -1) {
+    throw new Error('CSV 標頭缺失必要欄位（西元日期、星期、是否放假、備註）。')
   }
 
   const isLeap = (targetYear % 4 === 0 && targetYear % 100 !== 0) || (targetYear % 400 === 0)
