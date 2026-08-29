@@ -103,6 +103,9 @@ async function initContexts() {
     if (list.length > 0) {
       const defaultCtx = list.find((c) => c.active && c.is_default) ?? list[0]
       selectedContextId.value = defaultCtx.id
+    } else {
+      loadedScope.value = null
+      isLoading.value = false
     }
   } catch (err) {
     loadError.value = presentErrorMessage(err, '載入工作情境失敗，請稍後再試。')

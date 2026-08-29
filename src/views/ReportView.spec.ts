@@ -386,4 +386,25 @@ describe('ReportView', () => {
     expect(createObjectUrlSpy).toHaveBeenCalled()
     expect(clickSpy).toHaveBeenCalled()
   })
+
+  it('無任何 Work Context 時結束 loading 並顯示 empty state，不發出 month query 且 CSV 按鈕停用', async () => {
+    vi.spyOn(settingsLib, 'listWorkContexts').mockResolvedValue([])
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies')
+
+    const wrapper = mount(ReportView)
+    await flushPromises()
+
+    // Loading indicator must be gone
+    expect(wrapper.find('[data-test="loading-indicator"]').exists()).toBe(false)
+    // Empty state text must be shown
+    expect(wrapper.text()).toContain('尚未設定任何工作情境')
+    // Summary cards and table rows must not exist
+    expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="report-row"]')).toHaveLength(0)
+    // Month query must not be triggered
+    expect(listPoliciesSpy).not.toHaveBeenCalled()
+    // CSV button must be disabled
+    const downloadButton = wrapper.find('[data-test="download-csv-button"]')
+    expect(downloadButton.attributes('disabled')).toBeDefined()
+  })
 })
