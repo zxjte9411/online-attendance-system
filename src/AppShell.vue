@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { createSupabaseAuth } from './lib/auth'
+import LeaveView from './views/LeaveView.vue'
 import SettingsView from './views/SettingsView.vue'
 import TodayView from './views/TodayView.vue'
 import AttendanceView from './views/AttendanceView.vue'
@@ -205,6 +206,7 @@ async function handleSignOut() {
       <main id="main-content" tabindex="-1" class="grid items-start px-5 py-10 pb-16 sm:px-10 md:py-12 md:pb-24 lg:px-16">
         <TodayView v-if="route.name === 'today'" />
         <AttendanceView v-else-if="route.name === 'attendance'" />
+        <LeaveView v-else-if="route.name === 'leave'" />
         <SettingsView v-else-if="route.name === 'settings'" />
         <div v-else class="w-full max-w-6xl">
           <section class="grid max-w-[39rem] gap-4" aria-labelledby="page-title">
@@ -233,7 +235,7 @@ async function handleSignOut() {
           </section>
 
           <div class="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.75fr)]">
-            <section v-if="route.name !== 'attendance' && route.name !== 'leave' && route.name !== 'reports' && route.name !== 'settings'" class="grid gap-6 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="today-preview-title">
+            <section v-if="route.name !== 'reports'" class="grid gap-6 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="today-preview-title">
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div class="grid gap-1">
                   <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">今日出勤預覽資料</span>
@@ -265,33 +267,6 @@ async function handleSignOut() {
                 <p class="max-w-[48ch] text-[0.875rem] leading-relaxed text-muted">這裡只展示未來動作的位置，不會送出打卡或建立 Attendance Record。</p>
               </div>
             </section>
-
-            <div v-if="route.name === 'leave'" class="grid gap-4 lg:grid-cols-2">
-              <section class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-7 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="calendar-classification-title">
-                <div class="grid gap-1 border-b border-line pb-4">
-                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">Calendar classification</span>
-                  <h2 id="calendar-classification-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">日曆分類</h2>
-                  <p class="text-[0.8125rem] text-muted">回答這一天是哪一類。</p>
-                </div>
-                <dl class="grid divide-y divide-line">
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">本日</dt><dd class="font-semibold">範例：工作日</dd></div>
-                  <div class="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">週末</dt><dd class="font-semibold">範例：週六、週日</dd></div>
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">假日</dt><dd class="font-semibold">範例：未標記</dd></div>
-                </dl>
-              </section>
-              <section class="grid gap-5 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-7 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="day-status-title">
-                <div class="grid gap-1 border-b border-line pb-4">
-                  <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">Day Status</span>
-                  <h2 id="day-status-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作狀態</h2>
-                  <p class="text-[0.8125rem] text-muted">回答這一天怎麼工作。</p>
-                </div>
-                <dl class="grid divide-y divide-line">
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">目前狀態</dt><dd class="font-semibold text-accent">範例：遠端</dd></div>
-                  <div class="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">請假</dt><dd class="font-semibold">範例：未設定</dd></div>
-                  <div class="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-baseline"><dt class="text-sm text-muted">資料用途</dt><dd class="font-semibold">只讀預覽</dd></div>
-                </dl>
-              </section>
-            </div>
 
             <section v-else-if="route.name === 'reports'" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="reports-preview-title">
               <div class="grid gap-1 border-b border-line pb-5">
