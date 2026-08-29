@@ -28,21 +28,6 @@ export async function getDgpaCalendarForMonth(yearMonth: string): Promise<DgpaCa
   return (data ?? []) as DgpaCalendarRow[]
 }
 
-export async function getDgpaCalendarForYear(year: number): Promise<DgpaCalendarRow[]> {
-  const startDate = `${year}-01-01`
-  const endDate = `${year}-12-31`
-
-  const { data, error } = await getSupabaseClient()
-    .from('dgpa_calendar_cache')
-    .select('calendar_date, day_type, name, source, fetched_at')
-    .gte('calendar_date', startDate)
-    .lte('calendar_date', endDate)
-    .order('calendar_date', { ascending: true })
-
-  if (error) throw error
-  return (data ?? []) as DgpaCalendarRow[]
-}
-
 export async function syncDgpaCalendarYear(year: number): Promise<DgpaSyncResult> {
   const client = getSupabaseClient()
   const { data, error } = await client.functions.invoke('sync-dgpa-calendar', {

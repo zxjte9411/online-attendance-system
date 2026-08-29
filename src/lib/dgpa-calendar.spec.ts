@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   getDgpaCalendarForMonth,
-  getDgpaCalendarForYear,
   syncDgpaCalendarYear,
 } from './dgpa-calendar'
 import * as supabaseModule from './supabase'
@@ -45,24 +44,6 @@ describe('DGPA Calendar Data Access (src/lib/dgpa-calendar)', () => {
     expect(mockLte).toHaveBeenCalledWith('calendar_date', '2026-02-28')
     expect(result).toHaveLength(1)
     expect(result[0].calendar_date).toBe('2026-02-01')
-  })
-
-  it('getDgpaCalendarForYear queries full year date range', async () => {
-    const mockOrder = vi.fn().mockResolvedValue({
-      data: [],
-      error: null,
-    })
-    const mockLte = vi.fn().mockReturnValue({ order: mockOrder })
-    const mockGte = vi.fn().mockReturnValue({ lte: mockLte })
-    const mockSelect = vi.fn().mockReturnValue({ gte: mockGte })
-    mockFrom.mockReturnValue({ select: mockSelect })
-
-    const result = await getDgpaCalendarForYear(2026)
-
-    expect(mockFrom).toHaveBeenCalledWith('dgpa_calendar_cache')
-    expect(mockGte).toHaveBeenCalledWith('calendar_date', '2026-01-01')
-    expect(mockLte).toHaveBeenCalledWith('calendar_date', '2026-12-31')
-    expect(result).toEqual([])
   })
 
   it('syncDgpaCalendarYear invokes Edge Function with target year', async () => {

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMonthOverview,
   formatDayStatusLabel,
-  formatCalendarOverrideLabel,
   formatCalendarResolutionLabel,
   type DayStatus,
   type CalendarOverride,
@@ -223,8 +222,6 @@ describe('buildMonthOverview', () => {
     expect(formatDayStatusLabel('LEAVE')).toBe('請假')
     expect(formatDayStatusLabel('REMOTE')).toBe('遠端')
     expect(formatDayStatusLabel('BUSINESS_TRIP')).toBe('出差')
-    expect(formatCalendarOverrideLabel('WORKDAY')).toBe('人工工作日')
-    expect(formatCalendarOverrideLabel('HOLIDAY')).toBe('人工假日')
     expect(formatCalendarResolutionLabel('MANUAL_OVERRIDE', 'WORKDAY')).toBe('人工工作日')
     expect(formatCalendarResolutionLabel('MANUAL_OVERRIDE', 'HOLIDAY')).toBe('人工假日')
     expect(formatCalendarResolutionLabel('DGPA', 'WORKDAY', false)).toBe('DGPA 工作日')

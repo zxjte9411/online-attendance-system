@@ -2,13 +2,14 @@ import {
   resolveCalendarDay,
   findApplicableWorkPolicy,
   type CalendarResolutionSource,
+  type CalendarDayType,
   type DgpaCalendarRow,
   type DgpaBaseline,
 } from '../dgpa-calendar/resolver'
 import type { WorkPolicy } from '../../lib/settings'
 
 export type DayStatusType = 'LEAVE' | 'REMOTE' | 'BUSINESS_TRIP'
-export type CalendarDayType = 'WORKDAY' | 'HOLIDAY'
+export type { CalendarDayType }
 
 export type DayStatus = {
   id: string
@@ -58,15 +59,6 @@ export function formatDayStatusLabel(status: DayStatusType): string {
       return '遠端'
     case 'BUSINESS_TRIP':
       return '出差'
-  }
-}
-
-export function formatCalendarOverrideLabel(dayType: CalendarDayType): string {
-  switch (dayType) {
-    case 'WORKDAY':
-      return '人工工作日'
-    case 'HOLIDAY':
-      return '人工假日'
   }
 }
 
