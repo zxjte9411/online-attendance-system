@@ -475,6 +475,18 @@ function parseValueMapOptions(
   return { text, fallback }
 }
 
+function initializeDefaultWorksheetSelection() {
+  const worksheetNames = new Set(
+    selectablePreviewWorksheets.value.map((worksheet) => worksheet.name)
+  )
+  if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
+    selectedPreviewWorksheetName.value =
+      monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
+      previewWorksheets.value[0]?.name ||
+      ''
+  }
+}
+
 async function loadTemplatePreview(savedTemplate: ExportTemplate) {
   availableWorksheets.value = []
   previewWorksheets.value = []
@@ -498,16 +510,7 @@ async function loadTemplatePreview(savedTemplate: ExportTemplate) {
       const preview = await getWorkbookPreview(fileBuffer)
       previewWorksheets.value = [...preview.worksheets]
       previewVisibleRowCount.value = 20
-
-      const worksheetNames = new Set(
-        selectablePreviewWorksheets.value.map((worksheet) => worksheet.name)
-      )
-      if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
-        selectedPreviewWorksheetName.value =
-          monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
-          previewWorksheets.value[0]?.name ||
-          ''
-      }
+      initializeDefaultWorksheetSelection()
     } catch (err) {
       previewWorksheets.value = []
       previewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
@@ -524,14 +527,7 @@ async function loadLocalPreview(file: File) {
     previewWorksheets.value = [...preview.worksheets]
     availableWorksheets.value = preview.worksheets.map((ws) => ws.name)
     previewVisibleRowCount.value = 20
-
-    const worksheetNames = new Set(
-      selectablePreviewWorksheets.value.map((worksheet) => worksheet.name)
-    )
-    selectedPreviewWorksheetName.value =
-      monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
-      previewWorksheets.value[0]?.name ||
-      ''
+    initializeDefaultWorksheetSelection()
   } catch (err) {
     previewWorksheets.value = []
     previewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'

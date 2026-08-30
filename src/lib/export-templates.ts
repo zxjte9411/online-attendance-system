@@ -227,9 +227,6 @@ async function toArrayBuffer(
   if (typeof Blob !== 'undefined' && fileData instanceof Blob) {
     return await fileData.arrayBuffer()
   }
-  if (fileData && typeof (fileData as any).arrayBuffer === 'function') {
-    return await (fileData as any).arrayBuffer()
-  }
   throw new Error('不支援的檔案格式資料。')
 }
 
