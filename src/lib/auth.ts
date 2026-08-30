@@ -3,7 +3,7 @@ import { getSupabaseClient } from './supabase'
 
 export type AuthAdapter = Pick<
   SupabaseClient['auth'],
-  'getSession' | 'signInWithOAuth' | 'exchangeCodeForSession' | 'signOut'
+  'getSession' | 'getUser' | 'signInWithOAuth' | 'exchangeCodeForSession' | 'signOut'
 >
 
 export function createSupabaseAuth(): AuthAdapter {

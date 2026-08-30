@@ -1,16 +1,38 @@
 import { createMemoryHistory } from 'vue-router'
-import { describe, expect, it, vi } from 'vitest'
+import { AuthSessionMissingError } from '@supabase/auth-js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSupabaseAuth, signInWithGoogle, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
+import { getProfile, getSetupStatus } from './lib/settings'
 import { createAppRouter } from './router'
 
 const { createClient } = vi.hoisted(() => ({ createClient: vi.fn() }))
 
 vi.mock('@supabase/supabase-js', () => ({ createClient }))
 
+vi.mock('./lib/settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/settings')>()),
+  getProfile: vi.fn(),
+  getSetupStatus: vi.fn(),
+}))
+
+afterEach(() => {
+  vi.resetAllMocks()
+  vi.unstubAllEnvs()
+})
+
+beforeEach(() => {
+  vi.stubEnv('VITE_SUPABASE_URL', '')
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+  vi.mocked(getProfile).mockResolvedValue({ display_name: '測試使用者' } as never)
+})
+
 function mockAuth(session: object | null = null): AuthAdapter {
+  const user = session && 'user' in session ? session.user : null
+
   return {
     getSession: vi.fn(async () => ({ data: { session }, error: null })),
+    getUser: vi.fn(async () => ({ data: { user }, error: null })),
     signInWithOAuth: vi.fn(async () => ({ data: { provider: 'google', url: null }, error: null })),
     exchangeCodeForSession: vi.fn(async () => ({ data: { session }, error: null })),
     signOut: vi.fn(async () => ({ error: null })),
@@ -61,6 +83,92 @@ describe('認證路由核心', () => {
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query.redirect).toBe('/attendance/calendar?month=2026-08')
+  })
+
+  it('本機 session 的 user 已不存在時清除本機 session 並回登入', async () => {
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    auth.getUser = vi.fn(async () => ({
+      data: { user: null },
+      error: new AuthSessionMissingError(),
+    })) as unknown as AuthAdapter['getUser']
+    const router = createTestRouter(auth)
+
+    await router.push('/attendance')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
+  })
+
+  it('Auth server 暫時失敗時保留本機 session 並導向帳號狀態頁', async () => {
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    auth.getUser = vi.fn(async () => ({
+      data: { user: null },
+      error: { code: 'network_error' },
+    })) as unknown as AuthAdapter['getUser']
+    const router = createTestRouter(auth)
+
+    await router.push('/reports')
+
+    expect(router.currentRoute.value.name).toBe('account-unavailable')
+    expect(auth.signOut).not.toHaveBeenCalled()
+  })
+
+  it('Profile 缺失時導向設定，但不要求工作情境或制度完整', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+    vi.mocked(getProfile).mockResolvedValue(null)
+    vi.mocked(getSetupStatus).mockResolvedValue({
+      profile: { display_name: '已完成資料' } as never,
+      contexts: [],
+      defaultContext: null,
+      policies: [],
+      complete: true,
+    })
+
+    const router = createTestRouter(mockAuth({ user: { id: 'user-1' } }))
+
+    await router.push('/')
+
+    expect(router.currentRoute.value.name).toBe('setup')
+  })
+
+  it('Profile 顯示名稱只有空白時導向設定', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+    vi.mocked(getProfile).mockResolvedValue({ display_name: '   ' } as never)
+
+    const router = createTestRouter(mockAuth({ user: { id: 'user-1' } }))
+
+    await router.push('/leave')
+
+    expect(router.currentRoute.value.name).toBe('setup')
+  })
+
+  it('Profile Ready 時不因工作情境或制度未完成而阻擋受保護路由', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+    vi.mocked(getProfile).mockResolvedValue({ display_name: '  王小明  ' } as never)
+
+    const router = createTestRouter(mockAuth({ user: { id: 'user-1' } }))
+
+    for (const path of ['/', '/attendance', '/leave', '/reports', '/settings']) {
+      await router.push(path)
+      expect(router.currentRoute.value.path).toBe(path)
+    }
+  })
+
+  it('Profile 讀取失敗時導向帳號狀態頁，該頁仍會驗證 session 但不重複讀 Profile', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+    vi.mocked(getProfile).mockRejectedValue(new Error('profile unavailable'))
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    const router = createTestRouter(auth)
+
+    await router.push('/')
+
+    expect(router.currentRoute.value.name).toBe('account-unavailable')
+    expect(auth.getUser).toHaveBeenCalled()
+    expect(getProfile).toHaveBeenCalledOnce()
   })
 
   it('OAuth callback 以 code 換取 session 後回到原請求', async () => {
@@ -137,13 +245,15 @@ describe('認證路由核心', () => {
   })
 
   it('已登入進入登入頁時回到原請求，沒有原請求則回首頁', async () => {
-    const router = createTestRouter(mockAuth({ user: { id: 'user-1' } }))
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    const router = createTestRouter(auth)
 
     await router.push('/login?redirect=/settings?section=account')
     expect(router.currentRoute.value.fullPath).toBe('/settings?section=account')
 
     await router.push('/login')
     expect(router.currentRoute.value.fullPath).toBe('/')
+    expect(auth.getUser).toHaveBeenCalled()
   })
 
   it('Google 登入使用 callback URL 啟用 PKCE 流程', async () => {
