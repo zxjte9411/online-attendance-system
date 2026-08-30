@@ -147,6 +147,24 @@ describe('TodayView', () => {
     wrapper.unmount()
   })
 
+  it('沒有預設工作情境或適用制度時顯示工作設定尚未完成狀態', async () => {
+    vi.mocked(getSetupStatus).mockResolvedValueOnce({
+      profile: null,
+      contexts: [],
+      defaultContext: null,
+      policies: [],
+      complete: false,
+    })
+
+    const wrapper = mount(TodayView, { attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('工作設定尚未完成')
+    expect(wrapper.text()).not.toContain('今日資料還沒載入')
+    expect(wrapper.find('[data-action="clock-in"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('載入錯誤顯示載入提示，不混入打卡狀態不明提示', async () => {
     vi.mocked(getTodayAttendanceRecord).mockRejectedValueOnce(new Error('讀取失敗'))
 
