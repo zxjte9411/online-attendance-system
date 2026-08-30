@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   getExportTemplate,
   uploadExportTemplate,
@@ -30,6 +30,16 @@ import {
   type TransformConfig,
   type ValueMapOptions,
 } from '../../domain/export-template/transforms'
+import {
+  deriveColumnHeaderLabels,
+  formatColumnPickerLabel,
+  checkHeaderConsistency,
+  isValidHeaderRange,
+  toggleSelectionTarget,
+  clearSelectionTarget,
+  type HeaderReferenceRange,
+  type PreviewSelectionTarget,
+} from '../../domain/export-template/header-reference'
 
 const props = defineProps<{
   userId: string
@@ -172,17 +182,197 @@ const visiblePreviewRows = computed(() =>
   previewRows.value.slice(0, previewVisibleRowCount.value)
 )
 
+const worksheetHeaderRanges = ref<Record<string, HeaderReferenceRange>>({})
+const hasAskedApplyAll = ref(false)
+const currentRangeStart = ref<number | null>(null)
+const currentRangeEnd = ref<number | null>(null)
+const currentRangeError = ref('')
+
+const activeSelectionTarget = ref<PreviewSelectionTarget>(null)
+const focusedRowIndex = ref<number | null>(null)
+
 function resetPreviewSelection() {
   hasManualPreviewSelection.value = false
   selectedPreviewWorksheetName.value = ''
   showHiddenWorksheets.value = false
   showHiddenPreviewRowsAndColumns.value = false
+  worksheetHeaderRanges.value = {}
+  hasAskedApplyAll.value = false
+  activeSelectionTarget.value = null
+  focusedRowIndex.value = null
+  currentRangeStart.value = null
+  currentRangeEnd.value = null
+  currentRangeError.value = ''
 }
 
 watch(selectablePreviewWorksheets, (worksheets) => {
   if (!worksheets.some((worksheet) => worksheet.name === selectedPreviewWorksheetName.value)) {
     selectedPreviewWorksheetName.value = worksheets[0]?.name || ''
   }
+})
+
+watch(selectedPreviewWorksheetName, (sheetName) => {
+  const existing = worksheetHeaderRanges.value[sheetName]
+  currentRangeStart.value = existing ? existing.startRow : null
+  currentRangeEnd.value = existing ? existing.endRow : null
+  currentRangeError.value = ''
+})
+
+function applyHeaderRange() {
+  const sheetName = selectedPreviewWorksheetName.value
+  if (!sheetName) return
+  currentRangeError.value = ''
+
+  if (
+    currentRangeStart.value === null ||
+    currentRangeEnd.value === null ||
+    currentRangeStart.value === undefined ||
+    currentRangeEnd.value === undefined ||
+    String(currentRangeStart.value).trim() === '' ||
+    String(currentRangeEnd.value).trim() === ''
+  ) {
+    currentRangeError.value = '請輸入起始列與結束列。'
+    return
+  }
+
+  const startNum = Number(currentRangeStart.value)
+  const endNum = Number(currentRangeEnd.value)
+  const range = { startRow: startNum, endRow: endNum }
+
+  if (!isValidHeaderRange(range)) {
+    currentRangeError.value = '請輸入有效且連續的列號範圍（起始列需大於等於 1，結束列需大於等於起始列）。'
+    return
+  }
+
+  const updated = { ...worksheetHeaderRanges.value, [sheetName]: range }
+
+  if (!hasAskedApplyAll.value && previewWorksheets.value.length > 1) {
+    hasAskedApplyAll.value = true
+    const applyAll =
+      typeof window !== 'undefined' && typeof window.confirm === 'function'
+        ? window.confirm('是否將此標題參考範圍套用到所有工作表？（後續仍可個別調整）')
+        : false
+    if (applyAll) {
+      for (const ws of previewWorksheets.value) {
+        updated[ws.name] = { ...range }
+      }
+    }
+  }
+
+  worksheetHeaderRanges.value = updated
+}
+
+function clearHeaderRange() {
+  const sheetName = selectedPreviewWorksheetName.value
+  if (sheetName) {
+    const updated = { ...worksheetHeaderRanges.value }
+    delete updated[sheetName]
+    worksheetHeaderRanges.value = updated
+  }
+  currentRangeStart.value = null
+  currentRangeEnd.value = null
+  currentRangeError.value = ''
+}
+
+const currentSheetDerivedLabels = computed(() => {
+  const ws = selectedPreviewWorksheet.value
+  const range = ws ? worksheetHeaderRanges.value[ws.name] : undefined
+  return deriveColumnHeaderLabels(ws, range)
+})
+
+const columnPickerOptions = computed(() => {
+  const ws = selectedPreviewWorksheet.value
+  if (!ws || !ws.columns) return []
+  return ws.columns.map((c) => {
+    const label = currentSheetDerivedLabels.value.get(c.column) || ''
+    return {
+      column: c.column,
+      label,
+      displayLabel: formatColumnPickerLabel(c.column, label),
+    }
+  })
+})
+
+function isRowMappingSelectionActive(index: number): boolean {
+  return (
+    activeSelectionTarget.value?.kind === 'row_mapping' &&
+    activeSelectionTarget.value.index === index
+  )
+}
+
+function toggleRowMappingSelection(index: number) {
+  activeSelectionTarget.value = toggleSelectionTarget(activeSelectionTarget.value, {
+    kind: 'row_mapping',
+    index,
+  })
+  if (activeSelectionTarget.value) {
+    focusedRowIndex.value = index
+  }
+}
+
+function cancelSelection() {
+  activeSelectionTarget.value = clearSelectionTarget()
+}
+
+function selectPreviewColumn(col: string) {
+  if (!activeSelectionTarget.value) return
+  if (activeSelectionTarget.value.kind === 'row_mapping') {
+    const item = rowMappings.value[activeSelectionTarget.value.index]
+    if (item) {
+      item.targetColumn = col.toUpperCase()
+    }
+  }
+  activeSelectionTarget.value = clearSelectionTarget()
+}
+
+function onColumnSelectChange(event: Event, item: RowMappingUiItem) {
+  const target = event.target as HTMLSelectElement
+  if (target.value) {
+    item.targetColumn = target.value.toUpperCase()
+  }
+}
+
+const activeSelectionFieldLabel = computed(() => {
+  if (activeSelectionTarget.value?.kind === 'row_mapping') {
+    const item = rowMappings.value[activeSelectionTarget.value.index]
+    if (item) {
+      return FIELD_LABELS[item.sourceField] || item.sourceField
+    }
+  }
+  return ''
+})
+
+const highlightedTargetColumn = computed(() => {
+  if (activeSelectionTarget.value?.kind === 'row_mapping') {
+    return rowMappings.value[activeSelectionTarget.value.index]?.targetColumn?.trim().toUpperCase() || null
+  }
+  if (focusedRowIndex.value !== null) {
+    return rowMappings.value[focusedRowIndex.value]?.targetColumn?.trim().toUpperCase() || null
+  }
+  return null
+})
+
+const headerWarnings = computed(() => {
+  return checkHeaderConsistency({
+    monthWorksheetMapping: monthMappings.value,
+    rowMappings: rowMappings.value,
+    worksheetPreviews: previewWorksheets.value,
+    worksheetHeaderRanges: worksheetHeaderRanges.value,
+  })
+})
+
+function handleGlobalKeyDown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && activeSelectionTarget.value !== null) {
+    cancelSelection()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleGlobalKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalKeyDown)
 })
 
 watch(
@@ -398,8 +588,9 @@ async function handleUpload() {
       file: uploadFile.value,
     })
     template.value = created
-    successMessage.value = 'XLSX 範本上傳成功。'
+    resetPreviewSelection()
     await loadTemplate()
+    successMessage.value = 'XLSX 範本上傳成功。'
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '上傳範本失敗。'
     await nextTick()
@@ -432,6 +623,7 @@ async function handleReplace() {
     })
     showReplaceForm.value = false
     replaceFile.value = null
+    resetPreviewSelection()
     await loadTemplate()
     if (result.warning) {
       successMessage.value = `XLSX 範本檔案已成功更換，但舊檔案清理未完成：${result.warning}`
@@ -516,6 +708,21 @@ function addRowMapping() {
 }
 
 function removeRowMapping(index: number) {
+  if (activeSelectionTarget.value?.kind === 'row_mapping') {
+    if (activeSelectionTarget.value.index === index) {
+      activeSelectionTarget.value = null
+    } else if (activeSelectionTarget.value.index > index) {
+      activeSelectionTarget.value = {
+        kind: 'row_mapping',
+        index: activeSelectionTarget.value.index - 1,
+      }
+    }
+  }
+  if (focusedRowIndex.value === index) {
+    focusedRowIndex.value = null
+  } else if (focusedRowIndex.value !== null && focusedRowIndex.value > index) {
+    focusedRowIndex.value -= 1
+  }
   rowMappings.value.splice(index, 1)
 }
 
@@ -873,6 +1080,83 @@ async function handleSaveMapping() {
             此工作表含圖片；Preview 不顯示圖片。
           </p>
 
+          <!-- Header Reference Range Controls -->
+          <div class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3 text-xs">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-semibold text-ink">欄位標題參考範圍：</span>
+              <label for="header-range-start" class="text-muted">起始列</label>
+              <input
+                id="header-range-start"
+                data-test="header-range-start"
+                v-model.number="currentRangeStart"
+                type="number"
+                min="1"
+                placeholder="例如: 4"
+                class="w-16 min-h-8 rounded-[0.375rem] border border-line bg-canvas px-2 font-mono text-xs text-ink"
+                @keydown.enter.prevent="applyHeaderRange"
+              />
+              <label for="header-range-end" class="text-muted">結束列</label>
+              <input
+                id="header-range-end"
+                data-test="header-range-end"
+                v-model.number="currentRangeEnd"
+                type="number"
+                min="1"
+                placeholder="例如: 5"
+                class="w-16 min-h-8 rounded-[0.375rem] border border-line bg-canvas px-2 font-mono text-xs text-ink"
+                @keydown.enter.prevent="applyHeaderRange"
+              />
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                data-test="apply-header-range-btn"
+                class="min-h-8 rounded-[0.375rem] bg-accent px-2.5 py-1 text-xs font-semibold text-surface hover:opacity-90"
+                @click="applyHeaderRange"
+              >
+                設定標題範圍
+              </button>
+              <button
+                v-if="selectedPreviewWorksheet && worksheetHeaderRanges[selectedPreviewWorksheet.name]"
+                type="button"
+                data-test="clear-header-range-btn"
+                class="min-h-8 rounded-[0.375rem] border border-line px-2.5 py-1 text-xs font-semibold text-muted hover:text-ink"
+                @click="clearHeaderRange"
+              >
+                清除
+              </button>
+              <span
+                v-if="selectedPreviewWorksheet && worksheetHeaderRanges[selectedPreviewWorksheet.name]"
+                data-test="current-header-range-info"
+                class="text-accent font-semibold"
+              >
+                已設定：Row {{ worksheetHeaderRanges[selectedPreviewWorksheet.name].startRow }}–{{ worksheetHeaderRanges[selectedPreviewWorksheet.name].endRow }}
+              </span>
+            </div>
+            <p v-if="currentRangeError" data-test="header-range-error" class="w-full text-xs text-[var(--error-ink)]">
+              {{ currentRangeError }}
+            </p>
+          </div>
+
+          <!-- Active Selection Banner -->
+          <div
+            v-if="activeSelectionTarget !== null"
+            data-test="preview-selection-active-banner"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-accent bg-surface-soft p-3 text-xs text-ink"
+          >
+            <span>
+              正在為「<strong>{{ activeSelectionFieldLabel }}</strong>」選取目標欄位。請點擊下方欄位標題，或使用鍵盤 Enter / Space 完成選取。
+            </span>
+            <button
+              type="button"
+              data-test="cancel-preview-selection-button"
+              class="min-h-8 rounded-[0.375rem] border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink hover:border-accent"
+              @click="cancelSelection"
+            >
+              取消選取 (Esc)
+            </button>
+          </div>
+
           <div class="min-w-0 overflow-x-auto rounded-[0.625rem] border border-line">
             <table class="min-w-max border-collapse text-left text-xs text-ink">
               <caption class="border-b border-line bg-surface-soft px-3 py-2 text-left font-semibold">
@@ -885,10 +1169,32 @@ async function handleSaveMapping() {
                     v-for="column in visiblePreviewColumns"
                     :key="column.column"
                     scope="col"
-                    class="border-b border-line px-3 py-2 font-mono font-semibold"
+                    :data-test="`preview-column-header-${column.column}`"
+                    :class="[
+                      'border-b border-line px-3 py-2 font-mono font-semibold transition-colors',
+                      highlightedTargetColumn === column.column ? 'bg-accent/15 border-accent text-accent' : '',
+                      activeSelectionTarget !== null ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                    ]"
+                    :tabindex="activeSelectionTarget !== null ? 0 : undefined"
+                    :role="activeSelectionTarget !== null ? 'button' : undefined"
+                    :aria-label="activeSelectionTarget !== null ? `選取目標欄位 ${column.column}` : undefined"
+                    @click="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
+                    @keydown.enter.prevent="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
+                    @keydown.space.prevent="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
                   >
-                    {{ column.column }}
-                    <span v-if="column.isHidden">（隱藏欄）</span>
+                    <div class="flex flex-col">
+                      <span>
+                        {{ column.column }}
+                        <span v-if="column.isHidden">（隱藏欄）</span>
+                      </span>
+                      <span
+                        v-if="currentSheetDerivedLabels.get(column.column)"
+                        class="font-sans font-normal text-[0.6875rem] text-muted truncate max-w-[10rem]"
+                        :title="currentSheetDerivedLabels.get(column.column)"
+                      >
+                        {{ currentSheetDerivedLabels.get(column.column) }}
+                      </span>
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -898,7 +1204,14 @@ async function handleSaveMapping() {
                     {{ row.rowNumber }}
                     <span v-if="row.isHidden">（隱藏列）</span>
                   </th>
-                  <td v-for="column in visiblePreviewColumns" :key="column.column" class="px-3 py-2 align-top">
+                  <td
+                    v-for="column in visiblePreviewColumns"
+                    :key="column.column"
+                    :class="[
+                      'px-3 py-2 align-top transition-colors',
+                      highlightedTargetColumn === column.column ? 'bg-accent/5' : ''
+                    ]"
+                  >
                     <span
                       :title="getPreviewCellValue(row, column.column)"
                       tabindex="0"
@@ -1024,11 +1337,30 @@ async function handleSaveMapping() {
             </button>
           </div>
 
+          <!-- Cross-Worksheet Header Consistency Warning (Non-blocking) -->
+          <div
+            v-if="headerWarnings.length"
+            data-test="header-consistency-warning"
+            class="rounded-[0.625rem] border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-3.5 text-xs text-amber-900 dark:text-amber-200"
+            role="status"
+          >
+            <div class="font-semibold mb-1">欄位標題一致性提示（非阻擋性）：</div>
+            <ul class="list-disc list-inside space-y-0.5">
+              <li v-for="w in headerWarnings" :key="w.column">
+                目標欄位 <strong>{{ w.column }}</strong>（{{ FIELD_LABELS[w.sourceField] || w.sourceField }}）在不同月份工作表中的標題不同：
+                <span v-for="(sheetHeader, index) in w.sheetHeaders" :key="sheetHeader.sheetName">
+                  {{ sheetHeader.sheetName }}: 「{{ sheetHeader.headerLabel }}」{{ index < w.sheetHeaders.length - 1 ? '、' : '' }}
+                </span>
+              </li>
+            </ul>
+          </div>
+
           <div class="grid gap-3">
             <div
               v-for="(item, idx) in rowMappings"
               :key="idx"
               class="grid gap-3 rounded-lg border border-line bg-surface p-3"
+              @click="focusedRowIndex = idx"
             >
               <div class="flex flex-wrap items-center gap-3">
                 <div class="grid gap-1 min-w-[200px] flex-1">
@@ -1037,6 +1369,7 @@ async function handleSaveMapping() {
                     :id="`row-source-${idx}`"
                     v-model="item.sourceField"
                     class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                    @focus="focusedRowIndex = idx"
                   >
                     <option v-for="f in REPORT_MODEL_SOURCE_FIELDS" :key="f" :value="f">
                       {{ FIELD_LABELS[f] || f }}
@@ -1044,17 +1377,53 @@ async function handleSaveMapping() {
                   </select>
                 </div>
 
-                <div class="grid gap-1 w-24">
+                <div class="grid gap-1 min-w-[220px]">
                   <label :for="`row-col-${idx}`" class="text-xs font-semibold text-muted">目標欄位</label>
-                  <input
-                    :id="`row-col-${idx}`"
-                    v-model="item.targetColumn"
-                    type="text"
-                    placeholder="例如: B"
-                    maxlength="3"
-                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink"
-                    required
-                  />
+                  <div class="flex items-center gap-1.5">
+                    <select
+                      v-if="columnPickerOptions.length"
+                      :id="`row-col-select-${idx}`"
+                      :data-test="`row-col-select-${idx}`"
+                      :value="columnPickerOptions.some(opt => opt.column === item.targetColumn.trim().toUpperCase()) ? item.targetColumn.trim().toUpperCase() : ''"
+                      class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2 text-xs text-ink flex-1"
+                      @change="onColumnSelectChange($event, item)"
+                      @focus="focusedRowIndex = idx"
+                    >
+                      <option value="" disabled>{{ item.targetColumn ? `自訂欄位 (${item.targetColumn})` : '選擇欄位…' }}</option>
+                      <option
+                        v-for="opt in columnPickerOptions"
+                        :key="opt.column"
+                        :value="opt.column"
+                      >
+                        {{ opt.displayLabel }}
+                      </option>
+                    </select>
+                    <input
+                      :id="`row-col-${idx}`"
+                      :data-test="`row-col-input-${idx}`"
+                      v-model="item.targetColumn"
+                      type="text"
+                      placeholder="例如: B"
+                      maxlength="3"
+                      class="w-16 min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink text-center"
+                      required
+                      @focus="focusedRowIndex = idx"
+                    />
+                    <button
+                      type="button"
+                      :data-test="`select-from-preview-btn-${idx}`"
+                      :class="[
+                        'min-h-10 px-2.5 py-1 text-xs font-semibold rounded-[0.5rem] border transition-colors whitespace-nowrap',
+                        isRowMappingSelectionActive(idx)
+                          ? 'bg-accent text-surface border-accent'
+                          : 'bg-surface text-ink border-line hover:border-accent'
+                      ]"
+                      :aria-pressed="isRowMappingSelectionActive(idx)"
+                      @click="toggleRowMappingSelection(idx)"
+                    >
+                      {{ isRowMappingSelectionActive(idx) ? '選取中…' : '從預覽選取' }}
+                    </button>
+                  </div>
                 </div>
 
                 <div class="grid gap-1 min-w-[180px] flex-1">

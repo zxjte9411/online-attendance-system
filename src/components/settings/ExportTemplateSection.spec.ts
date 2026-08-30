@@ -744,4 +744,525 @@ describe('Component: ExportTemplateSection', () => {
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.findAll('th[scope="col"]').map((header) => header.text())).toEqual(['列', 'A', 'C'])
   })
+
+  describe('Header Reference Range and Preview Selection (Issue #37)', () => {
+    function makeHeaderReferencePreviewResult(): WorkbookPreview {
+      return {
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+              { column: 'C', isHidden: false },
+              { column: 'D', isHidden: false },
+              { column: 'E', isHidden: false },
+              { column: 'F', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 4,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 4, text: '員工編號' },
+                  { column: 'B', rowNumber: 4, text: '  日期  ' },
+                  { column: 'C', rowNumber: 4, text: '姓名' },
+                  { column: 'D', rowNumber: 4, text: '出勤時數統計', headerText: '出勤時數統計' },
+                  { column: 'E', rowNumber: 4, text: '↖ merged D4:E4', headerText: '出勤時數統計' },
+                ],
+              },
+              {
+                rowNumber: 5,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 5, text: '' },
+                  { column: 'B', rowNumber: 5, text: '   ' },
+                  { column: 'C', rowNumber: 5, text: '姓名' },
+                  { column: 'D', rowNumber: 5, text: '工時' },
+                  { column: 'E', rowNumber: 5, text: '上班' },
+                ],
+              },
+            ],
+          },
+          {
+            name: '9月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+              { column: 'C', isHidden: false },
+              { column: 'D', isHidden: false },
+              { column: 'E', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 4,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 4, text: '員工編號' },
+                  { column: 'B', rowNumber: 4, text: '日期' },
+                  { column: 'C', rowNumber: 4, text: '下班時間' },
+                  { column: 'D', rowNumber: 4, text: '出勤時數統計', headerText: '出勤時數統計' },
+                  { column: 'E', rowNumber: 4, text: '↖ merged D4:E4', headerText: '出勤時數統計' },
+                ],
+              },
+            ],
+          },
+        ],
+      }
+    }
+
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
+      row_mapping: [
+        { sourceField: 'date', targetColumn: 'B' },
+        { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+      ],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    it('sets header reference range, derives hierarchical labels, and populates column picker options', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const startInput = wrapper.find('[data-test="header-range-start"]')
+      const endInput = wrapper.find('[data-test="header-range-end"]')
+      const applyBtn = wrapper.find('[data-test="apply-header-range-btn"]')
+
+      await startInput.setValue(4)
+      await endInput.setValue(5)
+      await applyBtn.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('已設定：Row 4–5')
+
+      // Check derived column picker options on row mapping 0
+      const select0 = wrapper.find('[data-test="row-col-select-0"]')
+      const options = select0.findAll('option').map((o) => o.text())
+      expect(options).toContain('A — 員工編號')
+      expect(options).toContain('B — 日期')
+      expect(options).toContain('C — 姓名')
+      expect(options).toContain('D — 出勤時數統計 / 工時')
+      expect(options).toContain('E — 出勤時數統計 / 上班')
+      expect(options).toContain('F')
+    })
+
+    it('allows selecting blank column from picker and saves existing targetColumn payload', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+      vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Set header range
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      // Select blank column F
+      const select1 = wrapper.find('[data-test="row-col-select-1"]')
+      await select1.setValue('F')
+      await flushPromises()
+
+      const input1 = wrapper.find('[data-test="row-col-input-1"]')
+      expect((input1.element as HTMLInputElement).value).toBe('F')
+
+      // Save mapping
+      await wrapper.find('[data-test="mapping-form"]').trigger('submit')
+      await flushPromises()
+
+      expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rowMapping: expect.arrayContaining([
+            expect.objectContaining({ sourceField: 'actual_clock_in_at', targetColumn: 'F' }),
+          ]),
+        })
+      )
+    })
+
+    it('allows manual input of column outside preview bounds', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+      vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const input1 = wrapper.find('[data-test="row-col-input-1"]')
+      await input1.setValue('Z')
+      await flushPromises()
+
+      await wrapper.find('[data-test="mapping-form"]').trigger('submit')
+      await flushPromises()
+
+      expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rowMapping: expect.arrayContaining([
+            expect.objectContaining({ sourceField: 'actual_clock_in_at', targetColumn: 'Z' }),
+          ]),
+        })
+      )
+    })
+
+    it('does NOT mutate mapping when clicking preview table header outside selection mode', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const headerE = wrapper.find('[data-test="preview-column-header-E"]')
+      await headerE.trigger('click')
+      await flushPromises()
+
+      // Target columns remain unchanged
+      expect((wrapper.find('[data-test="row-col-input-0"]').element as HTMLInputElement).value).toBe('B')
+      expect((wrapper.find('[data-test="row-col-input-1"]').element as HTMLInputElement).value).toBe('C')
+    })
+
+    it('handles preview selection mode: activation, column click, update form, and auto-exit without persistence', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const selectBtn1 = wrapper.find('[data-test="select-from-preview-btn-1"]')
+      await selectBtn1.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      expect(selectBtn1.attributes('aria-pressed')).toBe('true')
+
+      // Click column E in preview table
+      const headerE = wrapper.find('[data-test="preview-column-header-E"]')
+      await headerE.trigger('click')
+      await flushPromises()
+
+      // Target column updated to E and selection mode exited
+      expect((wrapper.find('[data-test="row-col-input-1"]').element as HTMLInputElement).value).toBe('E')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      expect(selectBtn1.attributes('aria-pressed')).toBe('false')
+      expect(exportTemplatesApi.saveExportTemplateMapping).not.toHaveBeenCalled()
+    })
+
+    it('cancels selection mode on button toggle, explicit cancel button, or Escape key', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Toggle off
+      const selectBtn0 = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+
+      // 2. Explicit cancel button
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      await wrapper.find('[data-test="cancel-preview-selection-button"]').trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+
+      // 3. Escape keydown
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('supports keyboard selection with Enter and Space on preview column headers', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Test Enter
+      await wrapper.find('[data-test="select-from-preview-btn-0"]').trigger('click')
+      await wrapper.find('[data-test="preview-column-header-A"]').trigger('keydown.enter')
+      await flushPromises()
+      expect((wrapper.find('[data-test="row-col-input-0"]').element as HTMLInputElement).value).toBe('A')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+
+      // Test Space
+      await wrapper.find('[data-test="select-from-preview-btn-1"]').trigger('click')
+      await wrapper.find('[data-test="preview-column-header-D"]').trigger('keydown.space')
+      await flushPromises()
+      expect((wrapper.find('[data-test="row-col-input-1"]').element as HTMLInputElement).value).toBe('D')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('highlights target column on row focus without entering selection mode', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const input0 = wrapper.find('[data-test="row-col-input-0"]')
+      await input0.trigger('focus')
+      await flushPromises()
+
+      // Header B is highlighted
+      const headerB = wrapper.find('[data-test="preview-column-header-B"]')
+      expect(headerB.classes()).toContain('border-accent')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('displays non-blocking consistency warning when mapped column headers differ between worksheets', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+      vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Set range on 8月
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(4)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      // Switch to 9月
+      const wsSelect = wrapper.find('[data-test="preview-worksheet-select"]')
+      await wsSelect.setValue('9月')
+      await wsSelect.trigger('change')
+      await flushPromises()
+
+      // Set range on 9月
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(4)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      // Column C has "姓名" in 8月 and "下班時間" in 9月 -> warning shown
+      const warningBanner = wrapper.find('[data-test="header-consistency-warning"]')
+      expect(warningBanner.exists()).toBe(true)
+      expect(warningBanner.text()).toContain('目標欄位 C')
+      expect(warningBanner.text()).toContain('8月: 「姓名」')
+      expect(warningBanner.text()).toContain('9月: 「下班時間」')
+
+      // Save still works normally (non-blocking)
+      await wrapper.find('[data-test="mapping-form"]').trigger('submit')
+      await flushPromises()
+      expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalled()
+    })
+
+    it('produces no false consistency warning when reference data is insufficient', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Only 8月 has range set, 9月 does not
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(4)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="header-consistency-warning"]').exists()).toBe(false)
+    })
+
+    it('applies header range to all worksheets when confirmed on first configuration', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      expect(confirmSpy).toHaveBeenCalledWith('是否將此標題參考範圍套用到所有工作表？（後續仍可個別調整）')
+
+      // Switch to 9月 and check range was applied
+      const wsSelect = wrapper.find('[data-test="preview-worksheet-select"]')
+      await wsSelect.setValue('9月')
+      await wsSelect.trigger('change')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('已設定：Row 4–5')
+      confirmSpy.mockRestore()
+    })
+
+    it('switches active selection target when another row mapping picker is activated', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const selectBtn0 = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      const selectBtn1 = wrapper.find('[data-test="select-from-preview-btn-1"]')
+
+      // 1. Activate target 0
+      await selectBtn0.trigger('click')
+      expect(selectBtn0.attributes('aria-pressed')).toBe('true')
+      expect(selectBtn1.attributes('aria-pressed')).toBe('false')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('日期（定位欄位）')
+
+      // 2. Activate target 1 -> target 0 becomes inactive, target 1 becomes single active target
+      await selectBtn1.trigger('click')
+      expect(selectBtn0.attributes('aria-pressed')).toBe('false')
+      expect(selectBtn1.attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('實際上班時間')
+
+      // 3. Select column D from preview table -> only target 1 is updated
+      const headerD = wrapper.find('[data-test="preview-column-header-D"]')
+      await headerD.trigger('click')
+      await flushPromises()
+
+      expect((wrapper.find('[data-test="row-col-input-0"]').element as HTMLInputElement).value).toBe('B') // unchanged
+      expect((wrapper.find('[data-test="row-col-input-1"]').element as HTMLInputElement).value).toBe('D') // updated
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      expect(selectBtn1.attributes('aria-pressed')).toBe('false')
+    })
+
+    it('resets all Issue #37 preview and selection session state on same-template workbook replacement', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+      vi.mocked(exportTemplatesApi.replaceExportTemplate).mockResolvedValue({
+        template: mockTemplate,
+        warning: '舊範本檔案清理失敗：Storage timeout',
+      })
+
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Set header reference range on 8月
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('已設定：Row 4–5')
+
+      // 2. Enter active selection mode on row mapping 0
+      const selectBtn0 = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+
+      // 3. Open replace form and replace file with same template ID
+      const replaceToggleBtn = wrapper.findAll('button').find((b) => b.text().includes('更換檔案'))
+      await replaceToggleBtn!.trigger('click')
+      await flushPromises()
+
+      const fileInput = wrapper.find('input[type="file"]')
+      const dummyFile = new File(['fake xlsx'], 'replacement.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(fileInput.element, 'files', {
+        value: [dummyFile],
+        writable: false,
+      })
+      await fileInput.trigger('change')
+      await flushPromises()
+
+      const replaceForm = wrapper.findAll('form').find((f) => f.text().includes('確認更換'))
+      await replaceForm!.trigger('submit')
+      await flushPromises()
+
+      // 4. Assert partial-success warning / message is preserved
+      const statusMsg = wrapper.find('[role="status"]')
+      expect(statusMsg.exists()).toBe(true)
+      expect(statusMsg.text()).toContain('XLSX 範本檔案已成功更換，但舊檔案清理未完成：舊範本檔案清理失敗：Storage timeout')
+
+      // 5. Assert header reference range, active selection, and focused highlight are completely reset
+      expect(wrapper.find('[data-test="current-header-range-info"]').exists()).toBe(false)
+      expect((wrapper.find('[data-test="header-range-start"]').element as HTMLInputElement).value).toBe('')
+      expect((wrapper.find('[data-test="header-range-end"]').element as HTMLInputElement).value).toBe('')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="select-from-preview-btn-0"]').attributes('aria-pressed')).toBe('false')
+
+      // 6. Assert first-time apply-all prompt semantics restart for the new workbook
+      confirmSpy.mockClear()
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      expect(confirmSpy).toHaveBeenCalledWith('是否將此標題參考範圍套用到所有工作表？（後續仍可個別調整）')
+
+      confirmSpy.mockRestore()
+    })
+  })
 })

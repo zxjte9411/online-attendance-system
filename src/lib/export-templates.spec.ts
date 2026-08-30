@@ -161,22 +161,26 @@ describe('Lib: Export Templates Service', () => {
     expect(august.rows[5].cells).toContainEqual(
       expect.objectContaining({ column: 'B', text: 'ƒ =CHOOSE(WEEKDAY(A6,2),"一","二","三","四","五","六","日")' })
     )
-    expect(august.rows[3].cells).toContainEqual({
-      column: 'I',
-      rowNumber: 4,
-      text: '說明\n(工作內容、請假、其他)',
-    })
+    expect(august.rows[3].cells).toContainEqual(
+      expect.objectContaining({
+        column: 'I',
+        rowNumber: 4,
+        text: '說明\n(工作內容、請假、其他)',
+      })
+    )
     expect(august.rows[7].cells).toContainEqual(
       expect.objectContaining({ column: 'A', rowNumber: 8, text: expect.any(String) })
     )
     expect(august.rows[7].cells).toContainEqual(
       expect.objectContaining({ column: 'C', rowNumber: 8, text: expect.any(String) })
     )
-    expect(august.rows[37].cells).toContainEqual({
-      column: 'A',
-      rowNumber: 38,
-      text: '備註：本檔為去識別化 synthetic fixture，所有資料皆為虛構。',
-    })
+    expect(august.rows[37].cells).toContainEqual(
+      expect.objectContaining({
+        column: 'A',
+        rowNumber: 38,
+        text: '備註：本檔為去識別化 synthetic fixture，所有資料皆為虛構。',
+      })
+    )
     expect(august.rows[199].cells).toEqual([])
     expect(august.columns.length).toBeLessThanOrEqual(50)
   })
@@ -221,7 +225,7 @@ describe('Lib: Export Templates Service', () => {
     expect(result.columns).toHaveLength(50)
     expect(result.columns.at(-1)?.column).toBe('AX')
     expect(result.rows[0].cells).toEqual([
-      { column: 'A', rowNumber: 1, text: '保留' },
+      expect.objectContaining({ column: 'A', rowNumber: 1, text: '保留' }),
     ])
   })
 
@@ -307,10 +311,10 @@ describe('Lib: Export Templates Service', () => {
 
     const mergedRow = visible.rows.find((row) => row.rowNumber === 4)
     expect(mergedRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'A', text: 'Merged owner' })
+      expect.objectContaining({ column: 'A', text: 'Merged owner', headerText: 'Merged owner' })
     )
     expect(mergedRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'B', text: '↖ merged A4:H4' })
+      expect.objectContaining({ column: 'B', text: '↖ merged A4:H4', headerText: 'Merged owner' })
     )
     expect(mergedRow?.cells.map((cell) => cell.column)).toEqual([
       'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
