@@ -4,7 +4,10 @@ import {
   createWebHistory,
   type RouterHistory,
 } from 'vue-router'
-import { isAuthSessionMissingError } from '@supabase/auth-js'
+import {
+  isAuthApiError,
+  isAuthSessionMissingError,
+} from '@supabase/supabase-js'
 import AppShell from './AppShell.vue'
 import { createSupabaseAuth, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
@@ -48,12 +51,19 @@ function callbackErrorLocation(redirect: unknown) {
   }
 }
 
-function isExplicitMissingAuthError(error: unknown) {
+function isTerminalAuthError(error: unknown) {
   if (isAuthSessionMissingError(error)) return true
-  if (!error || typeof error !== 'object' || !('code' in error)) return false
+  if (!isAuthApiError(error)) return false
 
   return typeof error.code === 'string'
-    && ['session_not_found', 'user_not_found', 'bad_jwt'].includes(error.code)
+    && [
+      'session_not_found',
+      'user_not_found',
+      'session_expired',
+      'refresh_token_not_found',
+      'refresh_token_already_used',
+      'bad_jwt',
+    ].includes(error.code)
 }
 
 export function createAppRouter(options: AppRouterOptions = {}) {
@@ -76,9 +86,12 @@ export function createAppRouter(options: AppRouterOptions = {}) {
   })
 
   let navigationToken = 0
+  let skipNextAccountReadiness = false
 
   router.beforeEach(async (to) => {
     const callbackToken = ++navigationToken
+    const skipReadiness = to.name === 'account-unavailable' && skipNextAccountReadiness
+    if (skipReadiness) skipNextAccountReadiness = false
 
     if (to.name === 'auth-callback') {
       if (to.query.error === 'oauth_callback_failed') return true
@@ -125,12 +138,19 @@ export function createAppRouter(options: AppRouterOptions = {}) {
         : { name: 'login', query: { redirect: safeRedirect(to.fullPath) } }
     }
 
+    const originalTarget = to.name === 'account-unavailable'
+      ? safeRedirect(to.query.redirect)
+      : safeRedirect(to.fullPath)
     const loginLocation = () => to.name === 'login'
       ? true
-      : { name: 'login', query: { redirect: safeRedirect(to.fullPath) } }
-    const unavailableLocation = () => to.name === 'account-unavailable'
-      ? true
-      : { name: 'account-unavailable' }
+      : originalTarget === '/'
+        ? { name: 'login' }
+        : { name: 'login', query: { redirect: originalTarget } }
+    const unavailableLocation = () => {
+      if (to.name === 'account-unavailable') return true
+      skipNextAccountReadiness = true
+      return { name: 'account-unavailable', query: { redirect: originalTarget } }
+    }
     const signOutAndLogin = async () => {
       try {
         await getAuth().signOut({ scope: 'local' })
@@ -144,10 +164,14 @@ export function createAppRouter(options: AppRouterOptions = {}) {
     let userId = ''
     try {
       const { data, error } = await getAuth().getSession()
-      if (error) return unavailableLocation()
+      if (error) {
+        if (isTerminalAuthError(error)) return signOutAndLogin()
+        return unavailableLocation()
+      }
       isLoggedIn = Boolean(data.session)
-    } catch {
-      return to.name === 'login' ? true : unavailableLocation()
+    } catch (error) {
+      if (isTerminalAuthError(error)) return signOutAndLogin()
+      return unavailableLocation()
     }
 
     if (to.meta.requiresAuth && !isLoggedIn) {
@@ -158,7 +182,7 @@ export function createAppRouter(options: AppRouterOptions = {}) {
       try {
         const { data, error } = await getAuth().getUser()
         if (error || !data.user) {
-          if (isExplicitMissingAuthError(error)) {
+          if (isTerminalAuthError(error)) {
             return signOutAndLogin()
           }
 
@@ -167,7 +191,7 @@ export function createAppRouter(options: AppRouterOptions = {}) {
 
         userId = data.user.id
       } catch (error) {
-        if (isExplicitMissingAuthError(error)) {
+        if (isTerminalAuthError(error)) {
           return signOutAndLogin()
         }
 
@@ -175,18 +199,21 @@ export function createAppRouter(options: AppRouterOptions = {}) {
       }
     }
 
+    if (skipReadiness) return true
+
     if (to.name === 'login') {
       return isLoggedIn ? safeRedirect(to.query.redirect) : true
     }
 
-    if (to.meta.requiresAuth && (hasAuthConfig || options.auth) && userId && to.name !== 'account-unavailable') {
+    if (to.meta.requiresAuth && (hasAuthConfig || options.auth) && userId) {
       try {
         const profile = await getProfile(userId)
 
+        if (!profile?.display_name?.trim()) return to.name === 'setup' ? true : { name: 'setup' }
+        if (to.name === 'account-unavailable') return originalTarget
         if (to.name === 'setup') return true
-        if (!profile?.display_name?.trim()) return { name: 'setup' }
       } catch {
-        return { name: 'account-unavailable' }
+        return unavailableLocation()
       }
     }
 
