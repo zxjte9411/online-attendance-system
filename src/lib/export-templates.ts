@@ -183,7 +183,8 @@ export async function getWorkbookPreview(
         isProtected: Boolean(
           (worksheet as ExcelJS.Worksheet & { sheetProtection?: unknown }).sheetProtection
         ),
-        hasImages: worksheet.getImages().length > 0,
+        hasImages:
+          worksheet.getImages().length > 0 || worksheet.getBackgroundImageId() !== undefined,
         columns: Array.from({ length: visibleColumnCount }, (_, index) => {
           const columnNumber = index + 1
           return {

@@ -317,6 +317,23 @@ describe('Lib: Export Templates Service', () => {
     ])
   })
 
+  it('detects worksheet background image as hasImages in preview', async () => {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Background')
+    worksheet.getCell('A1').value = 'with background'
+
+    const imageId = workbook.addImage({
+      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      extension: 'png',
+    })
+    worksheet.addBackgroundImage(imageId)
+
+    const preview = await getWorkbookPreview(new Uint8Array(await workbook.xlsx.writeBuffer()))
+    const result = preview.worksheets.find((sheet) => sheet.name === 'Background')
+
+    expect(result).toMatchObject({ hasImages: true })
+  })
+
   it('falls back to formula text for an unknown object-shaped cached result', async () => {
     const sourceWorkbook = new ExcelJS.Workbook()
     const sourceWorksheet = sourceWorkbook.addWorksheet('Unknown result')
