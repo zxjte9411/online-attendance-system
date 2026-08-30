@@ -63,14 +63,7 @@ export async function getExportTemplate(
 export async function getWorkbookWorksheetNames(
   fileData: ArrayBuffer | Uint8Array | Blob
 ): Promise<string[]> {
-  let buffer: ArrayBuffer
-  if (fileData instanceof Blob) {
-    buffer = await fileData.arrayBuffer()
-  } else if (fileData instanceof Uint8Array) {
-    buffer = fileData.slice().buffer as ArrayBuffer
-  } else {
-    buffer = fileData
-  }
+  const buffer = await toArrayBuffer(fileData)
 
   const workbook = new ExcelJS.Workbook()
   try {
@@ -84,6 +77,187 @@ export async function getWorkbookWorksheetNames(
   }
 
   return workbook.worksheets.map((ws) => ws.name)
+}
+
+export interface WorkbookPreviewCell {
+  readonly column: string
+  readonly rowNumber: number
+  readonly text: string
+}
+
+export interface WorkbookPreviewRow {
+  readonly rowNumber: number
+  readonly cells: readonly WorkbookPreviewCell[]
+}
+
+export interface WorkbookWorksheetPreview {
+  readonly name: string
+  readonly columns: readonly string[]
+  readonly rows: readonly WorkbookPreviewRow[]
+}
+
+export interface WorkbookPreview {
+  readonly worksheets: readonly WorkbookWorksheetPreview[]
+}
+
+const WORKBOOK_PREVIEW_MAX_ROWS = 200
+const WORKBOOK_PREVIEW_MAX_COLUMNS = 50
+const WORKBOOK_PREVIEW_TRAILING_COLUMNS = 2
+
+export async function getWorkbookPreview(
+  fileData: ArrayBuffer | Uint8Array | Blob
+): Promise<WorkbookPreview> {
+  const buffer = await toArrayBuffer(fileData)
+  const workbook = new ExcelJS.Workbook()
+  try {
+    await workbook.xlsx.load(buffer as any)
+  } catch {
+    throw new Error('無法解析範本檔案，請確認上傳的為有效 .xlsx 活頁簿。')
+  }
+
+  if (workbook.worksheets.length === 0) {
+    throw new Error('範本檔案中沒有任何工作表。')
+  }
+
+  return {
+    worksheets: workbook.worksheets.filter((worksheet) => worksheet.state === 'visible').map((worksheet) => {
+      const previewRowCount = Math.min(worksheet.rowCount, WORKBOOK_PREVIEW_MAX_ROWS)
+      const previewRows = Array.from({ length: previewRowCount }, (_, index) => {
+        const rowNumber = index + 1
+        return { rowNumber, row: worksheet.getRow(rowNumber) }
+      })
+      let rightmostValueColumn = 0
+
+      for (const { row } of previewRows) {
+        row.eachCell((cell) => {
+          if (hasPreviewValue(cell)) {
+            rightmostValueColumn = Math.max(rightmostValueColumn, Number(cell.col))
+          }
+        })
+      }
+
+      const visibleColumnCount = Math.min(
+        WORKBOOK_PREVIEW_MAX_COLUMNS,
+        rightmostValueColumn > 0
+          ? rightmostValueColumn + WORKBOOK_PREVIEW_TRAILING_COLUMNS
+          : 0
+      )
+      const rows: WorkbookPreviewRow[] = []
+
+      for (const { rowNumber, row } of previewRows) {
+        const cells: WorkbookPreviewCell[] = []
+        row.eachCell((cell) => {
+          const columnNumber = Number(cell.col)
+          if (
+            columnNumber <= visibleColumnCount &&
+            hasPreviewValue(cell)
+          ) {
+            cells.push({
+              column: columnNumberToLetter(columnNumber),
+              rowNumber,
+              text: previewCellText(cell),
+            })
+          }
+        })
+
+        rows.push({ rowNumber, cells })
+      }
+
+      return {
+        name: worksheet.name,
+        columns: Array.from({ length: visibleColumnCount }, (_, index) =>
+          columnNumberToLetter(index + 1)
+        ),
+        rows,
+      }
+    }),
+  }
+}
+
+async function toArrayBuffer(fileData: ArrayBuffer | Uint8Array | Blob): Promise<ArrayBuffer> {
+  if (fileData instanceof Blob) {
+    return fileData.arrayBuffer()
+  }
+  if (fileData instanceof Uint8Array) {
+    return fileData.slice().buffer as ArrayBuffer
+  }
+  return fileData
+}
+
+function hasPreviewValue(cell: ExcelJS.Cell): boolean {
+  return (
+    cell.type !== ExcelJS.ValueType.Merge &&
+    cell.value !== null &&
+    cell.value !== undefined &&
+    cell.value !== ''
+  )
+}
+
+function previewCellText(cell: ExcelJS.Cell): string {
+  if (cell.value instanceof Date) {
+    const formatted = formatExcelDateTime(cell.value, cell.numFmt)
+    if (formatted) return formatted
+  }
+
+  return cell.text || String(cell.value)
+}
+
+function formatExcelDateTime(value: Date, numFmt: string | undefined): string | null {
+  if (!numFmt) return null
+
+  const format = numFmt
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/"[^"]*"/g, '')
+    .replace(/\\./g, '')
+  const timeMatch = /(h+)([:.])(m+)(?::(s+))?/i.exec(format)
+  const dateFormat = timeMatch ? format.slice(0, timeMatch.index) : format
+  const dateTokens = dateFormat.match(/y+|m+|d+/gi)
+  const hasAmPm = /am\/pm/i.test(format)
+  let result = ''
+
+  if (dateTokens?.length) {
+    const dateValues = dateTokens.map((token) => {
+      const lowerToken = token.toLowerCase()
+      if (lowerToken[0] === 'y') {
+        const year = value.getUTCFullYear()
+        return token.length >= 4 ? String(year) : String(year).slice(-2)
+      }
+      if (lowerToken[0] === 'm') {
+        const month = value.getUTCMonth() + 1
+        return token.length >= 2 ? String(month).padStart(2, '0') : String(month)
+      }
+      const day = value.getUTCDate()
+      return token.length >= 2 ? String(day).padStart(2, '0') : String(day)
+    })
+    const separators = dateFormat.match(/[./-]/g) || []
+    result = dateValues.reduce(
+      (text, dateValue, index) => text + (index > 0 ? separators[index - 1] || '/' : '') + dateValue,
+      ''
+    )
+  }
+
+  if (timeMatch) {
+    const [, hourToken, separator, minuteToken, secondToken] = timeMatch
+    const rawHour = value.getUTCHours()
+    const hour = hasAmPm ? rawHour % 12 || 12 : rawHour
+    const time = `${hourToken.length >= 2 ? String(hour).padStart(2, '0') : hour}${separator}${String(
+      value.getUTCMinutes()
+    ).padStart(2, '0')}${secondToken ? `:${String(value.getUTCSeconds()).padStart(2, '0')}` : ''}`
+    result += `${result ? ' ' : ''}${time}${hasAmPm ? (rawHour >= 12 ? ' PM' : ' AM') : ''}`
+  }
+
+  return result || null
+}
+
+function columnNumberToLetter(columnNumber: number): string {
+  let column = columnNumber
+  let letters = ''
+  while (column > 0) {
+    const remainder = (column - 1) % 26
+    letters = String.fromCharCode(65 + remainder) + letters
+    column = Math.floor((column - 1) / 26)
+  }
+  return letters
 }
 
 export interface UploadExportTemplateParams {
