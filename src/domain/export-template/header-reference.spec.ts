@@ -1,14 +1,45 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkHeaderConsistency,
+  clearSelectionTarget,
   deriveColumnHeaderLabels,
   formatColumnPickerLabel,
+  isSameSelectionTarget,
   isValidHeaderRange,
+  toggleSelectionTarget,
   type HeaderReferenceRange,
+  type PreviewSelectionTarget,
 } from './header-reference'
 import type { WorkbookWorksheetPreview } from '../../lib/export-templates'
 
 describe('header-reference', () => {
+  describe('PreviewSelectionTarget helpers', () => {
+    it('isSameSelectionTarget compares targets correctly', () => {
+      expect(isSameSelectionTarget(null, null)).toBe(true)
+      expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, { kind: 'row_mapping', index: 0 })).toBe(true)
+      expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, { kind: 'row_mapping', index: 1 })).toBe(false)
+      expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, null)).toBe(false)
+      expect(isSameSelectionTarget(null, { kind: 'row_mapping', index: 0 })).toBe(false)
+    })
+
+    it('toggleSelectionTarget activates target, cancels same target, and switches target', () => {
+      const target0: NonNullable<PreviewSelectionTarget> = { kind: 'row_mapping', index: 0 }
+      const target1: NonNullable<PreviewSelectionTarget> = { kind: 'row_mapping', index: 1 }
+
+      // 1. Activate from null
+      expect(toggleSelectionTarget(null, target0)).toEqual(target0)
+
+      // 2. Toggle off when activating same target
+      expect(toggleSelectionTarget(target0, target0)).toBeNull()
+
+      // 3. Switch target: activating target1 while target0 is active switches to target1
+      expect(toggleSelectionTarget(target0, target1)).toEqual(target1)
+    })
+
+    it('clearSelectionTarget returns null', () => {
+      expect(clearSelectionTarget()).toBeNull()
+    })
+  })
   describe('isValidHeaderRange', () => {
     it('validates positive contiguous integer ranges', () => {
       expect(isValidHeaderRange({ startRow: 1, endRow: 1 })).toBe(true)

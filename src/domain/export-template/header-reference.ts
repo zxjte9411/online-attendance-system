@@ -6,6 +6,32 @@ export interface HeaderReferenceRange {
   endRow: number
 }
 
+export type PreviewSelectionTarget =
+  | { readonly kind: 'row_mapping'; readonly index: number }
+  | null
+
+export function isSameSelectionTarget(
+  a: PreviewSelectionTarget,
+  b: PreviewSelectionTarget
+): boolean {
+  if (a === null || b === null) return a === b
+  if (a.kind === 'row_mapping' && b.kind === 'row_mapping') {
+    return a.index === b.index
+  }
+  return false
+}
+
+export function toggleSelectionTarget(
+  current: PreviewSelectionTarget,
+  next: NonNullable<PreviewSelectionTarget>
+): PreviewSelectionTarget {
+  return isSameSelectionTarget(current, next) ? null : next
+}
+
+export function clearSelectionTarget(): PreviewSelectionTarget {
+  return null
+}
+
 export function isValidHeaderRange(range: unknown): range is HeaderReferenceRange {
   if (!range || typeof range !== 'object') return false
   const r = range as { startRow?: unknown; endRow?: unknown }
