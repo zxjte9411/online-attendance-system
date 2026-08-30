@@ -83,6 +83,7 @@ export interface WorkbookPreviewCell {
   readonly column: string
   readonly rowNumber: number
   readonly text: string
+  readonly headerText?: string
 }
 
 export interface WorkbookPreviewRow {
@@ -170,6 +171,7 @@ export async function getWorkbookPreview(
               column: columnNumberToLetter(columnNumber),
               rowNumber,
               text: previewCellText(cell),
+              headerText: previewCellHeaderText(cell),
             })
           }
         })
@@ -252,6 +254,32 @@ function previewCellText(cell: ExcelJS.Cell): string {
   }
 
   return cell.text || String(cell.value)
+}
+
+function previewCellHeaderText(cell: ExcelJS.Cell): string {
+  const target = cell.isMerged ? cell.master : cell
+  if (target.value instanceof Date) {
+    const formatted = formatExcelDateTime(target.value, target.numFmt)
+    if (formatted) return formatted
+  }
+
+  if (isFormulaCell(target)) {
+    const result = target.result as unknown
+    if (result !== undefined && result !== null) {
+      if (isCellErrorValue(result)) return result.error
+      if (result instanceof Date) {
+        const formatted = formatExcelDateTime(result, target.numFmt)
+        if (formatted) return formatted
+      }
+      if (typeof result === 'object') {
+        if (target.text && target.text !== '[object Object]') return target.text
+        return ''
+      }
+      return String(result)
+    }
+  }
+
+  return target.text || (target.value !== null && target.value !== undefined ? String(target.value) : '')
 }
 
 function isCellErrorValue(value: unknown): value is { error: string } {
