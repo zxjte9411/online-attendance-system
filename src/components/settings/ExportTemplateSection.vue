@@ -131,6 +131,8 @@ const editingName = ref('')
 const monthMappings = ref<Array<{ month: string; worksheet: string }>>([])
 const rowMappings = ref<RowMappingUiItem[]>([])
 const staticMappings = ref<StaticMappingUiItem[]>([])
+
+// Committed Template Preview state
 const previewWorksheets = ref<WorkbookWorksheetPreview[]>([])
 const selectedPreviewWorksheetName = ref('')
 const previewVisibleRowCount = ref(20)
@@ -139,19 +141,100 @@ const hasManualPreviewSelection = ref(false)
 const showHiddenWorksheets = ref(false)
 const showHiddenPreviewRowsAndColumns = ref(false)
 
+// Candidate Preview state (for uncommitted upload or replacement)
+const candidatePreviewWorksheets = ref<WorkbookWorksheetPreview[]>([])
+const candidateSelectedPreviewWorksheetName = ref('')
+const candidatePreviewVisibleRowCount = ref(20)
+const candidatePreviewError = ref('')
+const candidateShowHiddenWorksheets = ref(false)
+const candidateShowHiddenPreviewRowsAndColumns = ref(false)
+const candidateRequestId = ref(0)
+
+const isCandidatePreviewActive = computed(() =>
+  Boolean(uploadFile.value || (template.value && showReplaceForm.value && replaceFile.value))
+)
+
+const activePreviewWorksheets = computed(() =>
+  isCandidatePreviewActive.value
+    ? candidatePreviewWorksheets.value
+    : previewWorksheets.value
+)
+
+const activePreviewError = computed(() =>
+  isCandidatePreviewActive.value
+    ? candidatePreviewError.value
+    : previewError.value
+)
+
+const activeShowHiddenWorksheets = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidateShowHiddenWorksheets.value
+      : showHiddenWorksheets.value,
+  set: (val: boolean) => {
+    if (isCandidatePreviewActive.value) {
+      candidateShowHiddenWorksheets.value = val
+    } else {
+      showHiddenWorksheets.value = val
+    }
+  },
+})
+
+const activeShowHiddenPreviewRowsAndColumns = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidateShowHiddenPreviewRowsAndColumns.value
+      : showHiddenPreviewRowsAndColumns.value,
+  set: (val: boolean) => {
+    if (isCandidatePreviewActive.value) {
+      candidateShowHiddenPreviewRowsAndColumns.value = val
+    } else {
+      showHiddenPreviewRowsAndColumns.value = val
+    }
+  },
+})
+
+const activeSelectedPreviewWorksheetName = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidateSelectedPreviewWorksheetName.value
+      : selectedPreviewWorksheetName.value,
+  set: (val: string) => {
+    if (isCandidatePreviewActive.value) {
+      candidateSelectedPreviewWorksheetName.value = val
+    } else {
+      selectedPreviewWorksheetName.value = val
+    }
+  },
+})
+
+const activePreviewVisibleRowCount = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidatePreviewVisibleRowCount.value
+      : previewVisibleRowCount.value,
+  set: (val: number) => {
+    if (isCandidatePreviewActive.value) {
+      candidatePreviewVisibleRowCount.value = val
+    } else {
+      previewVisibleRowCount.value = val
+    }
+  },
+})
+
 const selectablePreviewWorksheets = computed(() =>
-  previewWorksheets.value.filter(
-    (worksheet) => showHiddenWorksheets.value || !worksheet.isHidden
+  activePreviewWorksheets.value.filter(
+    (worksheet) => activeShowHiddenWorksheets.value || !worksheet.isHidden
   )
 )
 
 const hasHiddenPreviewWorksheets = computed(() =>
-  previewWorksheets.value.some((worksheet) => worksheet.isHidden)
+  activePreviewWorksheets.value.some((worksheet) => worksheet.isHidden)
 )
 
 const selectedPreviewWorksheet = computed(() =>
   selectablePreviewWorksheets.value.find(
-    (worksheet) => worksheet.name === selectedPreviewWorksheetName.value
+    (worksheet) => worksheet.name === activeSelectedPreviewWorksheetName.value
   )
 )
 
@@ -165,7 +248,7 @@ const hasHiddenPreviewRowsOrColumns = computed(() => {
 
 const previewRows = computed(() => {
   const rows = selectedPreviewWorksheet.value?.rows || []
-  return rows.filter((row) => showHiddenPreviewRowsAndColumns.value || !row.isHidden)
+  return rows.filter((row) => activeShowHiddenPreviewRowsAndColumns.value || !row.isHidden)
 })
 
 const visiblePreviewColumns = computed(() => {
@@ -175,13 +258,13 @@ const visiblePreviewColumns = computed(() => {
       .slice(0, 50)
       .filter(
         (column) =>
-          showHiddenPreviewRowsAndColumns.value || !column.isHidden
+          activeShowHiddenPreviewRowsAndColumns.value || !column.isHidden
       ) || []
   )
 })
 
 const visiblePreviewRows = computed(() =>
-  previewRows.value.slice(0, previewVisibleRowCount.value)
+  previewRows.value.slice(0, activePreviewVisibleRowCount.value)
 )
 
 const worksheetHeaderRanges = ref<Record<string, HeaderReferenceRange>>({})
@@ -210,8 +293,8 @@ function resetPreviewSelection() {
 }
 
 watch(selectablePreviewWorksheets, (worksheets) => {
-  if (!worksheets.some((worksheet) => worksheet.name === selectedPreviewWorksheetName.value)) {
-    selectedPreviewWorksheetName.value = worksheets[0]?.name || ''
+  if (!worksheets.some((worksheet) => worksheet.name === activeSelectedPreviewWorksheetName.value)) {
+    activeSelectedPreviewWorksheetName.value = worksheets[0]?.name || ''
   }
 })
 
@@ -279,16 +362,21 @@ function clearHeaderRange() {
 }
 
 const currentSheetDerivedLabels = computed(() => {
+  if (isCandidatePreviewActive.value) return new Map<string, string>()
   const ws = selectedPreviewWorksheet.value
   const range = ws ? worksheetHeaderRanges.value[ws.name] : undefined
   return deriveColumnHeaderLabels(ws, range)
 })
 
 const columnPickerOptions = computed(() => {
-  const ws = selectedPreviewWorksheet.value
+  const ws =
+    previewWorksheets.value.find((w) => w.name === selectedPreviewWorksheetName.value) ||
+    previewWorksheets.value[0]
   if (!ws || !ws.columns) return []
+  const range = ws ? worksheetHeaderRanges.value[ws.name] : undefined
+  const derived = deriveColumnHeaderLabels(ws, range)
   return ws.columns.map((c) => {
-    const label = currentSheetDerivedLabels.value.get(c.column) || ''
+    const label = derived.get(c.column) || ''
     return {
       column: c.column,
       label,
@@ -383,6 +471,7 @@ const activeSelectionFieldLabel = computed(() => {
 })
 
 const highlightedTargetColumn = computed(() => {
+  if (isCandidatePreviewActive.value) return null
   if (activeSelectionTarget.value?.kind === 'row_mapping') {
     return rowMappings.value[activeSelectionTarget.value.index]?.targetColumn?.trim().toUpperCase() || null
   }
@@ -393,6 +482,7 @@ const highlightedTargetColumn = computed(() => {
 })
 
 const highlightedTargetCell = computed(() => {
+  if (isCandidatePreviewActive.value) return null
   if (activeSelectionTarget.value?.kind === 'static_mapping') {
     return staticMappings.value[activeSelectionTarget.value.index]?.targetCell?.trim().toUpperCase() || null
   }
@@ -426,7 +516,11 @@ function formatStructureTypeLabel(type: PreviewCellStructureType): string {
 }
 
 function handleGlobalKeyDown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && activeSelectionTarget.value !== null) {
+  if (
+    event.key === 'Escape' &&
+    !isCandidatePreviewActive.value &&
+    activeSelectionTarget.value !== null
+  ) {
     cancelSelection()
   }
 }
@@ -442,6 +536,10 @@ onUnmounted(() => {
 watch(
   () => [props.userId, props.contextId],
   () => {
+    cancelCandidatePreview()
+    uploadFile.value = null
+    replaceFile.value = null
+    showReplaceForm.value = false
     resetPreviewSelection()
     loadTemplate()
   }
@@ -475,12 +573,92 @@ function parseValueMapOptions(
   return { text, fallback }
 }
 
+function initializeDefaultWorksheetSelection() {
+  const worksheetNames = new Set(
+    previewWorksheets.value.filter((ws) => showHiddenWorksheets.value || !ws.isHidden).map((ws) => ws.name)
+  )
+  if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
+    selectedPreviewWorksheetName.value =
+      monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
+      previewWorksheets.value.find((ws) => showHiddenWorksheets.value || !ws.isHidden)?.name ||
+      previewWorksheets.value[0]?.name ||
+      ''
+  }
+}
+
+async function loadTemplatePreview(savedTemplate: ExportTemplate) {
+  availableWorksheets.value = []
+  previewWorksheets.value = []
+  previewError.value = ''
+  let fileBuffer: ArrayBuffer | undefined
+  try {
+    fileBuffer = await downloadExportTemplateFile(savedTemplate.storage_path)
+  } catch (err) {
+    previewError.value = err instanceof Error ? err.message : '下載範本預覽檔案失敗。'
+    return
+  }
+
+  if (fileBuffer) {
+    try {
+      availableWorksheets.value = await getWorkbookWorksheetNames(fileBuffer)
+    } catch {
+      availableWorksheets.value = []
+    }
+
+    try {
+      const preview = await getWorkbookPreview(fileBuffer)
+      previewWorksheets.value = [...preview.worksheets]
+      previewVisibleRowCount.value = 20
+      initializeDefaultWorksheetSelection()
+    } catch (err) {
+      previewWorksheets.value = []
+      previewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
+    }
+  }
+}
+
+function cancelCandidatePreview() {
+  candidateRequestId.value++
+  candidatePreviewWorksheets.value = []
+  candidatePreviewError.value = ''
+  candidateSelectedPreviewWorksheetName.value = ''
+  candidateShowHiddenWorksheets.value = false
+  candidateShowHiddenPreviewRowsAndColumns.value = false
+  candidatePreviewVisibleRowCount.value = 20
+}
+
+async function loadCandidatePreview(file: File) {
+  const currentReq = ++candidateRequestId.value
+  candidatePreviewError.value = ''
+  candidatePreviewWorksheets.value = []
+  candidateSelectedPreviewWorksheetName.value = ''
+  candidateShowHiddenWorksheets.value = false
+  candidateShowHiddenPreviewRowsAndColumns.value = false
+  candidatePreviewVisibleRowCount.value = 20
+
+  try {
+    const preview = await getWorkbookPreview(file)
+    if (candidateRequestId.value !== currentReq) return
+    candidatePreviewWorksheets.value = [...preview.worksheets]
+    const firstVisible = preview.worksheets.find((w) => !w.isHidden) || preview.worksheets[0]
+    candidateSelectedPreviewWorksheetName.value = firstVisible?.name || ''
+  } catch (err) {
+    if (candidateRequestId.value !== currentReq) return
+    candidatePreviewWorksheets.value = []
+    candidatePreviewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
+  }
+}
+
 async function loadTemplate() {
   showHiddenWorksheets.value = false
   showHiddenPreviewRowsAndColumns.value = false
 
   if (!props.userId || !props.contextId) {
     template.value = null
+    uploadFile.value = null
+    replaceFile.value = null
+    showReplaceForm.value = false
+    cancelCandidatePreview()
     resetPreviewSelection()
     isLoading.value = false
     return
@@ -531,46 +709,15 @@ async function loadTemplate() {
         }
       })
 
-      // Download once for both the existing worksheet list and the preview.
-      availableWorksheets.value = []
-      let fileBuffer: ArrayBuffer | undefined
-      try {
-        fileBuffer = await downloadExportTemplateFile(loaded.storage_path)
-      } catch (err) {
-        previewError.value = err instanceof Error ? err.message : '下載範本預覽檔案失敗。'
-      }
-
-      if (fileBuffer) {
-        try {
-          availableWorksheets.value = await getWorkbookWorksheetNames(fileBuffer)
-        } catch {
-          availableWorksheets.value = []
-        }
-
-        try {
-          const preview = await getWorkbookPreview(fileBuffer)
-          previewWorksheets.value = [...preview.worksheets]
-          previewVisibleRowCount.value = 20
-
-          const worksheetNames = new Set(
-            selectablePreviewWorksheets.value.map((worksheet) => worksheet.name)
-          )
-          if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
-            selectedPreviewWorksheetName.value =
-              monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
-              previewWorksheets.value[0]?.name ||
-              ''
-          }
-        } catch (err) {
-          previewWorksheets.value = []
-          previewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
-        }
-      }
+      await loadTemplatePreview(loaded)
     } else {
       uploadName.value = `${props.contextName} 出勤範本`
       uploadFile.value = null
+      replaceFile.value = null
+      showReplaceForm.value = false
       availableWorksheets.value = []
       previewWorksheets.value = []
+      cancelCandidatePreview()
       resetPreviewSelection()
     }
   } catch (err) {
@@ -581,45 +728,74 @@ async function loadTemplate() {
 }
 
 function handlePreviewWorksheetChange() {
-  hasManualPreviewSelection.value = true
-  previewVisibleRowCount.value = 20
+  if (!isCandidatePreviewActive.value) {
+    hasManualPreviewSelection.value = true
+  }
+  activePreviewVisibleRowCount.value = 20
 }
 
 function loadMorePreviewRows() {
-  previewVisibleRowCount.value = Math.min(previewVisibleRowCount.value + 20, 200)
+  activePreviewVisibleRowCount.value = Math.min(activePreviewVisibleRowCount.value + 20, 200)
 }
 
 function getPreviewCellValue(row: WorkbookPreviewRow, column: string): string {
   return row.cells.find((cell) => cell.column === column)?.text || ''
 }
 
-function handleUploadFileChange(event: Event) {
+async function handleUploadFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   if (target.files && target.files[0]) {
     try {
       validateXlsxFileInput(target.files[0])
       uploadFile.value = target.files[0]
       errorMessage.value = ''
+      await loadCandidatePreview(target.files[0])
     } catch (err) {
       uploadFile.value = null
       target.value = ''
+      cancelCandidatePreview()
       errorMessage.value = err instanceof Error ? err.message : '檔案格式無效。'
     }
+  } else {
+    uploadFile.value = null
+    cancelCandidatePreview()
   }
 }
 
-function handleReplaceFileChange(event: Event) {
+async function handleReplaceFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   if (target.files && target.files[0]) {
     try {
       validateXlsxFileInput(target.files[0])
       replaceFile.value = target.files[0]
       errorMessage.value = ''
+      await loadCandidatePreview(target.files[0])
     } catch (err) {
       replaceFile.value = null
       target.value = ''
+      cancelCandidatePreview()
       errorMessage.value = err instanceof Error ? err.message : '檔案格式無效。'
     }
+  } else {
+    replaceFile.value = null
+    cancelCandidatePreview()
+  }
+}
+
+function cancelReplace() {
+  showReplaceForm.value = false
+  replaceFile.value = null
+  if (replaceFileInput.value) {
+    replaceFileInput.value.value = ''
+  }
+  cancelCandidatePreview()
+}
+
+function toggleReplaceForm() {
+  if (showReplaceForm.value) {
+    cancelReplace()
+  } else {
+    showReplaceForm.value = true
   }
 }
 
@@ -651,6 +827,8 @@ async function handleUpload() {
       name: uploadName.value.trim(),
       file: uploadFile.value,
     })
+    cancelCandidatePreview()
+    uploadFile.value = null
     template.value = created
     resetPreviewSelection()
     await loadTemplate()
@@ -685,6 +863,7 @@ async function handleReplace() {
       newFile: replaceFile.value,
       newName: replaceName.value.trim() || undefined,
     })
+    cancelCandidatePreview()
     showReplaceForm.value = false
     replaceFile.value = null
     resetPreviewSelection()
@@ -713,7 +892,11 @@ async function handleDelete() {
 
   try {
     await deleteExportTemplate(props.userId, template.value)
+    cancelCandidatePreview()
     template.value = null
+    uploadFile.value = null
+    replaceFile.value = null
+    showReplaceForm.value = false
     availableWorksheets.value = []
     previewWorksheets.value = []
     resetPreviewSelection()
@@ -956,7 +1139,7 @@ async function handleSaveMapping() {
 
     <!-- Empty State: Upload Prompt -->
     <div
-      v-else-if="!template"
+      v-if="!template"
       class="grid gap-4 rounded-xl border border-dashed border-line p-6 text-center sm:p-8"
     >
       <div class="mx-auto grid max-w-md gap-2">
@@ -1025,7 +1208,7 @@ async function handleSaveMapping() {
           <button
             type="button"
             class="min-h-10 rounded-[0.625rem] border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:border-accent hover:text-accent"
-            @click="showReplaceForm = !showReplaceForm"
+            @click="toggleReplaceForm"
           >
             更換檔案
           </button>
@@ -1064,271 +1247,278 @@ async function handleSaveMapping() {
             <button
               type="button"
               class="min-h-10 rounded-[0.625rem] border border-line px-4 py-1.5 text-xs font-semibold text-muted"
-              @click="showReplaceForm = false"
+              @click="cancelReplace"
             >
               取消
             </button>
           </div>
         </form>
       </div>
+    </div>
 
-      <!-- Read-only workbook preview -->
-      <section class="grid min-w-0 gap-3 border-t border-line pt-5">
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h4 class="font-semibold text-base">工作表預覽</h4>
-            <p class="text-xs text-muted">唯讀檢視範本內容；不會修改或影響下方的對應設定。</p>
-          </div>
-
-          <div v-if="previewWorksheets.length" class="flex flex-wrap items-end justify-end gap-3">
-            <label
-              v-if="hasHiddenPreviewWorksheets"
-              for="show-hidden-worksheets"
-              class="inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-muted"
-            >
-              <input
-                id="show-hidden-worksheets"
-                v-model="showHiddenWorksheets"
-                type="checkbox"
-                name="show-hidden-worksheets"
-                class="h-4 w-4"
-              />
-              顯示隱藏工作表
-            </label>
-
-            <label
-              v-if="hasHiddenPreviewRowsOrColumns"
-              for="show-hidden-preview-rows-columns"
-              class="inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-muted"
-            >
-              <input
-                id="show-hidden-preview-rows-columns"
-                v-model="showHiddenPreviewRowsAndColumns"
-                type="checkbox"
-                name="show-hidden-preview-rows-columns"
-                class="h-4 w-4"
-              />
-              顯示隱藏列／欄
-            </label>
-
-            <div v-if="selectablePreviewWorksheets.length" class="grid min-w-[12rem] gap-1">
-              <label for="preview-worksheet-select" class="text-xs font-semibold text-muted">預覽工作表</label>
-              <select
-                id="preview-worksheet-select"
-                data-test="preview-worksheet-select"
-                v-model="selectedPreviewWorksheetName"
-                class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                @change="handlePreviewWorksheetChange"
-              >
-                <option
-                  v-for="worksheet in selectablePreviewWorksheets"
-                  :key="worksheet.name"
-                  :value="worksheet.name"
-                >
-                  {{ worksheet.name }}
-                </option>
-              </select>
-            </div>
-          </div>
+    <!-- Read-only workbook preview -->
+    <section
+      v-if="template || uploadFile || activePreviewWorksheets.length || activePreviewError"
+      class="grid min-w-0 gap-3 border-t border-line pt-5"
+    >
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h4 class="font-semibold text-base">工作表預覽</h4>
+          <p class="text-xs text-muted">唯讀檢視範本內容；不會修改或影響下方的對應設定。</p>
         </div>
 
+        <div v-if="activePreviewWorksheets.length" class="flex flex-wrap items-end justify-end gap-3">
+          <label
+            v-if="hasHiddenPreviewWorksheets"
+            for="show-hidden-worksheets"
+            class="inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-muted"
+          >
+            <input
+              id="show-hidden-worksheets"
+              v-model="activeShowHiddenWorksheets"
+              type="checkbox"
+              name="show-hidden-worksheets"
+              class="h-4 w-4"
+            />
+            顯示隱藏工作表
+          </label>
+
+          <label
+            v-if="hasHiddenPreviewRowsOrColumns"
+            for="show-hidden-preview-rows-columns"
+            class="inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-muted"
+          >
+            <input
+              id="show-hidden-preview-rows-columns"
+              v-model="activeShowHiddenPreviewRowsAndColumns"
+              type="checkbox"
+              name="show-hidden-preview-rows-columns"
+              class="h-4 w-4"
+            />
+            顯示隱藏列／欄
+          </label>
+
+          <div v-if="selectablePreviewWorksheets.length" class="grid min-w-[12rem] gap-1">
+            <label for="preview-worksheet-select" class="text-xs font-semibold text-muted">預覽工作表</label>
+            <select
+              id="preview-worksheet-select"
+              data-test="preview-worksheet-select"
+              v-model="activeSelectedPreviewWorksheetName"
+              class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              @change="handlePreviewWorksheetChange"
+            >
+              <option
+                v-for="worksheet in selectablePreviewWorksheets"
+                :key="worksheet.name"
+                :value="worksheet.name"
+              >
+                {{ worksheet.name }}
+              </option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <p
+        v-if="activePreviewError"
+        data-test="preview-error"
+        class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
+        role="alert"
+      >
+        預覽無法載入：{{ activePreviewError }}
+      </p>
+
+      <template v-else-if="selectedPreviewWorksheet">
         <p
-          v-if="previewError"
-          data-test="preview-error"
-          class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
-          role="alert"
+          v-if="selectedPreviewWorksheet.isProtected"
+          data-test="preview-protected-notice"
+          class="rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-ink"
+          role="status"
         >
-          預覽無法載入：{{ previewError }}
+          此工作表受保護，預覽為唯讀；仍可編輯對應設定。
         </p>
 
-        <template v-else-if="selectedPreviewWorksheet">
-          <p
-            v-if="selectedPreviewWorksheet.isProtected"
-            data-test="preview-protected-notice"
-            class="rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-ink"
-            role="status"
-          >
-            此工作表受保護，預覽為唯讀；仍可編輯對應設定。
-          </p>
+        <p
+          v-if="selectedPreviewWorksheet.hasImages"
+          data-test="preview-images-notice"
+          class="rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-ink"
+        >
+          此工作表含圖片；Preview 不顯示圖片。
+        </p>
 
-          <p
-            v-if="selectedPreviewWorksheet.hasImages"
-            data-test="preview-images-notice"
-            class="rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-ink"
-          >
-            此工作表含圖片；Preview 不顯示圖片。
-          </p>
-
-          <!-- Header Reference Range Controls -->
-          <div class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3 text-xs">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="font-semibold text-ink">欄位標題參考範圍：</span>
-              <label for="header-range-start" class="text-muted">起始列</label>
-              <input
-                id="header-range-start"
-                data-test="header-range-start"
-                v-model.number="currentRangeStart"
-                type="number"
-                min="1"
-                placeholder="例如: 4"
-                class="w-16 min-h-8 rounded-[0.375rem] border border-line bg-canvas px-2 font-mono text-xs text-ink"
-                @keydown.enter.prevent="applyHeaderRange"
-              />
-              <label for="header-range-end" class="text-muted">結束列</label>
-              <input
-                id="header-range-end"
-                data-test="header-range-end"
-                v-model.number="currentRangeEnd"
-                type="number"
-                min="1"
-                placeholder="例如: 5"
-                class="w-16 min-h-8 rounded-[0.375rem] border border-line bg-canvas px-2 font-mono text-xs text-ink"
-                @keydown.enter.prevent="applyHeaderRange"
-              />
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                data-test="apply-header-range-btn"
-                class="min-h-8 rounded-[0.375rem] bg-accent px-2.5 py-1 text-xs font-semibold text-surface hover:opacity-90"
-                @click="applyHeaderRange"
-              >
-                設定標題範圍
-              </button>
-              <button
-                v-if="selectedPreviewWorksheet && worksheetHeaderRanges[selectedPreviewWorksheet.name]"
-                type="button"
-                data-test="clear-header-range-btn"
-                class="min-h-8 rounded-[0.375rem] border border-line px-2.5 py-1 text-xs font-semibold text-muted hover:text-ink"
-                @click="clearHeaderRange"
-              >
-                清除
-              </button>
-              <span
-                v-if="selectedPreviewWorksheet && worksheetHeaderRanges[selectedPreviewWorksheet.name]"
-                data-test="current-header-range-info"
-                class="text-accent font-semibold"
-              >
-                已設定：Row {{ worksheetHeaderRanges[selectedPreviewWorksheet.name].startRow }}–{{ worksheetHeaderRanges[selectedPreviewWorksheet.name].endRow }}
-              </span>
-            </div>
-            <p v-if="currentRangeError" data-test="header-range-error" class="w-full text-xs text-[var(--error-ink)]">
-              {{ currentRangeError }}
-            </p>
+        <!-- Header Reference Range Controls -->
+        <div
+          v-if="!isCandidatePreviewActive"
+          class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3 text-xs"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold text-ink">欄位標題參考範圍：</span>
+            <label for="header-range-start" class="text-muted">起始列</label>
+            <input
+              id="header-range-start"
+              data-test="header-range-start"
+              v-model.number="currentRangeStart"
+              type="number"
+              min="1"
+              placeholder="例如: 4"
+              class="w-16 min-h-8 rounded-[0.375rem] border border-line bg-canvas px-2 font-mono text-xs text-ink"
+              @keydown.enter.prevent="applyHeaderRange"
+            />
+            <label for="header-range-end" class="text-muted">結束列</label>
+            <input
+              id="header-range-end"
+              data-test="header-range-end"
+              v-model.number="currentRangeEnd"
+              type="number"
+              min="1"
+              placeholder="例如: 5"
+              class="w-16 min-h-8 rounded-[0.375rem] border border-line bg-canvas px-2 font-mono text-xs text-ink"
+              @keydown.enter.prevent="applyHeaderRange"
+            />
           </div>
-
-          <!-- Active Selection Banner -->
-          <div
-            v-if="activeSelectionTarget !== null"
-            data-test="preview-selection-active-banner"
-            class="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-accent bg-surface-soft p-3 text-xs text-ink"
-          >
-            <span>
-              正在為「<strong>{{ activeSelectionFieldLabel }}</strong>」選取目標{{ activeSelectionTarget.kind === 'row_mapping' ? '欄位' : '儲存格' }}。請點擊下方{{ activeSelectionTarget.kind === 'row_mapping' ? '欄位標題' : '儲存格' }}，或使用鍵盤 Enter / Space 完成選取。
-            </span>
+          <div class="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              data-test="cancel-preview-selection-button"
-              class="min-h-8 rounded-[0.375rem] border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink hover:border-accent"
-              @click="cancelSelection"
+              data-test="apply-header-range-btn"
+              class="min-h-8 rounded-[0.375rem] bg-accent px-2.5 py-1 text-xs font-semibold text-surface hover:opacity-90"
+              @click="applyHeaderRange"
             >
-              取消選取 (Esc)
+              設定標題範圍
             </button>
+            <button
+              v-if="selectedPreviewWorksheet && worksheetHeaderRanges[selectedPreviewWorksheet.name]"
+              type="button"
+              data-test="clear-header-range-btn"
+              class="min-h-8 rounded-[0.375rem] border border-line px-2.5 py-1 text-xs font-semibold text-muted hover:text-ink"
+              @click="clearHeaderRange"
+            >
+              清除
+            </button>
+            <span
+              v-if="selectedPreviewWorksheet && worksheetHeaderRanges[selectedPreviewWorksheet.name]"
+              data-test="current-header-range-info"
+              class="text-accent font-semibold"
+            >
+              已設定：Row {{ worksheetHeaderRanges[selectedPreviewWorksheet.name].startRow }}–{{ worksheetHeaderRanges[selectedPreviewWorksheet.name].endRow }}
+            </span>
           </div>
+          <p v-if="currentRangeError" data-test="header-range-error" class="w-full text-xs text-[var(--error-ink)]">
+            {{ currentRangeError }}
+          </p>
+        </div>
 
-          <div class="min-w-0 overflow-x-auto rounded-[0.625rem] border border-line">
-            <table class="min-w-max border-collapse text-left text-xs text-ink">
-              <caption class="border-b border-line bg-surface-soft px-3 py-2 text-left font-semibold">
-                工作表「{{ selectedPreviewWorksheet.name }}」內容預覽
-              </caption>
-              <thead class="bg-surface-soft">
-                <tr>
-                  <th scope="col" class="sticky left-0 border-r border-line px-3 py-2 font-semibold">列</th>
-                  <th
-                    v-for="column in visiblePreviewColumns"
-                    :key="column.column"
-                    scope="col"
-                    :data-test="`preview-column-header-${column.column}`"
-                    :class="[
-                      'border-b border-line px-3 py-2 font-mono font-semibold transition-colors',
-                      highlightedTargetColumn === column.column ? 'bg-accent/15 border-accent text-accent' : '',
-                      activeSelectionTarget?.kind === 'row_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
-                    ]"
-                    :tabindex="activeSelectionTarget?.kind === 'row_mapping' ? 0 : undefined"
-                    :role="activeSelectionTarget?.kind === 'row_mapping' ? 'button' : undefined"
-                    :aria-label="activeSelectionTarget?.kind === 'row_mapping' ? `選取目標欄位 ${column.column}` : undefined"
-                    @click="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
-                    @keydown.enter.prevent="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
-                    @keydown.space.prevent="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
-                  >
-                    <div class="flex flex-col">
-                      <span>
-                        {{ column.column }}
-                        <span v-if="column.isHidden">（隱藏欄）</span>
-                      </span>
-                      <span
-                        v-if="currentSheetDerivedLabels.get(column.column)"
-                        class="font-sans font-normal text-[0.6875rem] text-muted truncate max-w-[10rem]"
-                        :title="currentSheetDerivedLabels.get(column.column)"
-                      >
-                        {{ currentSheetDerivedLabels.get(column.column) }}
-                      </span>
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in visiblePreviewRows" :key="row.rowNumber" class="border-t border-line">
-                  <th scope="row" class="sticky left-0 border-r border-line bg-surface-soft px-3 py-2 font-mono font-semibold">
-                    {{ row.rowNumber }}
-                    <span v-if="row.isHidden">（隱藏列）</span>
-                  </th>
-                  <td
-                    v-for="column in visiblePreviewColumns"
-                    :key="column.column"
-                    :data-test="`preview-cell-${column.column}${row.rowNumber}`"
-                    :class="[
-                      'px-3 py-2 align-top transition-colors',
-                      highlightedTargetColumn === column.column ? 'bg-accent/5' : '',
-                      highlightedTargetCell === `${column.column}${row.rowNumber}` ? 'bg-accent/20 border-accent font-semibold text-accent' : '',
-                      activeSelectionTarget?.kind === 'static_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
-                    ]"
-                    :tabindex="activeSelectionTarget?.kind === 'static_mapping' ? 0 : undefined"
-                    :role="activeSelectionTarget?.kind === 'static_mapping' ? 'button' : undefined"
-                    :aria-label="activeSelectionTarget?.kind === 'static_mapping' ? `選取目標儲存格 ${column.column}${row.rowNumber}` : undefined"
-                    @click="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
-                    @keydown.enter.prevent="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
-                    @keydown.space.prevent="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
-                  >
-                    <span
-                      :title="getPreviewCellValue(row, column.column)"
-                      :tabindex="activeSelectionTarget === null ? 0 : undefined"
-                      class="block max-w-[14rem] truncate rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                    >
-                      {{ getPreviewCellValue(row, column.column) }}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
+        <!-- Active Selection Banner -->
+        <div
+          v-if="!isCandidatePreviewActive && activeSelectionTarget !== null"
+          data-test="preview-selection-active-banner"
+          class="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-accent bg-surface-soft p-3 text-xs text-ink"
+        >
+          <span>
+            正在為「<strong>{{ activeSelectionFieldLabel }}</strong>」選取目標{{ activeSelectionTarget.kind === 'row_mapping' ? '欄位' : '儲存格' }}。請點擊下方{{ activeSelectionTarget.kind === 'row_mapping' ? '欄位標題' : '儲存格' }}，或使用鍵盤 Enter / Space 完成選取。
+          </span>
           <button
-            v-if="previewRows.length > visiblePreviewRows.length && visiblePreviewRows.length < 200"
             type="button"
-            data-test="preview-load-more"
-            class="min-h-10 justify-self-start rounded-[0.5rem] border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:border-accent hover:text-accent focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            @click="loadMorePreviewRows"
+            data-test="cancel-preview-selection-button"
+            class="min-h-8 rounded-[0.375rem] border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink hover:border-accent"
+            @click="cancelSelection"
           >
-            載入更多列（每次 20 列）
+            取消選取 (Esc)
           </button>
-        </template>
+        </div>
 
-        <p v-else class="text-xs text-muted">目前沒有可顯示的工作表預覽。</p>
-      </section>
+        <div class="min-w-0 overflow-x-auto rounded-[0.625rem] border border-line">
+          <table class="min-w-max border-collapse text-left text-xs text-ink">
+            <caption class="border-b border-line bg-surface-soft px-3 py-2 text-left font-semibold">
+              工作表「{{ selectedPreviewWorksheet.name }}」內容預覽
+            </caption>
+            <thead class="bg-surface-soft">
+              <tr>
+                <th scope="col" class="sticky left-0 border-r border-line px-3 py-2 font-semibold">列</th>
+                <th
+                  v-for="column in visiblePreviewColumns"
+                  :key="column.column"
+                  scope="col"
+                  :data-test="`preview-column-header-${column.column}`"
+                  :class="[
+                    'border-b border-line px-3 py-2 font-mono font-semibold transition-colors',
+                    highlightedTargetColumn === column.column ? 'bg-accent/15 border-accent text-accent' : '',
+                    !isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                  ]"
+                  :tabindex="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? 0 : undefined"
+                  :role="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? 'button' : undefined"
+                  :aria-label="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? `選取目標欄位 ${column.column}` : undefined"
+                  @click="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                  @keydown.enter.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                  @keydown.space.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                >
+                  <div class="flex flex-col">
+                    <span>
+                      {{ column.column }}
+                      <span v-if="column.isHidden">（隱藏欄）</span>
+                    </span>
+                    <span
+                      v-if="!isCandidatePreviewActive && currentSheetDerivedLabels.get(column.column)"
+                      class="font-sans font-normal text-[0.6875rem] text-muted truncate max-w-[10rem]"
+                      :title="currentSheetDerivedLabels.get(column.column)"
+                    >
+                      {{ currentSheetDerivedLabels.get(column.column) }}
+                    </span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in visiblePreviewRows" :key="row.rowNumber" class="border-t border-line">
+                <th scope="row" class="sticky left-0 border-r border-line bg-surface-soft px-3 py-2 font-mono font-semibold">
+                  {{ row.rowNumber }}
+                  <span v-if="row.isHidden">（隱藏列）</span>
+                </th>
+                <td
+                  v-for="column in visiblePreviewColumns"
+                  :key="column.column"
+                  :data-test="`preview-cell-${column.column}${row.rowNumber}`"
+                  :class="[
+                    'px-3 py-2 align-top transition-colors',
+                    highlightedTargetColumn === column.column ? 'bg-accent/5' : '',
+                    highlightedTargetCell === `${column.column}${row.rowNumber}` ? 'bg-accent/20 border-accent font-semibold text-accent' : '',
+                    !isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                  ]"
+                  :tabindex="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? 0 : undefined"
+                  :role="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? 'button' : undefined"
+                  :aria-label="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? `選取目標儲存格 ${column.column}${row.rowNumber}` : undefined"
+                  @click="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                  @keydown.enter.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                  @keydown.space.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                >
+                  <span
+                    :title="getPreviewCellValue(row, column.column)"
+                    :tabindex="!isCandidatePreviewActive && activeSelectionTarget === null ? 0 : undefined"
+                    class="block max-w-[14rem] truncate rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    {{ getPreviewCellValue(row, column.column) }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-      <!-- Mapping Form -->
-      <form data-test="mapping-form" class="grid gap-8" @submit.prevent="handleSaveMapping">
+        <button
+          v-if="previewRows.length > visiblePreviewRows.length && visiblePreviewRows.length < 200"
+          type="button"
+          data-test="preview-load-more"
+          class="min-h-10 justify-self-start rounded-[0.5rem] border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:border-accent hover:text-accent focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          @click="loadMorePreviewRows"
+        >
+          載入更多列（每次 20 列）
+        </button>
+      </template>
+
+      <p v-else class="text-xs text-muted">目前沒有可顯示的工作表預覽。</p>
+    </section>
+
+    <!-- Mapping Form -->
+    <form v-if="template" data-test="mapping-form" class="grid gap-8" @submit.prevent="handleSaveMapping">
         <div class="grid gap-1.5 max-w-md">
           <label for="template-name-input" class="font-semibold text-sm">範本名稱</label>
           <input
@@ -1727,5 +1917,4 @@ async function handleSaveMapping() {
         </div>
       </form>
     </div>
-  </div>
-</template>
+  </template>
