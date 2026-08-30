@@ -1265,4 +1265,399 @@ describe('Component: ExportTemplateSection', () => {
       confirmSpy.mockRestore()
     })
   })
+
+  describe('Static Cell Mapping and Preview Selection (Issue #38)', () => {
+    function makeStaticPreviewResult(): exportTemplatesApi.WorkbookPreview {
+      return {
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+              { column: 'C', isHidden: false },
+              { column: 'D', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 1,
+                isHidden: false,
+                cells: [{ column: 'A', rowNumber: 1, text: '公司出勤表', structureType: 'ordinary' }],
+              },
+              {
+                rowNumber: 2,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 2, text: '月份', structureType: 'ordinary' },
+                  { column: 'B', rowNumber: 2, text: '2026-08', structureType: 'ordinary' },
+                  { column: 'C', rowNumber: 2, text: 'ƒ =SUM(A1:A2)', structureType: 'formula' },
+                ],
+              },
+              {
+                rowNumber: 3,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 3, text: '專案', structureType: 'ordinary' },
+                  { column: 'B', rowNumber: 3, text: '↖ merged B3:C3', structureType: 'merged' },
+                  { column: 'C', rowNumber: 3, text: '↖ merged B3:C3', structureType: 'merged' },
+                ],
+              },
+            ],
+          },
+          {
+            name: '9月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+              { column: 'C', isHidden: false },
+              { column: 'D', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 1,
+                isHidden: false,
+                cells: [{ column: 'A', rowNumber: 1, text: '公司出勤表', structureType: 'ordinary' }],
+              },
+              {
+                rowNumber: 2,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 2, text: '月份', structureType: 'ordinary' },
+                  { column: 'B', rowNumber: 2, text: 'ƒ =A1', structureType: 'formula' }, // formula vs 8月 ordinary
+                  { column: 'C', rowNumber: 2, text: 'ƒ =AVERAGE(A1:A2)', structureType: 'formula' }, // formula vs 8月 formula (no warning)
+                ],
+              },
+              {
+                rowNumber: 3,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 3, text: '專案', structureType: 'ordinary' },
+                  { column: 'B', rowNumber: 3, text: 'PROJ-9', structureType: 'ordinary' }, // ordinary vs 8月 merged
+                ],
+              },
+            ],
+          },
+        ],
+      }
+    }
+
+    const mockTemplateWithStatic: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
+      row_mapping: [
+        { sourceField: 'date', targetColumn: 'B' },
+        { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+      ],
+      static_cell_mapping: [
+        { sourceField: 'year_month', targetCell: 'B2' },
+        { sourceField: 'project_identifier', targetCell: 'B3' },
+      ],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    it('handles static selection mode: activation, cell click, form update, and auto-exit without immediate persistence', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const selectBtn0 = wrapper.find('[data-test="select-static-from-preview-btn-0"]')
+      await selectBtn0.trigger('click')
+      await flushPromises()
+
+      expect(selectBtn0.attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('報表月份 (YYYY-MM)')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('儲存格')
+
+      // Click cell C2
+      const cellC2 = wrapper.find('[data-test="preview-cell-C2"]')
+      await cellC2.trigger('click')
+      await flushPromises()
+
+      // Target cell input is updated to C2
+      const input0 = wrapper.find('[data-test="static-cell-input-0"]')
+      expect((input0.element as HTMLInputElement).value).toBe('C2')
+
+      // Auto-exits selection mode
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      expect(selectBtn0.attributes('aria-pressed')).toBe('false')
+      expect(exportTemplatesApi.saveExportTemplateMapping).not.toHaveBeenCalled()
+    })
+
+    it('supports selecting blank cells in preview grid as A1 address', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Cell D2 is blank in 8月 preview
+      const selectBtn0 = wrapper.find('[data-test="select-static-from-preview-btn-0"]')
+      await selectBtn0.trigger('click')
+
+      const cellD2 = wrapper.find('[data-test="preview-cell-D2"]')
+      expect(cellD2.exists()).toBe(true)
+      await cellD2.trigger('click')
+      await flushPromises()
+
+      expect((wrapper.find('[data-test="static-cell-input-0"]').element as HTMLInputElement).value).toBe('D2')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('supports keyboard selection with Enter and Space on preview body cells in static mode', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Enter key
+      await wrapper.find('[data-test="select-static-from-preview-btn-0"]').trigger('click')
+      await wrapper.find('[data-test="preview-cell-A1"]').trigger('keydown.enter')
+      await flushPromises()
+      expect((wrapper.find('[data-test="static-cell-input-0"]').element as HTMLInputElement).value).toBe('A1')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+
+      // 2. Space key
+      await wrapper.find('[data-test="select-static-from-preview-btn-1"]').trigger('click')
+      await wrapper.find('[data-test="preview-cell-D3"]').trigger('keydown.space')
+      await flushPromises()
+      expect((wrapper.find('[data-test="static-cell-input-1"]').element as HTMLInputElement).value).toBe('D3')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('enforces single active selection across row mapping and static mapping', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const rowBtn0 = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      const staticBtn0 = wrapper.find('[data-test="select-static-from-preview-btn-0"]')
+
+      // Activate row target 0
+      await rowBtn0.trigger('click')
+      expect(rowBtn0.attributes('aria-pressed')).toBe('true')
+      expect(staticBtn0.attributes('aria-pressed')).toBe('false')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('日期（定位欄位）')
+
+      // Switch to static target 0
+      await staticBtn0.trigger('click')
+      expect(rowBtn0.attributes('aria-pressed')).toBe('false')
+      expect(staticBtn0.attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('報表月份 (YYYY-MM)')
+
+      // Switch back to row target 1
+      const rowBtn1 = wrapper.find('[data-test="select-from-preview-btn-1"]')
+      await rowBtn1.trigger('click')
+      expect(staticBtn0.attributes('aria-pressed')).toBe('false')
+      expect(rowBtn1.attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('實際上班時間')
+    })
+
+    it('cancels static selection mode on button toggle, explicit cancel button, or Escape key', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const selectBtn0 = wrapper.find('[data-test="select-static-from-preview-btn-0"]')
+
+      // 1. Toggle same button off
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+
+      // 2. Cancel button in banner
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      await wrapper.find('[data-test="cancel-preview-selection-button"]').trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+
+      // 3. Escape key
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('row mode clicking body cell does NOT modify row mapping; static mode clicking column header does NOT modify static mapping; non-selection mode clicking does NOT modify any mapping', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Non-selection mode: clicking header or cell does nothing
+      await wrapper.find('[data-test="preview-column-header-C"]').trigger('click')
+      await wrapper.find('[data-test="preview-cell-B2"]').trigger('click')
+      await flushPromises()
+      expect((wrapper.find('[data-test="row-col-input-0"]').element as HTMLInputElement).value).toBe('B')
+      expect((wrapper.find('[data-test="static-cell-input-0"]').element as HTMLInputElement).value).toBe('B2')
+
+      // 2. Row selection mode: clicking body cell does NOT modify Row mapping
+      await wrapper.find('[data-test="select-from-preview-btn-0"]').trigger('click')
+      await wrapper.find('[data-test="preview-cell-C2"]').trigger('click')
+      await flushPromises()
+      expect((wrapper.find('[data-test="row-col-input-0"]').element as HTMLInputElement).value).toBe('B') // unchanged
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true) // still in row selection
+
+      // 3. Static selection mode: clicking column header does NOT modify Static mapping
+      await wrapper.find('[data-test="select-static-from-preview-btn-0"]').trigger('click')
+      await wrapper.find('[data-test="preview-column-header-D"]').trigger('click')
+      await flushPromises()
+      expect((wrapper.find('[data-test="static-cell-input-0"]').element as HTMLInputElement).value).toBe('B2') // unchanged
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true) // still in static selection
+    })
+
+    it('highlights static target cell on focus without entering selection mode', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const staticInput0 = wrapper.find('[data-test="static-cell-input-0"]')
+      await staticInput0.trigger('focus')
+      await flushPromises()
+
+      // Target cell B2 is highlighted in preview
+      const cellB2 = wrapper.find('[data-test="preview-cell-B2"]')
+      expect(cellB2.classes()).toContain('border-accent')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('cleans up active selection and focus index when deleting a static mapping', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Activate static mapping 1 and delete it
+      await wrapper.find('[data-test="select-static-from-preview-btn-1"]').trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+
+      const deleteButtons = wrapper.findAll('button').filter((b) => b.text() === '刪除')
+      // Delete static mapping 1 (the second static mapping)
+      const deleteStatic1 = deleteButtons[deleteButtons.length - 1]
+      await deleteStatic1.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+    })
+
+    it('displays non-blocking consistency warning for formula vs ordinary, merged vs ordinary, and allows saving payload with existing targetCell', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+      vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplateWithStatic)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Static warnings banner is rendered
+      const staticWarningBanner = wrapper.find('[data-test="static-consistency-warning"]')
+      expect(staticWarningBanner.exists()).toBe(true)
+
+      // Warning 1: B2 is ordinary in 8月, formula in 9月
+      expect(staticWarningBanner.text()).toContain('目標儲存格 B2')
+      expect(staticWarningBanner.text()).toContain('8月: 「一般儲存格」')
+      expect(staticWarningBanner.text()).toContain('9月: 「公式」')
+
+      // Warning 2: B3 is merged in 8月, ordinary in 9月
+      expect(staticWarningBanner.text()).toContain('目標儲存格 B3')
+      expect(staticWarningBanner.text()).toContain('8月: 「合併儲存格」')
+      expect(staticWarningBanner.text()).toContain('9月: 「一般儲存格」')
+
+      // Save mapping works normally (non-blocking) and payload only contains targetCell
+      await wrapper.find('[data-test="mapping-form"]').trigger('submit')
+      await flushPromises()
+
+      expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith({
+        userId: 'user-1',
+        templateId: 'tpl-1',
+        name: '公司出勤表範本',
+        monthWorksheetMapping: { '2026-08': '8月', '2026-09': '9月' },
+        rowMapping: [
+          { sourceField: 'date', targetColumn: 'B', transforms: undefined },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C', transforms: undefined },
+        ],
+        staticCellMapping: [
+          { sourceField: 'year_month', targetCell: 'B2', transforms: undefined },
+          { sourceField: 'project_identifier', targetCell: 'B3', transforms: undefined },
+        ],
+      })
+    })
+
+    it('runs static consistency check even when no Header Reference Range is configured', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplateWithStatic)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Header consistency warning does NOT exist (no header range set)
+      expect(wrapper.find('[data-test="header-consistency-warning"]').exists()).toBe(false)
+
+      // Static consistency warning DOES exist
+      expect(wrapper.find('[data-test="static-consistency-warning"]').exists()).toBe(true)
+    })
+  })
 })

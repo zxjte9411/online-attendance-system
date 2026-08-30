@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkHeaderConsistency,
+  checkStaticCellConsistency,
   clearSelectionTarget,
   deriveColumnHeaderLabels,
   formatColumnPickerLabel,
+  getStaticCellStructure,
   isSameSelectionTarget,
   isValidHeaderRange,
+  parseA1Address,
   toggleSelectionTarget,
   type HeaderReferenceRange,
   type PreviewSelectionTarget,
@@ -14,26 +17,38 @@ import type { WorkbookWorksheetPreview } from '../../lib/export-templates'
 
 describe('header-reference', () => {
   describe('PreviewSelectionTarget helpers', () => {
-    it('isSameSelectionTarget compares targets correctly', () => {
+    it('isSameSelectionTarget compares row and static targets correctly', () => {
       expect(isSameSelectionTarget(null, null)).toBe(true)
       expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, { kind: 'row_mapping', index: 0 })).toBe(true)
       expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, { kind: 'row_mapping', index: 1 })).toBe(false)
+      expect(isSameSelectionTarget({ kind: 'static_mapping', index: 0 }, { kind: 'static_mapping', index: 0 })).toBe(true)
+      expect(isSameSelectionTarget({ kind: 'static_mapping', index: 0 }, { kind: 'static_mapping', index: 1 })).toBe(false)
+      expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, { kind: 'static_mapping', index: 0 })).toBe(false)
       expect(isSameSelectionTarget({ kind: 'row_mapping', index: 0 }, null)).toBe(false)
-      expect(isSameSelectionTarget(null, { kind: 'row_mapping', index: 0 })).toBe(false)
+      expect(isSameSelectionTarget(null, { kind: 'static_mapping', index: 0 })).toBe(false)
     })
 
     it('toggleSelectionTarget activates target, cancels same target, and switches target', () => {
-      const target0: NonNullable<PreviewSelectionTarget> = { kind: 'row_mapping', index: 0 }
-      const target1: NonNullable<PreviewSelectionTarget> = { kind: 'row_mapping', index: 1 }
+      const rowTarget0: NonNullable<PreviewSelectionTarget> = { kind: 'row_mapping', index: 0 }
+      const rowTarget1: NonNullable<PreviewSelectionTarget> = { kind: 'row_mapping', index: 1 }
+      const staticTarget0: NonNullable<PreviewSelectionTarget> = { kind: 'static_mapping', index: 0 }
 
       // 1. Activate from null
-      expect(toggleSelectionTarget(null, target0)).toEqual(target0)
+      expect(toggleSelectionTarget(null, rowTarget0)).toEqual(rowTarget0)
+      expect(toggleSelectionTarget(null, staticTarget0)).toEqual(staticTarget0)
 
       // 2. Toggle off when activating same target
-      expect(toggleSelectionTarget(target0, target0)).toBeNull()
+      expect(toggleSelectionTarget(rowTarget0, rowTarget0)).toBeNull()
+      expect(toggleSelectionTarget(staticTarget0, staticTarget0)).toBeNull()
 
-      // 3. Switch target: activating target1 while target0 is active switches to target1
-      expect(toggleSelectionTarget(target0, target1)).toEqual(target1)
+      // 3. Switch target: row to row
+      expect(toggleSelectionTarget(rowTarget0, rowTarget1)).toEqual(rowTarget1)
+
+      // 4. Switch target: row to static
+      expect(toggleSelectionTarget(rowTarget0, staticTarget0)).toEqual(staticTarget0)
+
+      // 5. Switch target: static to row
+      expect(toggleSelectionTarget(staticTarget0, rowTarget0)).toEqual(rowTarget0)
     })
 
     it('clearSelectionTarget returns null', () => {
@@ -268,4 +283,239 @@ describe('header-reference', () => {
       expect(warnings).toHaveLength(0)
     })
   })
+
+  describe('parseA1Address', () => {
+    it('parses valid single and multi-letter A1 addresses', () => {
+      expect(parseA1Address('A1')).toEqual({ column: 'A', rowNumber: 1 })
+      expect(parseA1Address('b2')).toEqual({ column: 'B', rowNumber: 2 })
+      expect(parseA1Address('  AA10  ')).toEqual({ column: 'AA', rowNumber: 10 })
+      expect(parseA1Address('XFD1048576')).toEqual({ column: 'XFD', rowNumber: 1048576 })
+    })
+
+    it('returns null for invalid cell addresses', () => {
+      expect(parseA1Address('')).toBeNull()
+      expect(parseA1Address('A')).toBeNull()
+      expect(parseA1Address('1')).toBeNull()
+      expect(parseA1Address('A0')).toBeNull()
+      expect(parseA1Address('A-1')).toBeNull()
+      expect(parseA1Address('1A')).toBeNull()
+      expect(parseA1Address('A1B2')).toBeNull()
+    })
+  })
+
+  describe('getStaticCellStructure', () => {
+    const ws: WorkbookWorksheetPreview = {
+      name: 'Sheet1',
+      isHidden: false,
+      isProtected: false,
+      hasImages: false,
+      columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+      rows: [
+        {
+          rowNumber: 1,
+          isHidden: false,
+          cells: [
+            { column: 'A', rowNumber: 1, text: '2026-08', structureType: 'ordinary' },
+            { column: 'B', rowNumber: 1, text: 'ƒ =SUM(A1)', structureType: 'formula' },
+          ],
+        },
+        {
+          rowNumber: 2,
+          isHidden: false,
+          cells: [
+            { column: 'A', rowNumber: 2, text: '↖ merged A2:B2', structureType: 'merged' },
+          ],
+        },
+      ],
+    }
+
+    it('returns structureType of existing cell in preview', () => {
+      expect(getStaticCellStructure(ws, 'A1')).toBe('ordinary')
+      expect(getStaticCellStructure(ws, 'B1')).toBe('formula')
+      expect(getStaticCellStructure(ws, 'A2')).toBe('merged')
+    })
+
+    it('returns ordinary for empty cell within row and column bounds', () => {
+      // B2 is within column A..B and row 1..2, but not explicitly in row.cells
+      expect(getStaticCellStructure(ws, 'B2')).toBe('ordinary')
+    })
+
+    it('returns null when target cell is outside preview bounds or invalid', () => {
+      expect(getStaticCellStructure(ws, 'Z1')).toBeNull() // Column out of bounds
+      expect(getStaticCellStructure(ws, 'A100')).toBeNull() // Row out of bounds
+      expect(getStaticCellStructure(ws, 'INVALID')).toBeNull()
+      expect(getStaticCellStructure(null, 'A1')).toBeNull()
+    })
+  })
+
+  describe('checkStaticCellConsistency', () => {
+    const sheetOrdinary: WorkbookWorksheetPreview = {
+      name: 'SheetOrd',
+      isHidden: false,
+      isProtected: false,
+      hasImages: false,
+      columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+      rows: [
+        {
+          rowNumber: 2,
+          isHidden: false,
+          cells: [{ column: 'B', rowNumber: 2, text: '2026-08', structureType: 'ordinary' }],
+        },
+      ],
+    }
+
+    const sheetFormula1: WorkbookWorksheetPreview = {
+      name: 'SheetForm1',
+      isHidden: false,
+      isProtected: false,
+      hasImages: false,
+      columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+      rows: [
+        {
+          rowNumber: 2,
+          isHidden: false,
+          cells: [{ column: 'B', rowNumber: 2, text: 'ƒ =A1+1', structureType: 'formula' }],
+        },
+      ],
+    }
+
+    const sheetFormula2: WorkbookWorksheetPreview = {
+      name: 'SheetForm2',
+      isHidden: false,
+      isProtected: false,
+      hasImages: false,
+      columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+      rows: [
+        {
+          rowNumber: 2,
+          isHidden: false,
+          cells: [{ column: 'B', rowNumber: 2, text: 'ƒ =SUM(C1:C10)', structureType: 'formula' }],
+        },
+      ],
+    }
+
+    const sheetMerged: WorkbookWorksheetPreview = {
+      name: 'SheetMerge',
+      isHidden: false,
+      isProtected: false,
+      hasImages: false,
+      columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+      rows: [
+        {
+          rowNumber: 2,
+          isHidden: false,
+          cells: [{ column: 'B', rowNumber: 2, text: '↖ merged B2:C2', structureType: 'merged' }],
+        },
+      ],
+    }
+
+    const sheetOrdinaryDifferentText: WorkbookWorksheetPreview = {
+      name: 'SheetOrdDiff',
+      isHidden: false,
+      isProtected: false,
+      hasImages: false,
+      columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+      rows: [
+        {
+          rowNumber: 2,
+          isHidden: false,
+          cells: [{ column: 'B', rowNumber: 2, text: '2026-09 (Different Month)', structureType: 'ordinary' }],
+        },
+      ],
+    }
+
+    it('returns empty array when only 1 unique worksheet is mapped', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetOrd' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetOrdinary, sheetFormula1],
+      })
+      expect(warnings).toHaveLength(0)
+    })
+
+    it('returns warning when formula vs ordinary cell structure mismatch occurs', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetForm1' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetOrdinary, sheetFormula1],
+      })
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0].cell).toBe('B2')
+      expect(warnings[0].sourceField).toBe('year_month')
+      expect(warnings[0].sheetStructures).toEqual([
+        { sheetName: 'SheetOrd', structureType: 'ordinary' },
+        { sheetName: 'SheetForm1', structureType: 'formula' },
+      ])
+    })
+
+    it('returns warning when merged vs ordinary cell structure mismatch occurs', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetMerge' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetOrdinary, sheetMerged],
+      })
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0].cell).toBe('B2')
+      expect(warnings[0].sheetStructures).toEqual([
+        { sheetName: 'SheetOrd', structureType: 'ordinary' },
+        { sheetName: 'SheetMerge', structureType: 'merged' },
+      ])
+    })
+
+    it('does NOT warn when comparing formula vs formula even if formula content/result differs', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetForm1', '2026-09': 'SheetForm2' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetFormula1, sheetFormula2],
+      })
+      expect(warnings).toHaveLength(0)
+    })
+
+    it('does NOT warn when comparing ordinary cells with different text values', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetOrdDiff' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetOrdinary, sheetOrdinaryDifferentText],
+      })
+      expect(warnings).toHaveLength(0)
+    })
+
+    it('runs comparison without requiring any Header Reference Range', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetForm1' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetOrdinary, sheetFormula1],
+      })
+      expect(warnings).toHaveLength(1)
+    })
+
+    it('does not warn when target cell is outside preview bounds for one sheet (insufficient data)', () => {
+      const smallSheet: WorkbookWorksheetPreview = {
+        name: 'SmallSheet',
+        isHidden: false,
+        isProtected: false,
+        hasImages: false,
+        columns: [{ column: 'A', isHidden: false }],
+        rows: [{ rowNumber: 1, isHidden: false, cells: [] }],
+      }
+
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SmallSheet' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }], // B2 not in SmallSheet
+        worksheetPreviews: [sheetOrdinary, smallSheet],
+      })
+      expect(warnings).toHaveLength(0)
+    })
+
+    it('ignores worksheets not referenced in month_worksheet_mapping', () => {
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetOrdDiff' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        // SheetForm1 is in workbook, but not referenced in month mapping
+        worksheetPreviews: [sheetOrdinary, sheetOrdinaryDifferentText, sheetFormula1],
+      })
+      expect(warnings).toHaveLength(0)
+    })
+  })
 })
+

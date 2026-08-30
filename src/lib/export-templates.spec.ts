@@ -283,38 +283,38 @@ describe('Lib: Export Templates Service', () => {
     expect(visible.rows).toHaveLength(200)
     expect(visible.rows.find((row) => row.rowNumber === 2)).toMatchObject({ isHidden: true })
     expect(visible.rows[0].cells).toContainEqual(
-      expect.objectContaining({ column: 'B', text: 'hidden column' })
+      expect.objectContaining({ column: 'B', text: 'hidden column', structureType: 'ordinary' })
     )
 
     const formulaRow = visible.rows.find((row) => row.rowNumber === 3)
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'A', text: 'ƒ 2' })
+      expect.objectContaining({ column: 'A', text: 'ƒ 2', structureType: 'formula' })
     )
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'C', text: 'ƒ =SUM(A1:A2)' })
+      expect.objectContaining({ column: 'C', text: 'ƒ =SUM(A1:A2)', structureType: 'formula' })
     )
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'D', text: 'ƒ #REF!' })
+      expect.objectContaining({ column: 'D', text: 'ƒ #REF!', structureType: 'formula' })
     )
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'E', text: 'ƒ #DIV/0!' })
+      expect.objectContaining({ column: 'E', text: 'ƒ #DIV/0!', structureType: 'formula' })
     )
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'F', text: 'ƒ cached text' })
+      expect.objectContaining({ column: 'F', text: 'ƒ cached text', structureType: 'formula' })
     )
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'G', text: 'ƒ true' })
+      expect.objectContaining({ column: 'G', text: 'ƒ true', structureType: 'formula' })
     )
     expect(formulaRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'H', text: 'ƒ 2026/08/03' })
+      expect.objectContaining({ column: 'H', text: 'ƒ 2026/08/03', structureType: 'formula' })
     )
 
     const mergedRow = visible.rows.find((row) => row.rowNumber === 4)
     expect(mergedRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'A', text: 'Merged owner', headerText: 'Merged owner' })
+      expect.objectContaining({ column: 'A', text: 'Merged owner', headerText: 'Merged owner', structureType: 'merged' })
     )
     expect(mergedRow?.cells).toContainEqual(
-      expect.objectContaining({ column: 'B', text: '↖ merged A4:H4', headerText: 'Merged owner' })
+      expect.objectContaining({ column: 'B', text: '↖ merged A4:H4', headerText: 'Merged owner', structureType: 'merged' })
     )
     expect(mergedRow?.cells.map((cell) => cell.column)).toEqual([
       'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
