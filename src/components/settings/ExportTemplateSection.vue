@@ -8,8 +8,11 @@ import {
   deleteExportTemplate,
   downloadExportTemplateFile,
   getWorkbookWorksheetNames,
+  getWorkbookPreview,
   validateXlsxFileInput,
   type ExportTemplate,
+  type WorkbookPreviewRow,
+  type WorkbookWorksheetPreview,
 } from '../../lib/export-templates'
 import {
   REPORT_MODEL_SOURCE_FIELDS,
@@ -116,10 +119,33 @@ const editingName = ref('')
 const monthMappings = ref<Array<{ month: string; worksheet: string }>>([])
 const rowMappings = ref<RowMappingUiItem[]>([])
 const staticMappings = ref<StaticMappingUiItem[]>([])
+const previewWorksheets = ref<WorkbookWorksheetPreview[]>([])
+const selectedPreviewWorksheetName = ref('')
+const previewVisibleRowCount = ref(20)
+const previewError = ref('')
+const hasManualPreviewSelection = ref(false)
+
+const selectedPreviewWorksheet = computed(() =>
+  previewWorksheets.value.find((worksheet) => worksheet.name === selectedPreviewWorksheetName.value)
+)
+
+const visiblePreviewColumns = computed(() =>
+  selectedPreviewWorksheet.value?.columns.slice(0, 50) || []
+)
+
+const visiblePreviewRows = computed(() =>
+  selectedPreviewWorksheet.value?.rows.slice(0, previewVisibleRowCount.value) || []
+)
+
+function resetPreviewSelection() {
+  hasManualPreviewSelection.value = false
+  selectedPreviewWorksheetName.value = ''
+}
 
 watch(
   () => [props.userId, props.contextId],
   () => {
+    resetPreviewSelection()
     loadTemplate()
   }
 )
@@ -155,6 +181,7 @@ function parseValueMapOptions(
 async function loadTemplate() {
   if (!props.userId || !props.contextId) {
     template.value = null
+    resetPreviewSelection()
     isLoading.value = false
     return
   }
@@ -162,9 +189,16 @@ async function loadTemplate() {
   isLoading.value = true
   errorMessage.value = ''
   successMessage.value = ''
+  previewError.value = ''
+  previewWorksheets.value = []
+  previewVisibleRowCount.value = 20
 
   try {
+    const previousTemplateId = template.value?.id || null
     const loaded = await getExportTemplate(props.userId, props.contextId)
+    if (previousTemplateId !== (loaded?.id || null)) {
+      resetPreviewSelection()
+    }
     template.value = loaded
 
     if (loaded) {
@@ -197,23 +231,64 @@ async function loadTemplate() {
         }
       })
 
-      // Download file to inspect available worksheets
+      // Download once for both the existing worksheet list and the preview.
+      availableWorksheets.value = []
+      let fileBuffer: ArrayBuffer | undefined
       try {
-        const fileBuffer = await downloadExportTemplateFile(loaded.storage_path)
-        availableWorksheets.value = await getWorkbookWorksheetNames(fileBuffer)
-      } catch {
-        availableWorksheets.value = []
+        fileBuffer = await downloadExportTemplateFile(loaded.storage_path)
+      } catch (err) {
+        previewError.value = err instanceof Error ? err.message : '下載範本預覽檔案失敗。'
+      }
+
+      if (fileBuffer) {
+        try {
+          availableWorksheets.value = await getWorkbookWorksheetNames(fileBuffer)
+        } catch {
+          availableWorksheets.value = []
+        }
+
+        try {
+          const preview = await getWorkbookPreview(fileBuffer)
+          previewWorksheets.value = [...preview.worksheets]
+          previewVisibleRowCount.value = 20
+
+          const worksheetNames = new Set(previewWorksheets.value.map((worksheet) => worksheet.name))
+          if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
+            selectedPreviewWorksheetName.value =
+              monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
+              previewWorksheets.value[0]?.name ||
+              ''
+          }
+        } catch (err) {
+          previewWorksheets.value = []
+          previewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
+        }
       }
     } else {
       uploadName.value = `${props.contextName} 出勤範本`
       uploadFile.value = null
       availableWorksheets.value = []
+      previewWorksheets.value = []
+      resetPreviewSelection()
     }
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '載入範本資料失敗。'
   } finally {
     isLoading.value = false
   }
+}
+
+function handlePreviewWorksheetChange() {
+  hasManualPreviewSelection.value = true
+  previewVisibleRowCount.value = 20
+}
+
+function loadMorePreviewRows() {
+  previewVisibleRowCount.value = Math.min(previewVisibleRowCount.value + 20, 200)
+}
+
+function getPreviewCellValue(row: WorkbookPreviewRow, column: string): string {
+  return row.cells.find((cell) => cell.column === column)?.text || ''
 }
 
 function handleUploadFileChange(event: Event) {
@@ -336,6 +411,9 @@ async function handleDelete() {
     await deleteExportTemplate(props.userId, template.value)
     template.value = null
     availableWorksheets.value = []
+    previewWorksheets.value = []
+    resetPreviewSelection()
+    previewVisibleRowCount.value = 20
     successMessage.value = '範本已成功刪除。'
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '刪除範本失敗。'
@@ -659,6 +737,91 @@ async function handleSaveMapping() {
           </div>
         </form>
       </div>
+
+      <!-- Read-only workbook preview -->
+      <section class="grid min-w-0 gap-3 border-t border-line pt-5">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h4 class="font-semibold text-base">工作表預覽</h4>
+            <p class="text-xs text-muted">唯讀檢視範本內容；不會修改或影響下方的對應設定。</p>
+          </div>
+
+          <div v-if="previewWorksheets.length" class="grid min-w-[12rem] gap-1">
+            <label for="preview-worksheet-select" class="text-xs font-semibold text-muted">預覽工作表</label>
+            <select
+              id="preview-worksheet-select"
+              data-test="preview-worksheet-select"
+              v-model="selectedPreviewWorksheetName"
+              class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              @change="handlePreviewWorksheetChange"
+            >
+              <option v-for="worksheet in previewWorksheets" :key="worksheet.name" :value="worksheet.name">
+                {{ worksheet.name }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <p
+          v-if="previewError"
+          data-test="preview-error"
+          class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
+          role="alert"
+        >
+          預覽無法載入：{{ previewError }}
+        </p>
+
+        <template v-else-if="selectedPreviewWorksheet">
+          <div class="min-w-0 overflow-x-auto rounded-[0.625rem] border border-line">
+            <table class="min-w-max border-collapse text-left text-xs text-ink">
+              <caption class="border-b border-line bg-surface-soft px-3 py-2 text-left font-semibold">
+                工作表「{{ selectedPreviewWorksheet.name }}」內容預覽
+              </caption>
+              <thead class="bg-surface-soft">
+                <tr>
+                  <th scope="col" class="sticky left-0 border-r border-line px-3 py-2 font-semibold">列</th>
+                  <th
+                    v-for="column in visiblePreviewColumns"
+                    :key="column"
+                    scope="col"
+                    class="border-b border-line px-3 py-2 font-mono font-semibold"
+                  >
+                    {{ column }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in visiblePreviewRows" :key="row.rowNumber" class="border-t border-line">
+                  <th scope="row" class="sticky left-0 border-r border-line bg-surface-soft px-3 py-2 font-mono font-semibold">
+                    {{ row.rowNumber }}
+                  </th>
+                  <td v-for="(_, columnIndex) in visiblePreviewColumns" :key="columnIndex" class="px-3 py-2 align-top">
+                    <span
+                      :title="getPreviewCellValue(row, visiblePreviewColumns[columnIndex])"
+                      tabindex="0"
+                      class="block max-w-[14rem] truncate rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      {{ getPreviewCellValue(row, visiblePreviewColumns[columnIndex]) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <button
+            v-if="selectedPreviewWorksheet.rows.length > visiblePreviewRows.length && visiblePreviewRows.length < 200"
+            type="button"
+            data-test="preview-load-more"
+            class="min-h-10 justify-self-start rounded-[0.5rem] border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:border-accent hover:text-accent focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            @click="loadMorePreviewRows"
+          >
+            載入更多列（每次 20 列）
+          </button>
+        </template>
+
+        <p v-else class="text-xs text-muted">目前沒有可顯示的工作表預覽。</p>
+      </section>
 
       <!-- Mapping Form -->
       <form data-test="mapping-form" class="grid gap-8" @submit.prevent="handleSaveMapping">

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ExcelJS from 'exceljs'
+import { readFile } from 'node:fs/promises'
 import {
   getExportTemplate,
   uploadExportTemplate,
@@ -8,10 +9,16 @@ import {
   deleteExportTemplate,
   downloadExportTemplateFile,
   getWorkbookWorksheetNames,
+  getWorkbookPreview,
   validateXlsxFileInput,
   type ExportTemplate,
 } from './export-templates'
 import * as supabaseModule from './supabase'
+
+const syntheticFixturePath = new URL(
+  '../test/fixtures/issue34_synthetic_timesheet_fixture.xlsx',
+  import.meta.url
+)
 
 const mockSupabase = {
   from: vi.fn(),
@@ -107,6 +114,102 @@ describe('Lib: Export Templates Service', () => {
     const buffer = await createDummyXlsxBuffer(['10月', '11月', '12月'])
     const sheetNames = await getWorkbookWorksheetNames(buffer)
     expect(sheetNames).toEqual(['10月', '11月', '12月'])
+  })
+
+  it('previews the high-fidelity multi-month fixture within used-range caps', async () => {
+    const bytes = new Uint8Array(await readFile(syntheticFixturePath))
+    const preview = await getWorkbookPreview(bytes)
+
+    expect(preview.worksheets).toHaveLength(13)
+    expect(preview.worksheets.map((worksheet) => worksheet.name)).toContain('Aug')
+    expect(preview.worksheets.map((worksheet) => worksheet.name)).not.toContain('_HiddenLookup')
+
+    const august = preview.worksheets.find((worksheet) => worksheet.name === 'Aug')
+    expect(august).toBeDefined()
+    if (!august) throw new Error('Aug worksheet missing from fixture preview')
+
+    expect(august.columns).toHaveLength(11)
+    expect(august.columns.at(-1)).toBe('K')
+    expect(august.rows).toHaveLength(200)
+    expect(august.rows[2]).toEqual({ rowNumber: 3, cells: [] })
+    expect(august.rows[3].cells).toContainEqual({
+      column: 'I',
+      rowNumber: 4,
+      text: '說明\n(工作內容、請假、其他)',
+    })
+    expect(august.rows[7].cells).toContainEqual(
+      expect.objectContaining({ column: 'A', rowNumber: 8, text: expect.any(String) })
+    )
+    expect(august.rows[7].cells).toContainEqual(
+      expect.objectContaining({ column: 'C', rowNumber: 8, text: expect.any(String) })
+    )
+    expect(august.rows[37].cells).toContainEqual({
+      column: 'A',
+      rowNumber: 38,
+      text: '備註：本檔為去識別化 synthetic fixture，所有資料皆為虛構。',
+    })
+    expect(august.rows[199].cells).toEqual([])
+  })
+
+  it('keeps empty row positions in the first 200 worksheet rows', async () => {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('出勤資料')
+    worksheet.getCell('A1').value = '標題'
+    worksheet.getCell('B3').value = '第三列資料'
+    worksheet.getCell('C205').value = '超出預覽範圍'
+    const bytes = new Uint8Array(await workbook.xlsx.writeBuffer())
+
+    const preview = await getWorkbookPreview(bytes)
+    const rows = preview.worksheets[0].rows
+
+    expect(preview.worksheets[0].columns).toEqual(['A', 'B', 'C', 'D'])
+    expect(rows).toHaveLength(200)
+    expect(rows[0].rowNumber).toBe(1)
+    expect(rows[1]).toEqual({ rowNumber: 2, cells: [] })
+    expect(rows[2].rowNumber).toBe(3)
+    expect(rows[199].rowNumber).toBe(200)
+    expect(rows[199].cells).toEqual([])
+  })
+
+  it('formats common Excel date and time number formats for preview', async () => {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('日期時間')
+    worksheet.getCell('A1').value = new Date('2026-08-03T00:00:00.000Z')
+    worksheet.getCell('A1').numFmt = 'yyyy/mm/dd'
+    worksheet.getCell('B1').value = new Date('1899-12-30T08:30:00.000Z')
+    worksheet.getCell('B1').numFmt = 'hh:mm'
+    worksheet.getCell('C1').value = new Date('2026-08-03T00:00:00.000Z')
+    worksheet.getCell('C1').numFmt = 'm/d/yy'
+    worksheet.getCell('D1').value = new Date('2026-08-03T00:00:00.000Z')
+    worksheet.getCell('D1').numFmt = 'm/d'
+    worksheet.getCell('E1').value = new Date('1899-12-30T08:30:00.000Z')
+    worksheet.getCell('E1').numFmt = 'h:mm AM/PM'
+    const bytes = new Uint8Array(await workbook.xlsx.writeBuffer())
+
+    const preview = await getWorkbookPreview(bytes)
+    const cells = preview.worksheets[0].rows[0].cells
+
+    expect(cells.find((cell) => cell.column === 'A')?.text).toBe('2026/08/03')
+    expect(cells.find((cell) => cell.column === 'B')?.text).toBe('08:30')
+    expect(cells.find((cell) => cell.column === 'C')?.text).toBe('8/3/26')
+    expect(cells.find((cell) => cell.column === 'D')?.text).toBe('8/3')
+    expect(cells.find((cell) => cell.column === 'E')?.text).toBe('8:30 AM')
+  })
+
+  it.each([
+    ['ArrayBuffer', async (bytes: Uint8Array) => bytes.slice().buffer as ArrayBuffer],
+    ['Blob', async (bytes: Uint8Array) => new Blob([bytes.slice().buffer as ArrayBuffer])],
+  ])('accepts %s workbook input', async (_label, toInput) => {
+    const bytes = await createDummyXlsxBuffer(['8月'])
+    const preview = await getWorkbookPreview(await toInput(bytes))
+
+    expect(preview.worksheets).toHaveLength(1)
+  })
+
+  it('uses the established parse error for invalid workbook input', async () => {
+    await expect(getWorkbookPreview(new Uint8Array([1, 2, 3]))).rejects.toThrow(
+      '無法解析範本檔案，請確認上傳的為有效 .xlsx 活頁簿。'
+    )
   })
 
   it('uploadExportTemplate validates file, uploads to Storage, and inserts DB metadata', async () => {

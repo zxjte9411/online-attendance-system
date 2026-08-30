@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ExportTemplateSection from './ExportTemplateSection.vue'
 import * as exportTemplatesApi from '../../lib/export-templates'
+import type { WorkbookPreview } from '../../lib/export-templates'
 
 vi.mock('../../lib/export-templates', () => ({
   getExportTemplate: vi.fn(),
@@ -13,12 +14,47 @@ vi.mock('../../lib/export-templates', () => ({
   deleteExportTemplate: vi.fn(),
   downloadExportTemplateFile: vi.fn(),
   getWorkbookWorksheetNames: vi.fn(),
+  getWorkbookPreview: vi.fn(),
   validateXlsxFileInput: vi.fn(),
 }))
+
+function makePreviewResult(rowCount = 45): WorkbookPreview {
+  const rows = Array.from({ length: rowCount }, (_, index) => ({
+    rowNumber: index + 1,
+    cells: [
+      { column: 'A', rowNumber: index + 1, text: `2026-08-${String(index + 1).padStart(2, '0')}` },
+      { column: 'B', rowNumber: index + 1, text: `出勤資料 ${index + 1}` },
+    ],
+  }))
+
+  return {
+    worksheets: [
+      {
+        name: '8月',
+        columns: ['A', 'B'],
+        rows,
+      },
+      {
+        name: '9月',
+        columns: ['A', 'B'],
+        rows: [
+          {
+            rowNumber: 1,
+            cells: [
+              { column: 'A', rowNumber: 1, text: '2026-09-01' },
+              { column: 'B', rowNumber: 1, text: '九月資料' },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+}
 
 describe('Component: ExportTemplateSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue({ worksheets: [] })
   })
 
   it('renders upload CTA when no template exists for the context', async () => {
@@ -56,7 +92,6 @@ describe('Component: ExportTemplateSection', () => {
       created_at: '2026-08-01T00:00:00Z',
       updated_at: '2026-08-01T00:00:00Z',
     }
-
     vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
     vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
     vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
@@ -76,6 +111,151 @@ describe('Component: ExportTemplateSection', () => {
     expect(wrapper.text()).toContain('月份工作表對應')
     expect(wrapper.text()).toContain('每日列欄位對應（Row Mapping）')
     expect(wrapper.text()).toContain('靜態儲存格對應（Static Cell Mapping）')
+  })
+
+  it('selects the mapped worksheet, loads more rows, and keeps a manual selection', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+    const nextTemplate: exportTemplatesApi.ExportTemplate = {
+      ...mockTemplate,
+      id: 'tpl-2',
+      context_id: 'ctx-2',
+      month_worksheet_mapping: { '2026-09': '8月' },
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockImplementation(async (_userId, contextId) =>
+      contextId === 'ctx-2' ? nextTemplate : mockTemplate
+    )
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+    })
+
+    await flushPromises()
+
+    const worksheetSelect = wrapper.find('[data-test="preview-worksheet-select"]')
+    expect((worksheetSelect.element as HTMLSelectElement).value).toBe('8月')
+    expect(wrapper.find('caption').text()).toContain('8月')
+    expect(wrapper.findAll('th[scope="col"]').map((header) => header.text())).toContain('A')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(20)
+
+    await worksheetSelect.setValue('9月')
+    expect((worksheetSelect.element as HTMLSelectElement).value).toBe('9月')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+
+    await wrapper.find('#template-name-input').setValue('更新後的名稱')
+    expect((worksheetSelect.element as HTMLSelectElement).value).toBe('9月')
+
+    await wrapper.setProps({ contextId: 'ctx-2' })
+    await flushPromises()
+    expect(
+      (wrapper.find('[data-test="preview-worksheet-select"]').element as HTMLSelectElement).value
+    ).toBe('8月')
+
+    await wrapper.find('[data-test="preview-worksheet-select"]').setValue('8月')
+    await wrapper.find('[data-test="preview-load-more"]').trigger('click')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(40)
+  })
+
+  it('leaves omitted sparse columns blank instead of shifting later cell values left', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue({
+      worksheets: [
+        {
+          name: '8月',
+          columns: ['A', 'B', 'C', 'D', 'G', 'H'],
+          rows: [
+            {
+              rowNumber: 1,
+              cells: [
+                { column: 'A', rowNumber: 1, text: 'A 值' },
+                { column: 'G', rowNumber: 1, text: 'G 值' },
+                { column: 'H', rowNumber: 1, text: 'H 值' },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody tr')[0].findAll('td').map((cell) => cell.text())).toEqual([
+      'A 值',
+      '',
+      '',
+      '',
+      'G 值',
+      'H 值',
+    ])
+  })
+
+  it('keeps mapping editing and save available when preview parsing fails', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockRejectedValue(new Error('預覽檔案解析失敗'))
+    vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="preview-error"]').text()).toContain('預覽檔案解析失敗')
+    expect(wrapper.find('[data-test="mapping-form"]').exists()).toBe(true)
+
+    await wrapper.find('[data-test="mapping-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('範本設定已儲存。')
   })
 
   it('preserves existing multi-stage pipeline without silent truncation on save', async () => {
