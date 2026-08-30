@@ -20,10 +20,6 @@ _Avoid_: 全域 setup complete、帳號門禁
 瀏覽器仍保有登入 session，但 Auth 服務已明確不再承認該 session 對應使用者的狀態；這不是帳號未就緒，也不是 Profile 讀取失敗。登入帳號失效時應結束該登入狀態並回到登入流程；暫時性的網路或服務錯誤不得視為登入帳號失效。
 _Avoid_: Setup incomplete、Profile missing、暫時讀取失敗
 
-**帳號重置（Account Reset）**：
-目前僅指開發／管理操作中刪除 Supabase Auth user 以快速清除該使用者及其從屬資料；不是產品內的封鎖、停權或永久禁止登入功能。同一外部登入身分日後再次登入時視為全新個人帳號，重新建立 Profile 並重新進入首次設定引導。
-_Avoid_: Ban、Suspension、永久封鎖
-
 **出勤就緒（Attendance Ready）**：
 針對某一工作日期，可由該日期解析出唯一適用的工作派駐，且該日期有適用工作制度的狀態；是日期相關的能力條件，不是帳號是否可進入系統的條件。
 _Avoid_: 帳號就緒、首次設定完成
