@@ -1821,16 +1821,26 @@ describe('Component: ExportTemplateSection', () => {
       // 1. Initial preview shows 8月
       expect(wrapper.find('caption').text()).toContain('8月')
 
+      // Configure prior header range and active selection
+      await wrapper.find('#header-range-start').setValue(4)
+      await wrapper.find('#header-range-end').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      expect(wrapper.find('[data-test="current-header-range-info"]').text()).toContain('Row 4–5')
+
+      const pickBtn = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      await pickBtn.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+
       // 2. Open Replace form
       const replaceToggleBtn = wrapper.findAll('button').find((b) => b.text().includes('更換檔案'))
       await replaceToggleBtn!.trigger('click')
       await flushPromises()
 
-      // 3. Mock replacement preview with different worksheet name
-      const replacementPreview: WorkbookPreview = {
+      // 3. Mock candidate preview with candidate worksheet
+      const candidatePreview: WorkbookPreview = {
         worksheets: [
           {
-            name: '新版工作表',
+            name: '候選工作表',
             isHidden: false,
             isProtected: false,
             hasImages: false,
@@ -1839,13 +1849,13 @@ describe('Component: ExportTemplateSection', () => {
               {
                 rowNumber: 1,
                 isHidden: false,
-                cells: [{ column: 'A', rowNumber: 1, text: '新版內容' }],
+                cells: [{ column: 'A', rowNumber: 1, text: '候選檔案預覽內容' }],
               },
             ],
           },
         ],
       }
-      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(replacementPreview)
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(candidatePreview)
 
       // 4. Select replacement file
       const replaceFileInput = wrapper.find('input[type="file"]')
@@ -1854,20 +1864,51 @@ describe('Component: ExportTemplateSection', () => {
       })
       Object.defineProperty(replaceFileInput.element, 'files', {
         value: [replacementFile],
-        writable: false,
+        writable: true,
+        configurable: true,
       })
       await replaceFileInput.trigger('change')
       await flushPromises()
 
-      // Preview immediately updates to show replacement workbook
+      // Candidate preview is displayed
       expect(exportTemplatesApi.getWorkbookPreview).toHaveBeenCalledWith(replacementFile)
-      expect(wrapper.find('caption').text()).toContain('新版工作表')
-      expect(wrapper.text()).toContain('新版內容')
+      expect(wrapper.find('caption').text()).toContain('候選工作表')
+      expect(wrapper.text()).toContain('候選檔案預覽內容')
 
-      // 5. Submit replacement
+      // 5. Submit replacement and verify end-to-end reload from newly persisted workbook
+      const replacedTemplate: exportTemplatesApi.ExportTemplate = {
+        ...mockTemplate,
+        name: '已更換範本',
+        storage_path: 'user-1/ctx-1/tpl-1/new-source.xlsx',
+        month_worksheet_mapping: { '2026-08': '2026年度表' },
+      }
+      const persistedNewPreview: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '2026年度表',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [{ column: 'A', isHidden: false }],
+            rows: [
+              {
+                rowNumber: 1,
+                isHidden: false,
+                cells: [{ column: 'A', rowNumber: 1, text: '持久化新範本內容' }],
+              },
+            ],
+          },
+        ],
+      }
+
       vi.mocked(exportTemplatesApi.replaceExportTemplate).mockResolvedValue({
-        template: { ...mockTemplate, name: '已更換範本' },
+        template: replacedTemplate,
       })
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(replacedTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(16))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['2026年度表'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(persistedNewPreview)
+
       const replaceForm = wrapper.findAll('form').find((f) => f.text().includes('確認更換'))
       await replaceForm!.trigger('submit')
       await flushPromises()
@@ -1877,6 +1918,17 @@ describe('Component: ExportTemplateSection', () => {
           newFile: replacementFile,
         })
       )
+
+      // Post-success assertions:
+      // a. Candidate state is gone and replace form is closed
+      expect(wrapper.find('input[type="file"]').exists()).toBe(false)
+      // b. Old session state (header range, active selection) is reset
+      expect(wrapper.find('[data-test="current-header-range-info"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      // c. Final Preview is initialized from the newly persisted workbook
+      expect(wrapper.find('caption').text()).toContain('2026年度表')
+      expect(wrapper.text()).toContain('持久化新範本內容')
+      expect(wrapper.text()).not.toContain('候選檔案預覽內容')
     })
 
     it('restores the original saved template preview when cancelling replacement', async () => {
@@ -2029,14 +2081,19 @@ describe('Component: ExportTemplateSection', () => {
       const targetColInput = wrapper.find<HTMLInputElement>('#row-col-0')
       expect(targetColInput.element.value).toBe('A')
 
+      // 4. Pressing Escape during candidate preview must not clear committed selection
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+
       // Cancel Replace
       const cancelBtn = wrapper.findAll('button').find((b) => b.text() === '取消')
       await cancelBtn!.trigger('click')
       await flushPromises()
 
-      // Committed preview and session are preserved exactly
+      // Committed preview and session are preserved exactly (including active selection)
       expect(wrapper.find('caption').text()).toContain('8月')
       expect(wrapper.find('[data-test="current-header-range-info"]').text()).toContain('Row 4–5')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
     })
 
     it('ignores stale candidate resolution when cancel is clicked while parsing is pending', async () => {

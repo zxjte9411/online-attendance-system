@@ -516,7 +516,11 @@ function formatStructureTypeLabel(type: PreviewCellStructureType): string {
 }
 
 function handleGlobalKeyDown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && activeSelectionTarget.value !== null) {
+  if (
+    event.key === 'Escape' &&
+    !isCandidatePreviewActive.value &&
+    activeSelectionTarget.value !== null
+  ) {
     cancelSelection()
   }
 }
