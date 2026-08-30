@@ -34,11 +34,13 @@ import {
   deriveColumnHeaderLabels,
   formatColumnPickerLabel,
   checkHeaderConsistency,
+  checkStaticCellConsistency,
   isValidHeaderRange,
   toggleSelectionTarget,
   clearSelectionTarget,
   type HeaderReferenceRange,
   type PreviewSelectionTarget,
+  type PreviewCellStructureType,
 } from '../../domain/export-template/header-reference'
 
 const props = defineProps<{
@@ -190,6 +192,7 @@ const currentRangeError = ref('')
 
 const activeSelectionTarget = ref<PreviewSelectionTarget>(null)
 const focusedRowIndex = ref<number | null>(null)
+const focusedStaticIndex = ref<number | null>(null)
 
 function resetPreviewSelection() {
   hasManualPreviewSelection.value = false
@@ -200,6 +203,7 @@ function resetPreviewSelection() {
   hasAskedApplyAll.value = false
   activeSelectionTarget.value = null
   focusedRowIndex.value = null
+  focusedStaticIndex.value = null
   currentRangeStart.value = null
   currentRangeEnd.value = null
   currentRangeError.value = ''
@@ -300,6 +304,13 @@ function isRowMappingSelectionActive(index: number): boolean {
   )
 }
 
+function isStaticMappingSelectionActive(index: number): boolean {
+  return (
+    activeSelectionTarget.value?.kind === 'static_mapping' &&
+    activeSelectionTarget.value.index === index
+  )
+}
+
 function toggleRowMappingSelection(index: number) {
   activeSelectionTarget.value = toggleSelectionTarget(activeSelectionTarget.value, {
     kind: 'row_mapping',
@@ -307,6 +318,18 @@ function toggleRowMappingSelection(index: number) {
   })
   if (activeSelectionTarget.value) {
     focusedRowIndex.value = index
+    focusedStaticIndex.value = null
+  }
+}
+
+function toggleStaticMappingSelection(index: number) {
+  activeSelectionTarget.value = toggleSelectionTarget(activeSelectionTarget.value, {
+    kind: 'static_mapping',
+    index,
+  })
+  if (activeSelectionTarget.value) {
+    focusedStaticIndex.value = index
+    focusedRowIndex.value = null
   }
 }
 
@@ -320,6 +343,17 @@ function selectPreviewColumn(col: string) {
     const item = rowMappings.value[activeSelectionTarget.value.index]
     if (item) {
       item.targetColumn = col.toUpperCase()
+    }
+  }
+  activeSelectionTarget.value = clearSelectionTarget()
+}
+
+function selectPreviewCell(column: string, rowNumber: number) {
+  if (!activeSelectionTarget.value) return
+  if (activeSelectionTarget.value.kind === 'static_mapping') {
+    const item = staticMappings.value[activeSelectionTarget.value.index]
+    if (item) {
+      item.targetCell = `${column.toUpperCase()}${rowNumber}`
     }
   }
   activeSelectionTarget.value = clearSelectionTarget()
@@ -339,6 +373,12 @@ const activeSelectionFieldLabel = computed(() => {
       return FIELD_LABELS[item.sourceField] || item.sourceField
     }
   }
+  if (activeSelectionTarget.value?.kind === 'static_mapping') {
+    const item = staticMappings.value[activeSelectionTarget.value.index]
+    if (item) {
+      return STATIC_FIELD_LABELS[item.sourceField] || item.sourceField
+    }
+  }
   return ''
 })
 
@@ -352,6 +392,16 @@ const highlightedTargetColumn = computed(() => {
   return null
 })
 
+const highlightedTargetCell = computed(() => {
+  if (activeSelectionTarget.value?.kind === 'static_mapping') {
+    return staticMappings.value[activeSelectionTarget.value.index]?.targetCell?.trim().toUpperCase() || null
+  }
+  if (focusedStaticIndex.value !== null) {
+    return staticMappings.value[focusedStaticIndex.value]?.targetCell?.trim().toUpperCase() || null
+  }
+  return null
+})
+
 const headerWarnings = computed(() => {
   return checkHeaderConsistency({
     monthWorksheetMapping: monthMappings.value,
@@ -360,6 +410,20 @@ const headerWarnings = computed(() => {
     worksheetHeaderRanges: worksheetHeaderRanges.value,
   })
 })
+
+const staticWarnings = computed(() => {
+  return checkStaticCellConsistency({
+    monthWorksheetMapping: monthMappings.value,
+    staticMappings: staticMappings.value,
+    worksheetPreviews: previewWorksheets.value,
+  })
+})
+
+function formatStructureTypeLabel(type: PreviewCellStructureType): string {
+  if (type === 'formula') return '公式'
+  if (type === 'merged') return '合併儲存格'
+  return '一般儲存格'
+}
 
 function handleGlobalKeyDown(event: KeyboardEvent) {
   if (event.key === 'Escape' && activeSelectionTarget.value !== null) {
@@ -738,6 +802,21 @@ function addStaticMapping() {
 }
 
 function removeStaticMapping(index: number) {
+  if (activeSelectionTarget.value?.kind === 'static_mapping') {
+    if (activeSelectionTarget.value.index === index) {
+      activeSelectionTarget.value = null
+    } else if (activeSelectionTarget.value.index > index) {
+      activeSelectionTarget.value = {
+        kind: 'static_mapping',
+        index: activeSelectionTarget.value.index - 1,
+      }
+    }
+  }
+  if (focusedStaticIndex.value === index) {
+    focusedStaticIndex.value = null
+  } else if (focusedStaticIndex.value !== null && focusedStaticIndex.value > index) {
+    focusedStaticIndex.value -= 1
+  }
   staticMappings.value.splice(index, 1)
 }
 
@@ -1145,7 +1224,7 @@ async function handleSaveMapping() {
             class="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-accent bg-surface-soft p-3 text-xs text-ink"
           >
             <span>
-              正在為「<strong>{{ activeSelectionFieldLabel }}</strong>」選取目標欄位。請點擊下方欄位標題，或使用鍵盤 Enter / Space 完成選取。
+              正在為「<strong>{{ activeSelectionFieldLabel }}</strong>」選取目標{{ activeSelectionTarget.kind === 'row_mapping' ? '欄位' : '儲存格' }}。請點擊下方{{ activeSelectionTarget.kind === 'row_mapping' ? '欄位標題' : '儲存格' }}，或使用鍵盤 Enter / Space 完成選取。
             </span>
             <button
               type="button"
@@ -1173,14 +1252,14 @@ async function handleSaveMapping() {
                     :class="[
                       'border-b border-line px-3 py-2 font-mono font-semibold transition-colors',
                       highlightedTargetColumn === column.column ? 'bg-accent/15 border-accent text-accent' : '',
-                      activeSelectionTarget !== null ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                      activeSelectionTarget?.kind === 'row_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
                     ]"
-                    :tabindex="activeSelectionTarget !== null ? 0 : undefined"
-                    :role="activeSelectionTarget !== null ? 'button' : undefined"
-                    :aria-label="activeSelectionTarget !== null ? `選取目標欄位 ${column.column}` : undefined"
-                    @click="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
-                    @keydown.enter.prevent="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
-                    @keydown.space.prevent="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
+                    :tabindex="activeSelectionTarget?.kind === 'row_mapping' ? 0 : undefined"
+                    :role="activeSelectionTarget?.kind === 'row_mapping' ? 'button' : undefined"
+                    :aria-label="activeSelectionTarget?.kind === 'row_mapping' ? `選取目標欄位 ${column.column}` : undefined"
+                    @click="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                    @keydown.enter.prevent="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                    @keydown.space.prevent="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
                   >
                     <div class="flex flex-col">
                       <span>
@@ -1207,14 +1286,23 @@ async function handleSaveMapping() {
                   <td
                     v-for="column in visiblePreviewColumns"
                     :key="column.column"
+                    :data-test="`preview-cell-${column.column}${row.rowNumber}`"
                     :class="[
                       'px-3 py-2 align-top transition-colors',
-                      highlightedTargetColumn === column.column ? 'bg-accent/5' : ''
+                      highlightedTargetColumn === column.column ? 'bg-accent/5' : '',
+                      highlightedTargetCell === `${column.column}${row.rowNumber}` ? 'bg-accent/20 border-accent font-semibold text-accent' : '',
+                      activeSelectionTarget?.kind === 'static_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
                     ]"
+                    :tabindex="activeSelectionTarget?.kind === 'static_mapping' ? 0 : undefined"
+                    :role="activeSelectionTarget?.kind === 'static_mapping' ? 'button' : undefined"
+                    :aria-label="activeSelectionTarget?.kind === 'static_mapping' ? `選取目標儲存格 ${column.column}${row.rowNumber}` : undefined"
+                    @click="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                    @keydown.enter.prevent="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                    @keydown.space.prevent="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
                   >
                     <span
                       :title="getPreviewCellValue(row, column.column)"
-                      tabindex="0"
+                      :tabindex="activeSelectionTarget === null ? 0 : undefined"
                       class="block max-w-[14rem] truncate rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       {{ getPreviewCellValue(row, column.column) }}
@@ -1498,11 +1586,30 @@ async function handleSaveMapping() {
             </button>
           </div>
 
+          <!-- Cross-Worksheet Static Cell Consistency Warning (Non-blocking) -->
+          <div
+            v-if="staticWarnings.length"
+            data-test="static-consistency-warning"
+            class="rounded-[0.625rem] border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-3.5 text-xs text-amber-900 dark:text-amber-200"
+            role="status"
+          >
+            <div class="font-semibold mb-1">儲存格結構一致性提示（非阻擋性）：</div>
+            <ul class="list-disc list-inside space-y-0.5">
+              <li v-for="w in staticWarnings" :key="w.cell">
+                目標儲存格 <strong>{{ w.cell }}</strong>（{{ STATIC_FIELD_LABELS[w.sourceField] || w.sourceField }}）在不同月份工作表中的結構型態不同：
+                <span v-for="(sheetStruct, index) in w.sheetStructures" :key="sheetStruct.sheetName">
+                  {{ sheetStruct.sheetName }}: 「{{ formatStructureTypeLabel(sheetStruct.structureType) }}」{{ index < w.sheetStructures.length - 1 ? '、' : '' }}
+                </span>
+              </li>
+            </ul>
+          </div>
+
           <div v-if="staticMappings.length" class="grid gap-3">
             <div
               v-for="(item, idx) in staticMappings"
               :key="idx"
               class="grid gap-3 rounded-lg border border-line bg-surface p-3"
+              @click="focusedStaticIndex = idx; focusedRowIndex = null"
             >
               <div class="flex flex-wrap items-center gap-3">
                 <div class="grid gap-1 min-w-[200px] flex-1">
@@ -1511,6 +1618,7 @@ async function handleSaveMapping() {
                     :id="`static-source-${idx}`"
                     v-model="item.sourceField"
                     class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                    @focus="focusedStaticIndex = idx; focusedRowIndex = null"
                   >
                     <option v-for="f in STATIC_SOURCE_FIELDS" :key="f" :value="f">
                       {{ STATIC_FIELD_LABELS[f] || f }}
@@ -1518,17 +1626,35 @@ async function handleSaveMapping() {
                   </select>
                 </div>
 
-                <div class="grid gap-1 w-28">
+                <div class="grid gap-1 min-w-[220px]">
                   <label :for="`static-cell-${idx}`" class="text-xs font-semibold text-muted">目標儲存格 (A1)</label>
-                  <input
-                    :id="`static-cell-${idx}`"
-                    v-model="item.targetCell"
-                    type="text"
-                    placeholder="例如: B2"
-                    maxlength="6"
-                    class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink"
-                    required
-                  />
+                  <div class="flex items-center gap-1.5">
+                    <input
+                      :id="`static-cell-${idx}`"
+                      :data-test="`static-cell-input-${idx}`"
+                      v-model="item.targetCell"
+                      type="text"
+                      placeholder="例如: B2"
+                      maxlength="6"
+                      class="w-20 min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 font-mono text-xs uppercase text-ink text-center"
+                      required
+                      @focus="focusedStaticIndex = idx; focusedRowIndex = null"
+                    />
+                    <button
+                      type="button"
+                      :data-test="`select-static-from-preview-btn-${idx}`"
+                      :class="[
+                        'min-h-10 px-2.5 py-1 text-xs font-semibold rounded-[0.5rem] border transition-colors whitespace-nowrap',
+                        isStaticMappingSelectionActive(idx)
+                          ? 'bg-accent text-surface border-accent'
+                          : 'bg-surface text-ink border-line hover:border-accent'
+                      ]"
+                      :aria-pressed="isStaticMappingSelectionActive(idx)"
+                      @click="toggleStaticMappingSelection(idx)"
+                    >
+                      {{ isStaticMappingSelectionActive(idx) ? '選取中…' : '從預覽選取' }}
+                    </button>
+                  </div>
                 </div>
 
                 <div class="grid gap-1 min-w-[180px] flex-1">

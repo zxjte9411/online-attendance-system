@@ -1,13 +1,16 @@
 import type { WorkbookWorksheetPreview } from '../../lib/export-templates'
-import type { ReportModelSourceField } from './mapping-validator'
+import type { ReportModelSourceField, StaticSourceField } from './mapping-validator'
 
 export interface HeaderReferenceRange {
   startRow: number
   endRow: number
 }
 
+export type PreviewCellStructureType = 'formula' | 'merged' | 'ordinary'
+
 export type PreviewSelectionTarget =
   | { readonly kind: 'row_mapping'; readonly index: number }
+  | { readonly kind: 'static_mapping'; readonly index: number }
   | null
 
 export function isSameSelectionTarget(
@@ -16,6 +19,9 @@ export function isSameSelectionTarget(
 ): boolean {
   if (a === null || b === null) return a === b
   if (a.kind === 'row_mapping' && b.kind === 'row_mapping') {
+    return a.index === b.index
+  }
+  if (a.kind === 'static_mapping' && b.kind === 'static_mapping') {
     return a.index === b.index
   }
   return false
@@ -170,6 +176,103 @@ export function checkHeaderConsistency(params: {
           column: col,
           sourceField: mapping.sourceField,
           sheetHeaders,
+        })
+      }
+    }
+  }
+
+  return warnings
+}
+
+export function parseA1Address(address: string): { column: string; rowNumber: number } | null {
+  const match = /^([A-Za-z]+)([1-9][0-9]*)$/.exec(address.trim())
+  if (!match) return null
+  return {
+    column: match[1].toUpperCase(),
+    rowNumber: parseInt(match[2], 10),
+  }
+}
+
+export function getStaticCellStructure(
+  worksheet: WorkbookWorksheetPreview | null | undefined,
+  targetCell: string
+): PreviewCellStructureType | null {
+  if (!worksheet) return null
+  const parsed = parseA1Address(targetCell)
+  if (!parsed) return null
+  const { column, rowNumber } = parsed
+
+  const hasColumn = worksheet.columns.some((c) => c.column === column)
+  if (!hasColumn) return null
+
+  const row = worksheet.rows.find((r) => r.rowNumber === rowNumber)
+  if (!row) return null
+
+  const cell = row.cells.find((c) => c.column === column)
+  if (cell) {
+    return cell.structureType || 'ordinary'
+  }
+
+  return 'ordinary'
+}
+
+export interface StaticCellConsistencyWarning {
+  cell: string
+  sourceField: StaticSourceField
+  sheetStructures: Array<{ sheetName: string; structureType: PreviewCellStructureType }>
+}
+
+export function checkStaticCellConsistency(params: {
+  monthWorksheetMapping: Record<string, string> | Array<{ month: string; worksheet: string }>
+  staticMappings: Array<{ sourceField: StaticSourceField; targetCell: string }>
+  worksheetPreviews: readonly WorkbookWorksheetPreview[]
+}): StaticCellConsistencyWarning[] {
+  const { monthWorksheetMapping, staticMappings, worksheetPreviews } = params
+
+  const referencedSheetNames = Array.from(
+    new Set(
+      (Array.isArray(monthWorksheetMapping)
+        ? monthWorksheetMapping.map((m) => m.worksheet)
+        : Object.values(monthWorksheetMapping)
+      )
+        .map((s) => s?.trim())
+        .filter(Boolean)
+    )
+  )
+
+  if (referencedSheetNames.length <= 1) {
+    return []
+  }
+
+  const warnings: StaticCellConsistencyWarning[] = []
+
+  for (const mapping of staticMappings) {
+    const cell = mapping.targetCell?.trim().toUpperCase()
+    if (!cell) continue
+
+    const sheetStructures: Array<{ sheetName: string; structureType: PreviewCellStructureType }> = []
+
+    for (const sheetName of referencedSheetNames) {
+      const preview = worksheetPreviews.find((ws) => ws.name === sheetName)
+      if (!preview) continue
+
+      const structure = getStaticCellStructure(preview, cell)
+      if (structure !== null) {
+        sheetStructures.push({
+          sheetName,
+          structureType: structure,
+        })
+      }
+    }
+
+    if (sheetStructures.length >= 2) {
+      const firstStructure = sheetStructures[0].structureType
+      const isConsistent = sheetStructures.every((s) => s.structureType === firstStructure)
+      if (!isConsistent) {
+        warnings.push({
+          cell,
+          sourceField: mapping.sourceField,
+          sheetStructures,
         })
       }
     }

@@ -7,6 +7,7 @@ import {
   type StaticCellMappingEntry,
 } from '../domain/export-template/mapping-validator'
 import { isFormulaCell, parseDateCellValue } from '../domain/export-template/xlsx-export'
+import type { PreviewCellStructureType } from '../domain/export-template/header-reference'
 
 export interface ExportTemplate {
   id: string
@@ -84,6 +85,7 @@ export interface WorkbookPreviewCell {
   readonly rowNumber: number
   readonly text: string
   readonly headerText?: string
+  readonly structureType?: PreviewCellStructureType
 }
 
 export interface WorkbookPreviewRow {
@@ -141,7 +143,7 @@ export async function getWorkbookPreview(
 
       for (const { row } of previewRows) {
         row.eachCell((cell) => {
-          if (hasPreviewValue(cell)) {
+          if (hasPreviewValue(cell) || isFormulaCell(cell) || cell.isMerged) {
             const columnNumber = Number(cell.col)
             rightmostValueColumn = Math.max(rightmostValueColumn, columnNumber)
             if (cell.isMerged && cell.master.address === cell.address) {
@@ -166,12 +168,22 @@ export async function getWorkbookPreview(
         const cells: WorkbookPreviewCell[] = []
         row.eachCell((cell) => {
           const columnNumber = Number(cell.col)
-          if (columnNumber <= visibleColumnCount && (hasPreviewValue(cell) || isMergedMember(cell))) {
+          if (
+            columnNumber <= visibleColumnCount &&
+            (hasPreviewValue(cell) || isMergedMember(cell) || isFormulaCell(cell) || cell.isMerged)
+          ) {
+            let structureType: PreviewCellStructureType = 'ordinary'
+            if (cell.isMerged) {
+              structureType = 'merged'
+            } else if (isFormulaCell(cell)) {
+              structureType = 'formula'
+            }
             cells.push({
               column: columnNumberToLetter(columnNumber),
               rowNumber,
               text: previewCellText(cell),
               headerText: previewCellHeaderText(cell),
+              structureType,
             })
           }
         })
