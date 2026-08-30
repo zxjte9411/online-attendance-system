@@ -115,6 +115,22 @@ describe('認證路由核心', () => {
     expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
   })
 
+  it('getSession 暫時失敗時保留目的地並進入帳號狀態頁', async () => {
+    const target = '/reports?month=2026-08'
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    auth.getSession = vi.fn(async () => ({
+      data: { session: null },
+      error: new AuthApiError('temporary session failure', 503, 'network_error'),
+    })) as unknown as AuthAdapter['getSession']
+    const router = createTestRouter(auth)
+
+    await router.push(target)
+
+    expect(router.currentRoute.value.name).toBe('account-unavailable')
+    expect(router.currentRoute.value.query.redirect).toBe(target)
+    expect(auth.signOut).not.toHaveBeenCalled()
+  })
+
   it('Auth server 暫時失敗時保留本機 session 並導向帳號狀態頁', async () => {
     const auth = mockAuth({ user: { id: 'user-1' } })
     auth.getUser = vi.fn(async () => ({
