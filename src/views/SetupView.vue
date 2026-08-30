@@ -23,6 +23,7 @@ const policies = ref<WorkPolicy[]>([])
 const step = ref<1 | 2 | 3>(1)
 const isLoading = ref(true)
 const errorMessage = ref('')
+const showProfileSaveActions = ref(false)
 
 const steps = [
   { number: 1, label: '個人資料' },
@@ -39,6 +40,7 @@ onMounted(async () => {
 async function loadSetup() {
   isLoading.value = true
   errorMessage.value = ''
+  showProfileSaveActions.value = false
 
   try {
     userId.value = await getCurrentUserId()
@@ -46,11 +48,6 @@ async function loadSetup() {
     profile.value = status.profile
     defaultContext.value = status.defaultContext
     policies.value = status.policies
-
-    if (status.complete) {
-      await router.replace({ name: 'today' })
-      return
-    }
 
     step.value = !status.profile?.display_name?.trim()
       ? 1
@@ -72,18 +69,17 @@ function canVisitStep(target: 1 | 2 | 3) {
   return Boolean(profile.value?.display_name?.trim() && defaultContext.value)
 }
 
-async function handleProfileSaved(savedProfile: Profile) {
+function handleProfileSaved(savedProfile: Profile) {
   profile.value = savedProfile
+  showProfileSaveActions.value = true
+}
 
-  if (defaultContext.value) {
-    if (policies.value.some((policy) => getWorkPolicyStatus(policy) === '目前適用')) {
-      await router.replace({ name: 'today' })
-    } else {
-      step.value = 3
-    }
-    return
-  }
+async function enterSystem() {
+  await router.replace({ name: 'today' })
+}
 
+function continueSetup() {
+  showProfileSaveActions.value = false
   step.value = 2
 }
 
@@ -119,7 +115,7 @@ async function handlePolicySaved(savedPolicy: WorkPolicy) {
       <section class="grid content-start gap-5 border-t border-accent pt-5" aria-labelledby="setup-title">
         <p class="text-[0.75rem] font-bold tracking-[0.12em] text-accent">準備你的工作日</p>
         <h1 id="setup-title" class="max-w-[13ch] font-display text-[clamp(2.25rem,6vw,4.25rem)] font-semibold leading-[1.08] tracking-[-0.055em] text-balance">先設定一次，再開始記錄。</h1>
-        <p class="max-w-[32rem] text-[clamp(1rem,1.5vw,1.125rem)] leading-relaxed text-muted text-pretty">完成個人資料、工作情境與工作制度後，今日頁才會使用已確認的規則。</p>
+        <p class="max-w-[32rem] text-[clamp(1rem,1.5vw,1.125rem)] leading-relaxed text-muted text-pretty">完成個人資料後即可進入系統；工作情境與工作制度可以之後補齊。</p>
 
         <nav class="mt-3" aria-label="首次設定進度">
           <ol class="grid gap-2">
@@ -162,7 +158,17 @@ async function handlePolicySaved(savedPolicy: WorkPolicy) {
             <h2 id="profile-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">你希望怎麼被稱呼？</h2>
             <p class="text-sm leading-relaxed text-muted">只需要一個顯示名稱；時區目前固定為 Asia/Taipei。</p>
           </div>
-          <ProfileForm v-if="userId" :user-id="userId" :profile="profile" onboarding @saved="handleProfileSaved" />
+          <ProfileForm v-if="userId" :user-id="userId" :profile="profile" @saved="handleProfileSaved" />
+          <section v-if="showProfileSaveActions" class="grid gap-3 rounded-[0.625rem] border border-accent-soft bg-accent-soft px-4 py-4" aria-labelledby="profile-saved-title" role="status">
+            <div class="grid gap-1">
+              <h3 id="profile-saved-title" class="font-semibold">個人資料已儲存</h3>
+              <p class="text-sm leading-relaxed text-muted">你的帳號現在可以進入系統，也可以繼續補齊工作設定。</p>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <button class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="enterSystem">進入系統</button>
+              <button class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line bg-surface px-4 py-2 font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="continueSetup">繼續設定</button>
+            </div>
+          </section>
         </div>
 
         <div v-else-if="step === 2" class="grid gap-5" aria-labelledby="context-step-title">
