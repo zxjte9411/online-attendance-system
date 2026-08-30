@@ -1660,4 +1660,338 @@ describe('Component: ExportTemplateSection', () => {
       expect(wrapper.find('[data-test="static-consistency-warning"]').exists()).toBe(true)
     })
   })
+
+  describe('Worksheet Preview before Upload and Replace (Issue #39)', () => {
+    it('displays worksheet preview locally right after selecting a file before uploading', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(null)
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Initially no preview table
+      expect(wrapper.find('[data-test="preview-worksheet-select"]').exists()).toBe(false)
+
+      // Select file in upload input
+      const fileInput = wrapper.find('#upload-file-input')
+      const dummyFile = new File(['dummy xlsx content'], 'template.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(fileInput.element, 'files', {
+        value: [dummyFile],
+        writable: false,
+      })
+      await fileInput.trigger('change')
+      await flushPromises()
+
+      // Preview parsed locally before uploading
+      expect(exportTemplatesApi.getWorkbookPreview).toHaveBeenCalledWith(dummyFile)
+      expect(wrapper.find('[data-test="preview-worksheet-select"]').exists()).toBe(true)
+      expect(wrapper.find('caption').text()).toContain('8月')
+      expect(wrapper.findAll('th[scope="col"]').map((h) => h.text())).toContain('A')
+      expect(wrapper.findAll('tbody tr')).toHaveLength(20)
+
+      // Can switch worksheet in preview before uploading
+      const select = wrapper.find('[data-test="preview-worksheet-select"]')
+      await select.setValue('9月')
+      expect(wrapper.find('caption').text()).toContain('9月')
+      expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+
+      // Set custom template name
+      await wrapper.find('#upload-template-name').setValue('公司出勤月報表')
+
+      // Submitting upload persists template
+      const uploadedTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-new',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '公司出勤月報表',
+        storage_path: 'user-1/ctx-1/tpl-new/source.xlsx',
+        month_worksheet_mapping: {},
+        row_mapping: [],
+        static_cell_mapping: [],
+        created_at: '2026-08-30T00:00:00Z',
+        updated_at: '2026-08-30T00:00:00Z',
+      }
+      vi.mocked(exportTemplatesApi.uploadExportTemplate).mockResolvedValue(uploadedTemplate)
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(uploadedTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(exportTemplatesApi.uploadExportTemplate).toHaveBeenCalledWith({
+        userId: 'user-1',
+        contextId: 'ctx-1',
+        name: '公司出勤月報表',
+        file: dummyFile,
+      })
+      expect(wrapper.text()).toContain('XLSX 範本上傳成功。')
+      expect(wrapper.find('[data-test="save-mapping-button"]').exists()).toBe(true)
+    })
+
+    it('displays edge case notices during upload preview and supports toggling hidden sheets/rows/columns', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(null)
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const fileInput = wrapper.find('#upload-file-input')
+      const dummyFile = new File(['dummy xlsx'], 'edge-case.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(fileInput.element, 'files', {
+        value: [dummyFile],
+        writable: false,
+      })
+      await fileInput.trigger('change')
+      await flushPromises()
+
+      // Protected & Image notices appear
+      expect(wrapper.find('[data-test="preview-protected-notice"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="preview-images-notice"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain('ƒ 公式結果')
+
+      // Hidden toggles work
+      expect(wrapper.find('#show-hidden-worksheets').exists()).toBe(true)
+      await wrapper.find('#show-hidden-worksheets').setValue(true)
+      const select = wrapper.find('[data-test="preview-worksheet-select"]')
+      expect(select.findAll('option').map((o) => o.text())).toEqual(['可見表', '隱藏表'])
+    })
+
+    it('displays preview error banner when local preview parse fails during upload without blocking template upload', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(null)
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockRejectedValue(new Error('無法解析活頁簿檔案'))
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const fileInput = wrapper.find('#upload-file-input')
+      const dummyFile = new File(['bad xlsx'], 'corrupted.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(fileInput.element, 'files', {
+        value: [dummyFile],
+        writable: false,
+      })
+      await fileInput.trigger('change')
+      await flushPromises()
+
+      // Error banner is displayed
+      const errorBanner = wrapper.find('[data-test="preview-error"]')
+      expect(errorBanner.exists()).toBe(true)
+      expect(errorBanner.text()).toContain('預覽無法載入：無法解析活頁簿檔案')
+
+      // Upload button is still enabled
+      const uploadBtn = wrapper.find('[data-test="upload-template-button"]')
+      expect((uploadBtn.element as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('displays preview of the new replacement workbook locally before confirming replacement', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Initial preview shows 8月
+      expect(wrapper.find('caption').text()).toContain('8月')
+
+      // 2. Open Replace form
+      const replaceToggleBtn = wrapper.findAll('button').find((b) => b.text().includes('更換檔案'))
+      await replaceToggleBtn!.trigger('click')
+      await flushPromises()
+
+      // 3. Mock replacement preview with different worksheet name
+      const replacementPreview: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '新版工作表',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [{ column: 'A', isHidden: false }],
+            rows: [
+              {
+                rowNumber: 1,
+                isHidden: false,
+                cells: [{ column: 'A', rowNumber: 1, text: '新版內容' }],
+              },
+            ],
+          },
+        ],
+      }
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(replacementPreview)
+
+      // 4. Select replacement file
+      const replaceFileInput = wrapper.find('input[type="file"]')
+      const replacementFile = new File(['new content'], 'new.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(replaceFileInput.element, 'files', {
+        value: [replacementFile],
+        writable: false,
+      })
+      await replaceFileInput.trigger('change')
+      await flushPromises()
+
+      // Preview immediately updates to show replacement workbook
+      expect(exportTemplatesApi.getWorkbookPreview).toHaveBeenCalledWith(replacementFile)
+      expect(wrapper.find('caption').text()).toContain('新版工作表')
+      expect(wrapper.text()).toContain('新版內容')
+
+      // 5. Submit replacement
+      vi.mocked(exportTemplatesApi.replaceExportTemplate).mockResolvedValue({
+        template: { ...mockTemplate, name: '已更換範本' },
+      })
+      const replaceForm = wrapper.findAll('form').find((f) => f.text().includes('確認更換'))
+      await replaceForm!.trigger('submit')
+      await flushPromises()
+
+      expect(exportTemplatesApi.replaceExportTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          newFile: replacementFile,
+        })
+      )
+    })
+
+    it('restores the original saved template preview when cancelling replacement', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      const originalBuffer = new ArrayBuffer(8)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(originalBuffer)
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Open replace form and select new file
+      const replaceToggleBtn = wrapper.findAll('button').find((b) => b.text().includes('更換檔案'))
+      await replaceToggleBtn!.trigger('click')
+
+      const replacementPreview: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '未確認的新表',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [{ column: 'A', isHidden: false }],
+            rows: [],
+          },
+        ],
+      }
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(replacementPreview)
+
+      const replaceFileInput = wrapper.find('input[type="file"]')
+      const replacementFile = new File(['temp'], 'temp.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(replaceFileInput.element, 'files', {
+        value: [replacementFile],
+        writable: false,
+      })
+      await replaceFileInput.trigger('change')
+      await flushPromises()
+
+      expect(wrapper.find('caption').text()).toContain('未確認的新表')
+
+      // Now click "取消"
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+      const cancelBtn = wrapper.findAll('button').find((b) => b.text() === '取消')
+      await cancelBtn!.trigger('click')
+      await flushPromises()
+
+      // Form closed and original preview restored
+      expect(wrapper.find('input[type="file"]').exists()).toBe(false)
+      expect(wrapper.find('caption').text()).toContain('8月')
+    })
+
+    it('displays preview error banner when replacement file preview fails without blocking replacement submission', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        context_id: 'ctx-1',
+        name: '舊範本',
+        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // Open replace form
+      const replaceToggleBtn = wrapper.findAll('button').find((b) => b.text().includes('更換檔案'))
+      await replaceToggleBtn!.trigger('click')
+
+      // Mock failure for replacement file
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockRejectedValue(new Error('替換檔案格式損毀'))
+
+      const replaceFileInput = wrapper.find('input[type="file"]')
+      const badFile = new File(['bad'], 'corrupted.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(replaceFileInput.element, 'files', {
+        value: [badFile],
+        writable: false,
+      })
+      await replaceFileInput.trigger('change')
+      await flushPromises()
+
+      // Shows error banner
+      expect(wrapper.find('[data-test="preview-error"]').text()).toContain('預覽無法載入：替換檔案格式損毀')
+
+      // Replace submit button is enabled
+      const submitBtn = wrapper.findAll('button').find((b) => b.text().includes('確認更換'))
+      expect((submitBtn!.element as HTMLButtonElement).disabled).toBe(false)
+    })
+  })
 })

@@ -212,14 +212,25 @@ export async function getWorkbookPreview(
   }
 }
 
-async function toArrayBuffer(fileData: ArrayBuffer | Uint8Array | Blob): Promise<ArrayBuffer> {
-  if (fileData instanceof Blob) {
-    return fileData.arrayBuffer()
+async function toArrayBuffer(
+  fileData: ArrayBuffer | Uint8Array | Blob
+): Promise<ArrayBuffer> {
+  if (fileData instanceof ArrayBuffer) {
+    return fileData
   }
-  if (fileData instanceof Uint8Array) {
-    return fileData.slice().buffer as ArrayBuffer
+  if (ArrayBuffer.isView(fileData)) {
+    return fileData.buffer.slice(
+      fileData.byteOffset,
+      fileData.byteOffset + fileData.byteLength
+    ) as ArrayBuffer
   }
-  return fileData
+  if (typeof Blob !== 'undefined' && fileData instanceof Blob) {
+    return await fileData.arrayBuffer()
+  }
+  if (fileData && typeof (fileData as any).arrayBuffer === 'function') {
+    return await (fileData as any).arrayBuffer()
+  }
+  throw new Error('不支援的檔案格式資料。')
 }
 
 function hasPreviewValue(cell: ExcelJS.Cell): boolean {
