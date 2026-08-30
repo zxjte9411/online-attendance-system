@@ -131,6 +131,8 @@ const editingName = ref('')
 const monthMappings = ref<Array<{ month: string; worksheet: string }>>([])
 const rowMappings = ref<RowMappingUiItem[]>([])
 const staticMappings = ref<StaticMappingUiItem[]>([])
+
+// Committed Template Preview state
 const previewWorksheets = ref<WorkbookWorksheetPreview[]>([])
 const selectedPreviewWorksheetName = ref('')
 const previewVisibleRowCount = ref(20)
@@ -139,19 +141,100 @@ const hasManualPreviewSelection = ref(false)
 const showHiddenWorksheets = ref(false)
 const showHiddenPreviewRowsAndColumns = ref(false)
 
+// Candidate Preview state (for uncommitted upload or replacement)
+const candidatePreviewWorksheets = ref<WorkbookWorksheetPreview[]>([])
+const candidateSelectedPreviewWorksheetName = ref('')
+const candidatePreviewVisibleRowCount = ref(20)
+const candidatePreviewError = ref('')
+const candidateShowHiddenWorksheets = ref(false)
+const candidateShowHiddenPreviewRowsAndColumns = ref(false)
+const candidateRequestId = ref(0)
+
+const isCandidatePreviewActive = computed(() =>
+  Boolean(uploadFile.value || (template.value && showReplaceForm.value && replaceFile.value))
+)
+
+const activePreviewWorksheets = computed(() =>
+  isCandidatePreviewActive.value
+    ? candidatePreviewWorksheets.value
+    : previewWorksheets.value
+)
+
+const activePreviewError = computed(() =>
+  isCandidatePreviewActive.value
+    ? candidatePreviewError.value
+    : previewError.value
+)
+
+const activeShowHiddenWorksheets = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidateShowHiddenWorksheets.value
+      : showHiddenWorksheets.value,
+  set: (val: boolean) => {
+    if (isCandidatePreviewActive.value) {
+      candidateShowHiddenWorksheets.value = val
+    } else {
+      showHiddenWorksheets.value = val
+    }
+  },
+})
+
+const activeShowHiddenPreviewRowsAndColumns = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidateShowHiddenPreviewRowsAndColumns.value
+      : showHiddenPreviewRowsAndColumns.value,
+  set: (val: boolean) => {
+    if (isCandidatePreviewActive.value) {
+      candidateShowHiddenPreviewRowsAndColumns.value = val
+    } else {
+      showHiddenPreviewRowsAndColumns.value = val
+    }
+  },
+})
+
+const activeSelectedPreviewWorksheetName = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidateSelectedPreviewWorksheetName.value
+      : selectedPreviewWorksheetName.value,
+  set: (val: string) => {
+    if (isCandidatePreviewActive.value) {
+      candidateSelectedPreviewWorksheetName.value = val
+    } else {
+      selectedPreviewWorksheetName.value = val
+    }
+  },
+})
+
+const activePreviewVisibleRowCount = computed({
+  get: () =>
+    isCandidatePreviewActive.value
+      ? candidatePreviewVisibleRowCount.value
+      : previewVisibleRowCount.value,
+  set: (val: number) => {
+    if (isCandidatePreviewActive.value) {
+      candidatePreviewVisibleRowCount.value = val
+    } else {
+      previewVisibleRowCount.value = val
+    }
+  },
+})
+
 const selectablePreviewWorksheets = computed(() =>
-  previewWorksheets.value.filter(
-    (worksheet) => showHiddenWorksheets.value || !worksheet.isHidden
+  activePreviewWorksheets.value.filter(
+    (worksheet) => activeShowHiddenWorksheets.value || !worksheet.isHidden
   )
 )
 
 const hasHiddenPreviewWorksheets = computed(() =>
-  previewWorksheets.value.some((worksheet) => worksheet.isHidden)
+  activePreviewWorksheets.value.some((worksheet) => worksheet.isHidden)
 )
 
 const selectedPreviewWorksheet = computed(() =>
   selectablePreviewWorksheets.value.find(
-    (worksheet) => worksheet.name === selectedPreviewWorksheetName.value
+    (worksheet) => worksheet.name === activeSelectedPreviewWorksheetName.value
   )
 )
 
@@ -165,7 +248,7 @@ const hasHiddenPreviewRowsOrColumns = computed(() => {
 
 const previewRows = computed(() => {
   const rows = selectedPreviewWorksheet.value?.rows || []
-  return rows.filter((row) => showHiddenPreviewRowsAndColumns.value || !row.isHidden)
+  return rows.filter((row) => activeShowHiddenPreviewRowsAndColumns.value || !row.isHidden)
 })
 
 const visiblePreviewColumns = computed(() => {
@@ -175,13 +258,13 @@ const visiblePreviewColumns = computed(() => {
       .slice(0, 50)
       .filter(
         (column) =>
-          showHiddenPreviewRowsAndColumns.value || !column.isHidden
+          activeShowHiddenPreviewRowsAndColumns.value || !column.isHidden
       ) || []
   )
 })
 
 const visiblePreviewRows = computed(() =>
-  previewRows.value.slice(0, previewVisibleRowCount.value)
+  previewRows.value.slice(0, activePreviewVisibleRowCount.value)
 )
 
 const worksheetHeaderRanges = ref<Record<string, HeaderReferenceRange>>({})
@@ -210,8 +293,8 @@ function resetPreviewSelection() {
 }
 
 watch(selectablePreviewWorksheets, (worksheets) => {
-  if (!worksheets.some((worksheet) => worksheet.name === selectedPreviewWorksheetName.value)) {
-    selectedPreviewWorksheetName.value = worksheets[0]?.name || ''
+  if (!worksheets.some((worksheet) => worksheet.name === activeSelectedPreviewWorksheetName.value)) {
+    activeSelectedPreviewWorksheetName.value = worksheets[0]?.name || ''
   }
 })
 
@@ -279,16 +362,21 @@ function clearHeaderRange() {
 }
 
 const currentSheetDerivedLabels = computed(() => {
+  if (isCandidatePreviewActive.value) return new Map<string, string>()
   const ws = selectedPreviewWorksheet.value
   const range = ws ? worksheetHeaderRanges.value[ws.name] : undefined
   return deriveColumnHeaderLabels(ws, range)
 })
 
 const columnPickerOptions = computed(() => {
-  const ws = selectedPreviewWorksheet.value
+  const ws =
+    previewWorksheets.value.find((w) => w.name === selectedPreviewWorksheetName.value) ||
+    previewWorksheets.value[0]
   if (!ws || !ws.columns) return []
+  const range = ws ? worksheetHeaderRanges.value[ws.name] : undefined
+  const derived = deriveColumnHeaderLabels(ws, range)
   return ws.columns.map((c) => {
-    const label = currentSheetDerivedLabels.value.get(c.column) || ''
+    const label = derived.get(c.column) || ''
     return {
       column: c.column,
       label,
@@ -383,6 +471,7 @@ const activeSelectionFieldLabel = computed(() => {
 })
 
 const highlightedTargetColumn = computed(() => {
+  if (isCandidatePreviewActive.value) return null
   if (activeSelectionTarget.value?.kind === 'row_mapping') {
     return rowMappings.value[activeSelectionTarget.value.index]?.targetColumn?.trim().toUpperCase() || null
   }
@@ -393,6 +482,7 @@ const highlightedTargetColumn = computed(() => {
 })
 
 const highlightedTargetCell = computed(() => {
+  if (isCandidatePreviewActive.value) return null
   if (activeSelectionTarget.value?.kind === 'static_mapping') {
     return staticMappings.value[activeSelectionTarget.value.index]?.targetCell?.trim().toUpperCase() || null
   }
@@ -442,6 +532,10 @@ onUnmounted(() => {
 watch(
   () => [props.userId, props.contextId],
   () => {
+    cancelCandidatePreview()
+    uploadFile.value = null
+    replaceFile.value = null
+    showReplaceForm.value = false
     resetPreviewSelection()
     loadTemplate()
   }
@@ -477,11 +571,12 @@ function parseValueMapOptions(
 
 function initializeDefaultWorksheetSelection() {
   const worksheetNames = new Set(
-    selectablePreviewWorksheets.value.map((worksheet) => worksheet.name)
+    previewWorksheets.value.filter((ws) => showHiddenWorksheets.value || !ws.isHidden).map((ws) => ws.name)
   )
   if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
     selectedPreviewWorksheetName.value =
       monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
+      previewWorksheets.value.find((ws) => showHiddenWorksheets.value || !ws.isHidden)?.name ||
       previewWorksheets.value[0]?.name ||
       ''
   }
@@ -518,19 +613,35 @@ async function loadTemplatePreview(savedTemplate: ExportTemplate) {
   }
 }
 
-async function loadLocalPreview(file: File) {
-  resetPreviewSelection()
-  previewError.value = ''
-  previewWorksheets.value = []
+function cancelCandidatePreview() {
+  candidateRequestId.value++
+  candidatePreviewWorksheets.value = []
+  candidatePreviewError.value = ''
+  candidateSelectedPreviewWorksheetName.value = ''
+  candidateShowHiddenWorksheets.value = false
+  candidateShowHiddenPreviewRowsAndColumns.value = false
+  candidatePreviewVisibleRowCount.value = 20
+}
+
+async function loadCandidatePreview(file: File) {
+  const currentReq = ++candidateRequestId.value
+  candidatePreviewError.value = ''
+  candidatePreviewWorksheets.value = []
+  candidateSelectedPreviewWorksheetName.value = ''
+  candidateShowHiddenWorksheets.value = false
+  candidateShowHiddenPreviewRowsAndColumns.value = false
+  candidatePreviewVisibleRowCount.value = 20
+
   try {
     const preview = await getWorkbookPreview(file)
-    previewWorksheets.value = [...preview.worksheets]
-    availableWorksheets.value = preview.worksheets.map((ws) => ws.name)
-    previewVisibleRowCount.value = 20
-    initializeDefaultWorksheetSelection()
+    if (candidateRequestId.value !== currentReq) return
+    candidatePreviewWorksheets.value = [...preview.worksheets]
+    const firstVisible = preview.worksheets.find((w) => !w.isHidden) || preview.worksheets[0]
+    candidateSelectedPreviewWorksheetName.value = firstVisible?.name || ''
   } catch (err) {
-    previewWorksheets.value = []
-    previewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
+    if (candidateRequestId.value !== currentReq) return
+    candidatePreviewWorksheets.value = []
+    candidatePreviewError.value = err instanceof Error ? err.message : '無法載入範本預覽。'
   }
 }
 
@@ -543,6 +654,7 @@ async function loadTemplate() {
     uploadFile.value = null
     replaceFile.value = null
     showReplaceForm.value = false
+    cancelCandidatePreview()
     resetPreviewSelection()
     isLoading.value = false
     return
@@ -601,6 +713,7 @@ async function loadTemplate() {
       showReplaceForm.value = false
       availableWorksheets.value = []
       previewWorksheets.value = []
+      cancelCandidatePreview()
       resetPreviewSelection()
     }
   } catch (err) {
@@ -611,12 +724,14 @@ async function loadTemplate() {
 }
 
 function handlePreviewWorksheetChange() {
-  hasManualPreviewSelection.value = true
-  previewVisibleRowCount.value = 20
+  if (!isCandidatePreviewActive.value) {
+    hasManualPreviewSelection.value = true
+  }
+  activePreviewVisibleRowCount.value = 20
 }
 
 function loadMorePreviewRows() {
-  previewVisibleRowCount.value = Math.min(previewVisibleRowCount.value + 20, 200)
+  activePreviewVisibleRowCount.value = Math.min(activePreviewVisibleRowCount.value + 20, 200)
 }
 
 function getPreviewCellValue(row: WorkbookPreviewRow, column: string): string {
@@ -630,20 +745,16 @@ async function handleUploadFileChange(event: Event) {
       validateXlsxFileInput(target.files[0])
       uploadFile.value = target.files[0]
       errorMessage.value = ''
-      await loadLocalPreview(target.files[0])
+      await loadCandidatePreview(target.files[0])
     } catch (err) {
       uploadFile.value = null
       target.value = ''
-      previewWorksheets.value = []
-      previewError.value = ''
-      resetPreviewSelection()
+      cancelCandidatePreview()
       errorMessage.value = err instanceof Error ? err.message : '檔案格式無效。'
     }
   } else {
     uploadFile.value = null
-    previewWorksheets.value = []
-    previewError.value = ''
-    resetPreviewSelection()
+    cancelCandidatePreview()
   }
 }
 
@@ -654,17 +765,16 @@ async function handleReplaceFileChange(event: Event) {
       validateXlsxFileInput(target.files[0])
       replaceFile.value = target.files[0]
       errorMessage.value = ''
-      await loadLocalPreview(target.files[0])
+      await loadCandidatePreview(target.files[0])
     } catch (err) {
       replaceFile.value = null
       target.value = ''
+      cancelCandidatePreview()
       errorMessage.value = err instanceof Error ? err.message : '檔案格式無效。'
     }
   } else {
     replaceFile.value = null
-    if (template.value) {
-      await loadTemplatePreview(template.value)
-    }
+    cancelCandidatePreview()
   }
 }
 
@@ -674,10 +784,7 @@ function cancelReplace() {
   if (replaceFileInput.value) {
     replaceFileInput.value.value = ''
   }
-  resetPreviewSelection()
-  if (template.value) {
-    loadTemplatePreview(template.value)
-  }
+  cancelCandidatePreview()
 }
 
 function toggleReplaceForm() {
@@ -716,6 +823,7 @@ async function handleUpload() {
       name: uploadName.value.trim(),
       file: uploadFile.value,
     })
+    cancelCandidatePreview()
     uploadFile.value = null
     template.value = created
     resetPreviewSelection()
@@ -751,6 +859,7 @@ async function handleReplace() {
       newFile: replaceFile.value,
       newName: replaceName.value.trim() || undefined,
     })
+    cancelCandidatePreview()
     showReplaceForm.value = false
     replaceFile.value = null
     resetPreviewSelection()
@@ -779,9 +888,11 @@ async function handleDelete() {
 
   try {
     await deleteExportTemplate(props.userId, template.value)
+    cancelCandidatePreview()
     template.value = null
     uploadFile.value = null
     replaceFile.value = null
+    showReplaceForm.value = false
     availableWorksheets.value = []
     previewWorksheets.value = []
     resetPreviewSelection()
@@ -1143,7 +1254,7 @@ async function handleSaveMapping() {
 
     <!-- Read-only workbook preview -->
     <section
-      v-if="template || uploadFile || previewWorksheets.length || previewError"
+      v-if="template || uploadFile || activePreviewWorksheets.length || activePreviewError"
       class="grid min-w-0 gap-3 border-t border-line pt-5"
     >
       <div class="flex flex-wrap items-end justify-between gap-3">
@@ -1152,7 +1263,7 @@ async function handleSaveMapping() {
           <p class="text-xs text-muted">唯讀檢視範本內容；不會修改或影響下方的對應設定。</p>
         </div>
 
-        <div v-if="previewWorksheets.length" class="flex flex-wrap items-end justify-end gap-3">
+        <div v-if="activePreviewWorksheets.length" class="flex flex-wrap items-end justify-end gap-3">
           <label
             v-if="hasHiddenPreviewWorksheets"
             for="show-hidden-worksheets"
@@ -1160,7 +1271,7 @@ async function handleSaveMapping() {
           >
             <input
               id="show-hidden-worksheets"
-              v-model="showHiddenWorksheets"
+              v-model="activeShowHiddenWorksheets"
               type="checkbox"
               name="show-hidden-worksheets"
               class="h-4 w-4"
@@ -1175,7 +1286,7 @@ async function handleSaveMapping() {
           >
             <input
               id="show-hidden-preview-rows-columns"
-              v-model="showHiddenPreviewRowsAndColumns"
+              v-model="activeShowHiddenPreviewRowsAndColumns"
               type="checkbox"
               name="show-hidden-preview-rows-columns"
               class="h-4 w-4"
@@ -1188,7 +1299,7 @@ async function handleSaveMapping() {
             <select
               id="preview-worksheet-select"
               data-test="preview-worksheet-select"
-              v-model="selectedPreviewWorksheetName"
+              v-model="activeSelectedPreviewWorksheetName"
               class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
               @change="handlePreviewWorksheetChange"
             >
@@ -1205,12 +1316,12 @@ async function handleSaveMapping() {
       </div>
 
       <p
-        v-if="previewError"
+        v-if="activePreviewError"
         data-test="preview-error"
         class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
         role="alert"
       >
-        預覽無法載入：{{ previewError }}
+        預覽無法載入：{{ activePreviewError }}
       </p>
 
       <template v-else-if="selectedPreviewWorksheet">
@@ -1232,7 +1343,10 @@ async function handleSaveMapping() {
         </p>
 
         <!-- Header Reference Range Controls -->
-        <div class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3 text-xs">
+        <div
+          v-if="!isCandidatePreviewActive"
+          class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3 text-xs"
+        >
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-semibold text-ink">欄位標題參考範圍：</span>
             <label for="header-range-start" class="text-muted">起始列</label>
@@ -1291,7 +1405,7 @@ async function handleSaveMapping() {
 
         <!-- Active Selection Banner -->
         <div
-          v-if="activeSelectionTarget !== null"
+          v-if="!isCandidatePreviewActive && activeSelectionTarget !== null"
           data-test="preview-selection-active-banner"
           class="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-accent bg-surface-soft p-3 text-xs text-ink"
         >
@@ -1324,14 +1438,14 @@ async function handleSaveMapping() {
                   :class="[
                     'border-b border-line px-3 py-2 font-mono font-semibold transition-colors',
                     highlightedTargetColumn === column.column ? 'bg-accent/15 border-accent text-accent' : '',
-                    activeSelectionTarget?.kind === 'row_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                    !isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
                   ]"
-                  :tabindex="activeSelectionTarget?.kind === 'row_mapping' ? 0 : undefined"
-                  :role="activeSelectionTarget?.kind === 'row_mapping' ? 'button' : undefined"
-                  :aria-label="activeSelectionTarget?.kind === 'row_mapping' ? `選取目標欄位 ${column.column}` : undefined"
-                  @click="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
-                  @keydown.enter.prevent="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
-                  @keydown.space.prevent="activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                  :tabindex="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? 0 : undefined"
+                  :role="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? 'button' : undefined"
+                  :aria-label="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' ? `選取目標欄位 ${column.column}` : undefined"
+                  @click="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                  @keydown.enter.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
+                  @keydown.space.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'row_mapping' && selectPreviewColumn(column.column)"
                 >
                   <div class="flex flex-col">
                     <span>
@@ -1339,7 +1453,7 @@ async function handleSaveMapping() {
                       <span v-if="column.isHidden">（隱藏欄）</span>
                     </span>
                     <span
-                      v-if="currentSheetDerivedLabels.get(column.column)"
+                      v-if="!isCandidatePreviewActive && currentSheetDerivedLabels.get(column.column)"
                       class="font-sans font-normal text-[0.6875rem] text-muted truncate max-w-[10rem]"
                       :title="currentSheetDerivedLabels.get(column.column)"
                     >
@@ -1363,18 +1477,18 @@ async function handleSaveMapping() {
                     'px-3 py-2 align-top transition-colors',
                     highlightedTargetColumn === column.column ? 'bg-accent/5' : '',
                     highlightedTargetCell === `${column.column}${row.rowNumber}` ? 'bg-accent/20 border-accent font-semibold text-accent' : '',
-                    activeSelectionTarget?.kind === 'static_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                    !isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
                   ]"
-                  :tabindex="activeSelectionTarget?.kind === 'static_mapping' ? 0 : undefined"
-                  :role="activeSelectionTarget?.kind === 'static_mapping' ? 'button' : undefined"
-                  :aria-label="activeSelectionTarget?.kind === 'static_mapping' ? `選取目標儲存格 ${column.column}${row.rowNumber}` : undefined"
-                  @click="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
-                  @keydown.enter.prevent="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
-                  @keydown.space.prevent="activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                  :tabindex="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? 0 : undefined"
+                  :role="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? 'button' : undefined"
+                  :aria-label="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' ? `選取目標儲存格 ${column.column}${row.rowNumber}` : undefined"
+                  @click="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                  @keydown.enter.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
+                  @keydown.space.prevent="!isCandidatePreviewActive && activeSelectionTarget?.kind === 'static_mapping' && selectPreviewCell(column.column, row.rowNumber)"
                 >
                   <span
                     :title="getPreviewCellValue(row, column.column)"
-                    :tabindex="activeSelectionTarget === null ? 0 : undefined"
+                    :tabindex="!isCandidatePreviewActive && activeSelectionTarget === null ? 0 : undefined"
                     class="block max-w-[14rem] truncate rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {{ getPreviewCellValue(row, column.column) }}
