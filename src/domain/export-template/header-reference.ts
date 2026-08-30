@@ -138,7 +138,7 @@ export function checkHeaderConsistency(params: {
 
     if (sheetHeaders.length >= 2) {
       const firstLabel = sheetHeaders[0].headerLabel
-      const isConsistent = sheetHeaders.every((sh) => sh.headerLabel === firstLabel)
+      const isConsistent = sheetHeaders.every((sheetHeader) => sheetHeader.headerLabel === firstLabel)
       if (!isConsistent) {
         warnings.push({
           column: col,

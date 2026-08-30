@@ -34,6 +34,7 @@ import {
   deriveColumnHeaderLabels,
   formatColumnPickerLabel,
   checkHeaderConsistency,
+  isValidHeaderRange,
   type HeaderReferenceRange,
 } from '../../domain/export-template/header-reference'
 
@@ -233,17 +234,13 @@ function applyHeaderRange() {
 
   const startNum = Number(currentRangeStart.value)
   const endNum = Number(currentRangeEnd.value)
-  if (
-    !Number.isInteger(startNum) ||
-    !Number.isInteger(endNum) ||
-    startNum < 1 ||
-    endNum < startNum
-  ) {
+  const range = { startRow: startNum, endRow: endNum }
+
+  if (!isValidHeaderRange(range)) {
     currentRangeError.value = '請輸入有效且連續的列號範圍（起始列需大於等於 1，結束列需大於等於起始列）。'
     return
   }
 
-  const range: HeaderReferenceRange = { startRow: startNum, endRow: endNum }
   const updated = { ...worksheetHeaderRanges.value, [sheetName]: range }
 
   if (!hasAskedApplyAll.value && previewWorksheets.value.length > 1) {
@@ -1319,8 +1316,8 @@ async function handleSaveMapping() {
             <ul class="list-disc list-inside space-y-0.5">
               <li v-for="w in headerWarnings" :key="w.column">
                 目標欄位 <strong>{{ w.column }}</strong>（{{ FIELD_LABELS[w.sourceField] || w.sourceField }}）在不同月份工作表中的標題不同：
-                <span v-for="(sh, sIdx) in w.sheetHeaders" :key="sh.sheetName">
-                  {{ sh.sheetName }}: 「{{ sh.headerLabel }}」{{ sIdx < w.sheetHeaders.length - 1 ? '、' : '' }}
+                <span v-for="(sheetHeader, index) in w.sheetHeaders" :key="sheetHeader.sheetName">
+                  {{ sheetHeader.sheetName }}: 「{{ sheetHeader.headerLabel }}」{{ index < w.sheetHeaders.length - 1 ? '、' : '' }}
                 </span>
               </li>
             </ul>
