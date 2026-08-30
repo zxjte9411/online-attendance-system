@@ -173,10 +173,10 @@ export async function getWorkbookPreview(
             (hasPreviewValue(cell) || isMergedMember(cell) || isFormulaCell(cell) || cell.isMerged)
           ) {
             let structureType: PreviewCellStructureType = 'ordinary'
-            if (isFormulaCell(cell)) {
-              structureType = 'formula'
-            } else if (cell.isMerged) {
+            if (cell.isMerged) {
               structureType = 'merged'
+            } else if (isFormulaCell(cell)) {
+              structureType = 'formula'
             }
             cells.push({
               column: columnNumberToLetter(columnNumber),

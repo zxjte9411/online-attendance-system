@@ -507,6 +507,59 @@ describe('header-reference', () => {
       expect(warnings).toHaveLength(0)
     })
 
+    it('does NOT warn when comparing merged+formula vs merged+ordinary cell (both are merged)', () => {
+      const sheetMergedFormula: WorkbookWorksheetPreview = {
+        name: 'SheetMergeForm',
+        isHidden: false,
+        isProtected: false,
+        hasImages: false,
+        columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+        rows: [
+          {
+            rowNumber: 2,
+            isHidden: false,
+            cells: [{ column: 'B', rowNumber: 2, text: 'ƒ =SUM(A1:A5)', structureType: 'merged' }],
+          },
+        ],
+      }
+
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetMerge', '2026-09': 'SheetMergeForm' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetMerged, sheetMergedFormula],
+      })
+      expect(warnings).toHaveLength(0)
+    })
+
+    it('warns when comparing merged+formula vs unmerged formula cell (merged vs formula mismatch)', () => {
+      const sheetMergedFormula: WorkbookWorksheetPreview = {
+        name: 'SheetMergeForm',
+        isHidden: false,
+        isProtected: false,
+        hasImages: false,
+        columns: [{ column: 'A', isHidden: false }, { column: 'B', isHidden: false }],
+        rows: [
+          {
+            rowNumber: 2,
+            isHidden: false,
+            cells: [{ column: 'B', rowNumber: 2, text: 'ƒ =SUM(A1:A5)', structureType: 'merged' }],
+          },
+        ],
+      }
+
+      const warnings = checkStaticCellConsistency({
+        monthWorksheetMapping: { '2026-08': 'SheetMergeForm', '2026-09': 'SheetForm1' },
+        staticMappings: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        worksheetPreviews: [sheetMergedFormula, sheetFormula1],
+      })
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0].cell).toBe('B2')
+      expect(warnings[0].sheetStructures).toEqual([
+        { sheetName: 'SheetMergeForm', structureType: 'merged' },
+        { sheetName: 'SheetForm1', structureType: 'formula' },
+      ])
+    })
+
     it('ignores worksheets not referenced in month_worksheet_mapping', () => {
       const warnings = checkStaticCellConsistency({
         monthWorksheetMapping: { '2026-08': 'SheetOrd', '2026-09': 'SheetOrdDiff' },

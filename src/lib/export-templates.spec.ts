@@ -321,6 +321,27 @@ describe('Lib: Export Templates Service', () => {
     ])
   })
 
+  it('categorizes merged master cell holding a formula as merged structureType', async () => {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('MergedFormula')
+    worksheet.mergeCells('B2:C2')
+    worksheet.getCell('B2').value = { formula: 'SUM(A1:A10)', result: 100 }
+
+    const preview = await getWorkbookPreview(new Uint8Array(await workbook.xlsx.writeBuffer()))
+    const row = preview.worksheets[0].rows.find((r) => r.rowNumber === 2)
+    const masterCell = row?.cells.find((c) => c.column === 'B')
+    const memberCell = row?.cells.find((c) => c.column === 'C')
+
+    expect(masterCell).toMatchObject({
+      column: 'B',
+      structureType: 'merged',
+    })
+    expect(memberCell).toMatchObject({
+      column: 'C',
+      structureType: 'merged',
+    })
+  })
+
   it('detects worksheet background image as hasImages in preview', async () => {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Background')
