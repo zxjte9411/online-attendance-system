@@ -124,23 +124,66 @@ const selectedPreviewWorksheetName = ref('')
 const previewVisibleRowCount = ref(20)
 const previewError = ref('')
 const hasManualPreviewSelection = ref(false)
+const showHiddenWorksheets = ref(false)
+const showHiddenPreviewRowsAndColumns = ref(false)
+
+const selectablePreviewWorksheets = computed(() =>
+  previewWorksheets.value.filter(
+    (worksheet) => showHiddenWorksheets.value || !worksheet.isHidden
+  )
+)
+
+const hasHiddenPreviewWorksheets = computed(() =>
+  previewWorksheets.value.some((worksheet) => worksheet.isHidden)
+)
 
 const selectedPreviewWorksheet = computed(() =>
-  previewWorksheets.value.find((worksheet) => worksheet.name === selectedPreviewWorksheetName.value)
+  selectablePreviewWorksheets.value.find(
+    (worksheet) => worksheet.name === selectedPreviewWorksheetName.value
+  )
 )
 
-const visiblePreviewColumns = computed(() =>
-  selectedPreviewWorksheet.value?.columns.slice(0, 50) || []
-)
+const hasHiddenPreviewRowsOrColumns = computed(() => {
+  const worksheet = selectedPreviewWorksheet.value
+  return Boolean(
+    worksheet?.rows.some((row) => row.isHidden) ||
+      worksheet?.columns.some((column) => column.isHidden)
+  )
+})
+
+const previewRows = computed(() => {
+  const rows = selectedPreviewWorksheet.value?.rows || []
+  return rows.filter((row) => showHiddenPreviewRowsAndColumns.value || !row.isHidden)
+})
+
+const visiblePreviewColumns = computed(() => {
+  const worksheet = selectedPreviewWorksheet.value
+  return (
+    worksheet?.columns
+      .slice(0, 50)
+      .filter(
+        (column) =>
+          showHiddenPreviewRowsAndColumns.value || !column.isHidden
+      ) || []
+  )
+})
 
 const visiblePreviewRows = computed(() =>
-  selectedPreviewWorksheet.value?.rows.slice(0, previewVisibleRowCount.value) || []
+  previewRows.value.slice(0, previewVisibleRowCount.value)
 )
 
 function resetPreviewSelection() {
   hasManualPreviewSelection.value = false
   selectedPreviewWorksheetName.value = ''
+  showHiddenWorksheets.value = false
+  showHiddenPreviewRowsAndColumns.value = false
 }
+
+watch(selectablePreviewWorksheets, (worksheets) => {
+  if (!worksheets.some((worksheet) => worksheet.name === selectedPreviewWorksheetName.value)) {
+    selectedPreviewWorksheetName.value = worksheets[0]?.name || ''
+  }
+})
 
 watch(
   () => [props.userId, props.contextId],
@@ -179,6 +222,9 @@ function parseValueMapOptions(
 }
 
 async function loadTemplate() {
+  showHiddenWorksheets.value = false
+  showHiddenPreviewRowsAndColumns.value = false
+
   if (!props.userId || !props.contextId) {
     template.value = null
     resetPreviewSelection()
@@ -252,7 +298,9 @@ async function loadTemplate() {
           previewWorksheets.value = [...preview.worksheets]
           previewVisibleRowCount.value = 20
 
-          const worksheetNames = new Set(previewWorksheets.value.map((worksheet) => worksheet.name))
+          const worksheetNames = new Set(
+            selectablePreviewWorksheets.value.map((worksheet) => worksheet.name)
+          )
           if (!hasManualPreviewSelection.value || !worksheetNames.has(selectedPreviewWorksheetName.value)) {
             selectedPreviewWorksheetName.value =
               monthMappings.value.find((mapping) => worksheetNames.has(mapping.worksheet))?.worksheet ||
@@ -746,19 +794,55 @@ async function handleSaveMapping() {
             <p class="text-xs text-muted">唯讀檢視範本內容；不會修改或影響下方的對應設定。</p>
           </div>
 
-          <div v-if="previewWorksheets.length" class="grid min-w-[12rem] gap-1">
-            <label for="preview-worksheet-select" class="text-xs font-semibold text-muted">預覽工作表</label>
-            <select
-              id="preview-worksheet-select"
-              data-test="preview-worksheet-select"
-              v-model="selectedPreviewWorksheetName"
-              class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              @change="handlePreviewWorksheetChange"
+          <div v-if="previewWorksheets.length" class="flex flex-wrap items-end justify-end gap-3">
+            <label
+              v-if="hasHiddenPreviewWorksheets"
+              for="show-hidden-worksheets"
+              class="inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-muted"
             >
-              <option v-for="worksheet in previewWorksheets" :key="worksheet.name" :value="worksheet.name">
-                {{ worksheet.name }}
-              </option>
-            </select>
+              <input
+                id="show-hidden-worksheets"
+                v-model="showHiddenWorksheets"
+                type="checkbox"
+                name="show-hidden-worksheets"
+                class="h-4 w-4"
+              />
+              顯示隱藏工作表
+            </label>
+
+            <label
+              v-if="hasHiddenPreviewRowsOrColumns"
+              for="show-hidden-preview-rows-columns"
+              class="inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-muted"
+            >
+              <input
+                id="show-hidden-preview-rows-columns"
+                v-model="showHiddenPreviewRowsAndColumns"
+                type="checkbox"
+                name="show-hidden-preview-rows-columns"
+                class="h-4 w-4"
+              />
+              顯示隱藏列／欄
+            </label>
+
+            <div v-if="selectablePreviewWorksheets.length" class="grid min-w-[12rem] gap-1">
+              <label for="preview-worksheet-select" class="text-xs font-semibold text-muted">預覽工作表</label>
+              <select
+                id="preview-worksheet-select"
+                data-test="preview-worksheet-select"
+                v-model="selectedPreviewWorksheetName"
+                class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                @change="handlePreviewWorksheetChange"
+              >
+                <option
+                  v-for="worksheet in selectablePreviewWorksheets"
+                  :key="worksheet.name"
+                  :value="worksheet.name"
+                >
+                  {{ worksheet.name }}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -772,6 +856,23 @@ async function handleSaveMapping() {
         </p>
 
         <template v-else-if="selectedPreviewWorksheet">
+          <p
+            v-if="selectedPreviewWorksheet.isProtected"
+            data-test="preview-protected-notice"
+            class="rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-ink"
+            role="status"
+          >
+            此工作表受保護，預覽為唯讀；仍可編輯對應設定。
+          </p>
+
+          <p
+            v-if="selectedPreviewWorksheet.hasImages"
+            data-test="preview-images-notice"
+            class="rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-ink"
+          >
+            此工作表含圖片；Preview 不顯示圖片。
+          </p>
+
           <div class="min-w-0 overflow-x-auto rounded-[0.625rem] border border-line">
             <table class="min-w-max border-collapse text-left text-xs text-ink">
               <caption class="border-b border-line bg-surface-soft px-3 py-2 text-left font-semibold">
@@ -782,11 +883,12 @@ async function handleSaveMapping() {
                   <th scope="col" class="sticky left-0 border-r border-line px-3 py-2 font-semibold">列</th>
                   <th
                     v-for="column in visiblePreviewColumns"
-                    :key="column"
+                    :key="column.column"
                     scope="col"
                     class="border-b border-line px-3 py-2 font-mono font-semibold"
                   >
-                    {{ column }}
+                    {{ column.column }}
+                    <span v-if="column.isHidden">（隱藏欄）</span>
                   </th>
                 </tr>
               </thead>
@@ -794,14 +896,15 @@ async function handleSaveMapping() {
                 <tr v-for="row in visiblePreviewRows" :key="row.rowNumber" class="border-t border-line">
                   <th scope="row" class="sticky left-0 border-r border-line bg-surface-soft px-3 py-2 font-mono font-semibold">
                     {{ row.rowNumber }}
+                    <span v-if="row.isHidden">（隱藏列）</span>
                   </th>
-                  <td v-for="(_, columnIndex) in visiblePreviewColumns" :key="columnIndex" class="px-3 py-2 align-top">
+                  <td v-for="column in visiblePreviewColumns" :key="column.column" class="px-3 py-2 align-top">
                     <span
-                      :title="getPreviewCellValue(row, visiblePreviewColumns[columnIndex])"
+                      :title="getPreviewCellValue(row, column.column)"
                       tabindex="0"
                       class="block max-w-[14rem] truncate rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
-                      {{ getPreviewCellValue(row, visiblePreviewColumns[columnIndex]) }}
+                      {{ getPreviewCellValue(row, column.column) }}
                     </span>
                   </td>
                 </tr>
@@ -810,7 +913,7 @@ async function handleSaveMapping() {
           </div>
 
           <button
-            v-if="selectedPreviewWorksheet.rows.length > visiblePreviewRows.length && visiblePreviewRows.length < 200"
+            v-if="previewRows.length > visiblePreviewRows.length && visiblePreviewRows.length < 200"
             type="button"
             data-test="preview-load-more"
             class="min-h-10 justify-self-start rounded-[0.5rem] border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:border-accent hover:text-accent focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"

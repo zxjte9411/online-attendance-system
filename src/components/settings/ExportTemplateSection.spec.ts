@@ -21,9 +21,18 @@ vi.mock('../../lib/export-templates', () => ({
 function makePreviewResult(rowCount = 45): WorkbookPreview {
   const rows = Array.from({ length: rowCount }, (_, index) => ({
     rowNumber: index + 1,
+    isHidden: false,
     cells: [
-      { column: 'A', rowNumber: index + 1, text: `2026-08-${String(index + 1).padStart(2, '0')}` },
-      { column: 'B', rowNumber: index + 1, text: `出勤資料 ${index + 1}` },
+      {
+        column: 'A',
+        rowNumber: index + 1,
+        text: `2026-08-${String(index + 1).padStart(2, '0')}`,
+      },
+      {
+        column: 'B',
+        rowNumber: index + 1,
+        text: `出勤資料 ${index + 1}`,
+      },
     ],
   }))
 
@@ -31,19 +40,89 @@ function makePreviewResult(rowCount = 45): WorkbookPreview {
     worksheets: [
       {
         name: '8月',
-        columns: ['A', 'B'],
+        isHidden: false,
+        isProtected: false,
+        hasImages: false,
+        columns: [
+          { column: 'A', isHidden: false },
+          { column: 'B', isHidden: false },
+        ],
         rows,
       },
       {
         name: '9月',
-        columns: ['A', 'B'],
+        isHidden: false,
+        isProtected: false,
+        hasImages: false,
+        columns: [
+          { column: 'A', isHidden: false },
+          { column: 'B', isHidden: false },
+        ],
         rows: [
           {
             rowNumber: 1,
+            isHidden: false,
             cells: [
               { column: 'A', rowNumber: 1, text: '2026-09-01' },
               { column: 'B', rowNumber: 1, text: '九月資料' },
             ],
+          },
+        ],
+      },
+    ],
+  }
+}
+
+function makeEdgeCasePreviewResult(): WorkbookPreview {
+  return {
+    worksheets: [
+      {
+        name: '可見表',
+        isHidden: false,
+        isProtected: true,
+        hasImages: true,
+        columns: [
+          { column: 'A', isHidden: false },
+          { column: 'B', isHidden: true },
+          { column: 'C', isHidden: false },
+          { column: 'D', isHidden: true },
+        ],
+        rows: [
+          {
+            rowNumber: 1,
+            isHidden: false,
+            cells: [
+              { column: 'A', rowNumber: 1, text: '日期' },
+              { column: 'B', rowNumber: 1, text: '隱藏欄標題' },
+              { column: 'C', rowNumber: 1, text: 'ƒ 公式結果' },
+            ],
+          },
+          {
+            rowNumber: 2,
+            isHidden: true,
+            cells: [
+              { column: 'A', rowNumber: 2, text: '隱藏列資料' },
+              { column: 'B', rowNumber: 2, text: '隱藏欄資料' },
+              {
+                column: 'C',
+                rowNumber: 2,
+                text: '↖ merged A1:C1',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: '隱藏表',
+        isHidden: true,
+        isProtected: false,
+        hasImages: false,
+        columns: [{ column: 'A', isHidden: false }],
+        rows: [
+          {
+            rowNumber: 1,
+            isHidden: false,
+            cells: [{ column: 'A', rowNumber: 1, text: '隱藏工作表資料' }],
           },
         ],
       },
@@ -191,10 +270,21 @@ describe('Component: ExportTemplateSection', () => {
       worksheets: [
         {
           name: '8月',
-          columns: ['A', 'B', 'C', 'D', 'G', 'H'],
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          columns: [
+            { column: 'A', isHidden: false },
+            { column: 'B', isHidden: false },
+            { column: 'C', isHidden: false },
+            { column: 'D', isHidden: false },
+            { column: 'G', isHidden: false },
+            { column: 'H', isHidden: false },
+          ],
           rows: [
             {
               rowNumber: 1,
+              isHidden: false,
               cells: [
                 { column: 'A', rowNumber: 1, text: 'A 值' },
                 { column: 'G', rowNumber: 1, text: 'G 值' },
@@ -220,6 +310,134 @@ describe('Component: ExportTemplateSection', () => {
       'G 值',
       'H 值',
     ])
+  })
+
+  it('filters hidden worksheets, rows, and columns until the native preview toggles are enabled', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '可見表' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['可見表', '隱藏表'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+    })
+
+    await flushPromises()
+
+    const worksheetSelect = wrapper.find('[data-test="preview-worksheet-select"]')
+    expect(worksheetSelect.findAll('option').map((option) => option.text())).toEqual(['可見表'])
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.findAll('th[scope="col"]').map((header) => header.text())).toEqual(['列', 'A', 'C'])
+
+    await wrapper.find('#show-hidden-worksheets').setValue(true)
+    expect(worksheetSelect.findAll('option').map((option) => option.text())).toEqual(['可見表', '隱藏表'])
+    await worksheetSelect.setValue('隱藏表')
+    expect(wrapper.find('caption').text()).toContain('隱藏表')
+
+    await worksheetSelect.setValue('可見表')
+    await wrapper.find('#show-hidden-preview-rows-columns').setValue(true)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+    expect(wrapper.findAll('th[scope="col"]').map((header) => header.text().replace(/\s/g, ''))).toContain(
+      'B（隱藏欄）'
+    )
+    expect(wrapper.findAll('th[scope="col"]').map((header) => header.text().replace(/\s/g, ''))).toContain(
+      'D（隱藏欄）'
+    )
+    expect(wrapper.findAll('tbody th[scope="row"]').map((header) => header.text().replace(/\s/g, ''))).toContain(
+      '2（隱藏列）'
+    )
+    expect(wrapper.text()).toContain('ƒ 公式結果')
+    expect(wrapper.text()).toContain('↖ merged A1:C1')
+  })
+
+  it('resets hidden preview toggles when loading a different context', async () => {
+    const template: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '可見表' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+    const nextTemplate = { ...template, id: 'tpl-2', context_id: 'ctx-2' }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockImplementation(async (_userId, contextId) =>
+      contextId === 'ctx-2' ? nextTemplate : template
+    )
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['可見表', '隱藏表'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+    })
+    await flushPromises()
+
+    await wrapper.find('#show-hidden-worksheets').setValue(true)
+    await wrapper.find('[data-test="preview-worksheet-select"]').setValue('隱藏表')
+    await wrapper.find('[data-test="preview-worksheet-select"]').setValue('可見表')
+    await wrapper.find('#show-hidden-preview-rows-columns').setValue(true)
+
+    await wrapper.setProps({ contextId: 'ctx-2' })
+    await flushPromises()
+
+    expect((wrapper.find('#show-hidden-worksheets').element as HTMLInputElement).checked).toBe(false)
+    expect(
+      (wrapper.find('#show-hidden-preview-rows-columns').element as HTMLInputElement).checked
+    ).toBe(false)
+    expect(wrapper.find('[data-test="preview-worksheet-select"]').findAll('option').map((option) => option.text())).toEqual([
+      '可見表',
+    ])
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.findAll('th[scope="col"]').map((header) => header.text())).toEqual(['列', 'A', 'C'])
+  })
+
+  it('shows protected and image notices without disabling mapping controls', async () => {
+    const mockTemplate: exportTemplatesApi.ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      context_id: 'ctx-1',
+      name: '公司出勤表範本',
+      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '可見表' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+    vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['可見表'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="preview-protected-notice"]').text()).toContain('此工作表受保護')
+    expect(wrapper.find('[data-test="preview-images-notice"]').text()).toContain('Preview 不顯示圖片')
+    expect(wrapper.find('[data-test="mapping-form"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="save-mapping-button"]').attributes('disabled')).toBeUndefined()
   })
 
   it('keeps mapping editing and save available when preview parsing fails', async () => {
@@ -454,7 +672,7 @@ describe('Component: ExportTemplateSection', () => {
     )
   })
 
-  it('displays and preserves partial-success warning after replacement flow and reload', async () => {
+  it('resets hidden preview toggles after same-template replacement reload', async () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
@@ -471,6 +689,7 @@ describe('Component: ExportTemplateSection', () => {
     vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
     vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
     vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+    vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
     vi.mocked(exportTemplatesApi.replaceExportTemplate).mockResolvedValue({
       template: { ...mockTemplate, name: '更換後新範本' },
       warning: '舊範本檔案清理失敗：Storage timeout',
@@ -485,6 +704,9 @@ describe('Component: ExportTemplateSection', () => {
     })
 
     await flushPromises()
+
+    await wrapper.find('#show-hidden-worksheets').setValue(true)
+    await wrapper.find('#show-hidden-preview-rows-columns').setValue(true)
 
     // 1. Click "更換檔案" button
     const buttons = wrapper.findAll('button')
@@ -515,5 +737,11 @@ describe('Component: ExportTemplateSection', () => {
     const statusMsg = wrapper.find('[role="status"]')
     expect(statusMsg.exists()).toBe(true)
     expect(statusMsg.text()).toContain('XLSX 範本檔案已成功更換，但舊檔案清理未完成：舊範本檔案清理失敗：Storage timeout')
+    expect((wrapper.find('#show-hidden-worksheets').element as HTMLInputElement).checked).toBe(false)
+    expect(
+      (wrapper.find('#show-hidden-preview-rows-columns').element as HTMLInputElement).checked
+    ).toBe(false)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.findAll('th[scope="col"]').map((header) => header.text())).toEqual(['列', 'A', 'C'])
   })
 })
