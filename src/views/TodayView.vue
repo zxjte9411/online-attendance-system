@@ -29,6 +29,7 @@ const now = ref(new Date())
 const record = ref<AttendanceRecord | null>(null)
 const policy = ref<WorkPolicy | null>(null)
 const isLoading = ref(true)
+const setupIncomplete = ref(false)
 const action = ref<Action | null>(null)
 const loadError = ref('')
 const actionError = ref('')
@@ -98,6 +99,8 @@ onUnmounted(() => {
 
 async function load() {
   isLoading.value = true
+  setupIncomplete.value = false
+  policy.value = null
   loadError.value = ''
   successMessage.value = ''
 
@@ -114,7 +117,10 @@ async function load() {
       && getWorkPolicyStatus(candidate, getTaipeiToday(now.value)) === '目前適用'
     ))
 
-    if (!currentPolicy) throw new Error('找不到目前適用的 Work Policy，請先至設定完成工作制度。')
+    if (!currentPolicy) {
+      setupIncomplete.value = true
+      return
+    }
 
     policy.value = currentPolicy
   } catch (error) {
@@ -276,6 +282,12 @@ function formatStartTime(value: string | null | undefined) {
         <p class="text-sm leading-relaxed text-[var(--error-ink)]">打卡請求可能已由伺服器完成；重新讀取後，再決定下一步。</p>
       </div>
       <button data-action="reload-status" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-[var(--error-ink)] bg-surface px-4 py-2 font-semibold text-[var(--error-ink)] transition duration-200 ease-out hover:-translate-y-px hover:bg-canvas active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" type="button" :disabled="isLoading" :aria-busy="isLoading" @click="load">重新確認今日狀態</button>
+    </section>
+
+    <section v-else-if="setupIncomplete" class="mt-6 grid gap-2 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)]" aria-labelledby="today-setup-incomplete-title">
+      <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">WORK SETUP</span>
+      <h2 id="today-setup-incomplete-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">工作設定尚未完成。</h2>
+      <p class="text-sm leading-relaxed text-muted">目前沒有可套用的預設工作情境或工作制度；完成設定後即可開始今日出勤。</p>
     </section>
 
     <div v-else-if="!isLoading && !loadError" class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.75fr)]">
