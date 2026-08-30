@@ -144,13 +144,9 @@ export function createAppRouter(options: AppRouterOptions = {}) {
     let userId = ''
     try {
       const { data, error } = await getAuth().getSession()
-      if (error) {
-        if (isExplicitMissingAuthError(error)) return signOutAndLogin()
-        return unavailableLocation()
-      }
+      if (error) return unavailableLocation()
       isLoggedIn = Boolean(data.session)
-    } catch (error) {
-      if (isExplicitMissingAuthError(error)) return signOutAndLogin()
+    } catch {
       return to.name === 'login' ? true : unavailableLocation()
     }
 

@@ -3,7 +3,7 @@ import { AuthSessionMissingError } from '@supabase/auth-js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSupabaseAuth, signInWithGoogle, type AuthAdapter } from './lib/auth'
 import { safeRedirect } from './lib/redirect'
-import { getProfile, getSetupStatus } from './lib/settings'
+import { getProfile } from './lib/settings'
 import { createAppRouter } from './router'
 
 const { createClient } = vi.hoisted(() => ({ createClient: vi.fn() }))
@@ -13,7 +13,6 @@ vi.mock('@supabase/supabase-js', () => ({ createClient }))
 vi.mock('./lib/settings', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/settings')>()),
   getProfile: vi.fn(),
-  getSetupStatus: vi.fn(),
 }))
 
 afterEach(() => {
@@ -99,6 +98,20 @@ describe('認證路由核心', () => {
     expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
   })
 
+  it('getSession 回傳明確缺失錯誤時保留 session 並導向帳號狀態頁', async () => {
+    const auth = mockAuth({ user: { id: 'user-1' } })
+    auth.getSession = vi.fn(async () => ({
+      data: { session: { user: { id: 'user-1' } } },
+      error: new AuthSessionMissingError(),
+    })) as unknown as AuthAdapter['getSession']
+    const router = createTestRouter(auth)
+
+    await router.push('/attendance')
+
+    expect(router.currentRoute.value.name).toBe('account-unavailable')
+    expect(auth.signOut).not.toHaveBeenCalled()
+  })
+
   it('Auth server 暫時失敗時保留本機 session 並導向帳號狀態頁', async () => {
     const auth = mockAuth({ user: { id: 'user-1' } })
     auth.getUser = vi.fn(async () => ({
@@ -117,14 +130,6 @@ describe('認證路由核心', () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
     vi.mocked(getProfile).mockResolvedValue(null)
-    vi.mocked(getSetupStatus).mockResolvedValue({
-      profile: { display_name: '已完成資料' } as never,
-      contexts: [],
-      defaultContext: null,
-      policies: [],
-      complete: true,
-    })
-
     const router = createTestRouter(mockAuth({ user: { id: 'user-1' } }))
 
     await router.push('/')
@@ -185,6 +190,25 @@ describe('認證路由核心', () => {
 
     exchange.resolve({ data: { session: { user: { id: 'user-1' } } }, error: null } as ExchangeResult)
     await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/reports?month=2026-08'))
+  })
+
+  it('舊 Auth user 刪除後重新 OAuth 登入取得新 session，缺少 Profile 時重新進入設定', async () => {
+    vi.mocked(getProfile).mockResolvedValue(null)
+    let session: { user: { id: string } } | null = { user: { id: 'deleted-user' } }
+    const newSession = { user: { id: 'new-user' } }
+    const auth = mockAuth(session)
+    const exchange = deferred<ExchangeResult>()
+    auth.getSession = vi.fn(async () => ({ data: { session }, error: null })) as unknown as AuthAdapter['getSession']
+    auth.getUser = vi.fn(async () => ({ data: { user: session?.user ?? null }, error: null })) as unknown as AuthAdapter['getUser']
+    auth.exchangeCodeForSession = vi.fn(() => exchange.promise) as unknown as AuthAdapter['exchangeCodeForSession']
+    const router = createTestRouter(auth)
+
+    await router.push('/auth/callback?code=oauth-code&redirect=/')
+    session = newSession
+    exchange.resolve({ data: { session: newSession }, error: null } as ExchangeResult)
+
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('setup'))
+    expect(getProfile).toHaveBeenCalledWith('new-user')
   })
 
   it('OAuth callback exchange 尚未完成時離開，完成後不回到 callback 目的地', async () => {
