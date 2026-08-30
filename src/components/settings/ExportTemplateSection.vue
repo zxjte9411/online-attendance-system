@@ -35,7 +35,10 @@ import {
   formatColumnPickerLabel,
   checkHeaderConsistency,
   isValidHeaderRange,
+  toggleSelectionTarget,
+  clearSelectionTarget,
   type HeaderReferenceRange,
+  type PreviewSelectionTarget,
 } from '../../domain/export-template/header-reference'
 
 const props = defineProps<{
@@ -185,7 +188,7 @@ const currentRangeStart = ref<number | null>(null)
 const currentRangeEnd = ref<number | null>(null)
 const currentRangeError = ref('')
 
-const activeSelectionIndex = ref<number | null>(null)
+const activeSelectionTarget = ref<PreviewSelectionTarget>(null)
 const focusedRowIndex = ref<number | null>(null)
 
 function resetPreviewSelection() {
@@ -195,7 +198,7 @@ function resetPreviewSelection() {
   showHiddenPreviewRowsAndColumns.value = false
   worksheetHeaderRanges.value = {}
   hasAskedApplyAll.value = false
-  activeSelectionIndex.value = null
+  activeSelectionTarget.value = null
   focusedRowIndex.value = null
   currentRangeStart.value = null
   currentRangeEnd.value = null
@@ -290,24 +293,36 @@ const columnPickerOptions = computed(() => {
   })
 })
 
-function toggleSelectionMode(idx: number) {
-  if (activeSelectionIndex.value === idx) {
-    activeSelectionIndex.value = null
-  } else {
-    activeSelectionIndex.value = idx
-    focusedRowIndex.value = idx
+function isRowMappingSelectionActive(index: number): boolean {
+  return (
+    activeSelectionTarget.value?.kind === 'row_mapping' &&
+    activeSelectionTarget.value.index === index
+  )
+}
+
+function toggleRowMappingSelection(index: number) {
+  activeSelectionTarget.value = toggleSelectionTarget(activeSelectionTarget.value, {
+    kind: 'row_mapping',
+    index,
+  })
+  if (activeSelectionTarget.value) {
+    focusedRowIndex.value = index
   }
 }
 
 function cancelSelection() {
-  activeSelectionIndex.value = null
+  activeSelectionTarget.value = clearSelectionTarget()
 }
 
 function selectPreviewColumn(col: string) {
-  if (activeSelectionIndex.value !== null && rowMappings.value[activeSelectionIndex.value]) {
-    rowMappings.value[activeSelectionIndex.value].targetColumn = col.toUpperCase()
-    activeSelectionIndex.value = null
+  if (!activeSelectionTarget.value) return
+  if (activeSelectionTarget.value.kind === 'row_mapping') {
+    const item = rowMappings.value[activeSelectionTarget.value.index]
+    if (item) {
+      item.targetColumn = col.toUpperCase()
+    }
   }
+  activeSelectionTarget.value = clearSelectionTarget()
 }
 
 function onColumnSelectChange(event: Event, item: RowMappingUiItem) {
@@ -317,9 +332,19 @@ function onColumnSelectChange(event: Event, item: RowMappingUiItem) {
   }
 }
 
+const activeSelectionFieldLabel = computed(() => {
+  if (activeSelectionTarget.value?.kind === 'row_mapping') {
+    const item = rowMappings.value[activeSelectionTarget.value.index]
+    if (item) {
+      return FIELD_LABELS[item.sourceField] || item.sourceField
+    }
+  }
+  return ''
+})
+
 const highlightedTargetColumn = computed(() => {
-  if (activeSelectionIndex.value !== null) {
-    return rowMappings.value[activeSelectionIndex.value]?.targetColumn?.trim().toUpperCase() || null
+  if (activeSelectionTarget.value?.kind === 'row_mapping') {
+    return rowMappings.value[activeSelectionTarget.value.index]?.targetColumn?.trim().toUpperCase() || null
   }
   if (focusedRowIndex.value !== null) {
     return rowMappings.value[focusedRowIndex.value]?.targetColumn?.trim().toUpperCase() || null
@@ -337,8 +362,8 @@ const headerWarnings = computed(() => {
 })
 
 function handleGlobalKeyDown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && activeSelectionIndex.value !== null) {
-    activeSelectionIndex.value = null
+  if (event.key === 'Escape' && activeSelectionTarget.value !== null) {
+    cancelSelection()
   }
 }
 
@@ -563,8 +588,9 @@ async function handleUpload() {
       file: uploadFile.value,
     })
     template.value = created
-    successMessage.value = 'XLSX 範本上傳成功。'
+    resetPreviewSelection()
     await loadTemplate()
+    successMessage.value = 'XLSX 範本上傳成功。'
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '上傳範本失敗。'
     await nextTick()
@@ -597,6 +623,7 @@ async function handleReplace() {
     })
     showReplaceForm.value = false
     replaceFile.value = null
+    resetPreviewSelection()
     await loadTemplate()
     if (result.warning) {
       successMessage.value = `XLSX 範本檔案已成功更換，但舊檔案清理未完成：${result.warning}`
@@ -681,10 +708,15 @@ function addRowMapping() {
 }
 
 function removeRowMapping(index: number) {
-  if (activeSelectionIndex.value === index) {
-    activeSelectionIndex.value = null
-  } else if (activeSelectionIndex.value !== null && activeSelectionIndex.value > index) {
-    activeSelectionIndex.value -= 1
+  if (activeSelectionTarget.value?.kind === 'row_mapping') {
+    if (activeSelectionTarget.value.index === index) {
+      activeSelectionTarget.value = null
+    } else if (activeSelectionTarget.value.index > index) {
+      activeSelectionTarget.value = {
+        kind: 'row_mapping',
+        index: activeSelectionTarget.value.index - 1,
+      }
+    }
   }
   if (focusedRowIndex.value === index) {
     focusedRowIndex.value = null
@@ -1108,12 +1140,12 @@ async function handleSaveMapping() {
 
           <!-- Active Selection Banner -->
           <div
-            v-if="activeSelectionIndex !== null"
+            v-if="activeSelectionTarget !== null"
             data-test="preview-selection-active-banner"
             class="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-accent bg-surface-soft p-3 text-xs text-ink"
           >
             <span>
-              正在為「<strong>{{ FIELD_LABELS[rowMappings[activeSelectionIndex]?.sourceField] || rowMappings[activeSelectionIndex]?.sourceField }}</strong>」選取目標欄位。請點擊下方欄位標題，或使用鍵盤 Enter / Space 完成選取。
+              正在為「<strong>{{ activeSelectionFieldLabel }}</strong>」選取目標欄位。請點擊下方欄位標題，或使用鍵盤 Enter / Space 完成選取。
             </span>
             <button
               type="button"
@@ -1141,14 +1173,14 @@ async function handleSaveMapping() {
                     :class="[
                       'border-b border-line px-3 py-2 font-mono font-semibold transition-colors',
                       highlightedTargetColumn === column.column ? 'bg-accent/15 border-accent text-accent' : '',
-                      activeSelectionIndex !== null ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
+                      activeSelectionTarget !== null ? 'cursor-pointer hover:bg-accent/25 focus-visible:outline-3 focus-visible:outline-accent' : ''
                     ]"
-                    :tabindex="activeSelectionIndex !== null ? 0 : undefined"
-                    :role="activeSelectionIndex !== null ? 'button' : undefined"
-                    :aria-label="activeSelectionIndex !== null ? `選取目標欄位 ${column.column}` : undefined"
-                    @click="activeSelectionIndex !== null && selectPreviewColumn(column.column)"
-                    @keydown.enter.prevent="activeSelectionIndex !== null && selectPreviewColumn(column.column)"
-                    @keydown.space.prevent="activeSelectionIndex !== null && selectPreviewColumn(column.column)"
+                    :tabindex="activeSelectionTarget !== null ? 0 : undefined"
+                    :role="activeSelectionTarget !== null ? 'button' : undefined"
+                    :aria-label="activeSelectionTarget !== null ? `選取目標欄位 ${column.column}` : undefined"
+                    @click="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
+                    @keydown.enter.prevent="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
+                    @keydown.space.prevent="activeSelectionTarget !== null && selectPreviewColumn(column.column)"
                   >
                     <div class="flex flex-col">
                       <span>
@@ -1382,14 +1414,14 @@ async function handleSaveMapping() {
                       :data-test="`select-from-preview-btn-${idx}`"
                       :class="[
                         'min-h-10 px-2.5 py-1 text-xs font-semibold rounded-[0.5rem] border transition-colors whitespace-nowrap',
-                        activeSelectionIndex === idx
+                        isRowMappingSelectionActive(idx)
                           ? 'bg-accent text-surface border-accent'
                           : 'bg-surface text-ink border-line hover:border-accent'
                       ]"
-                      :aria-pressed="activeSelectionIndex === idx"
-                      @click="toggleSelectionMode(idx)"
+                      :aria-pressed="isRowMappingSelectionActive(idx)"
+                      @click="toggleRowMappingSelection(idx)"
                     >
-                      {{ activeSelectionIndex === idx ? '選取中…' : '從預覽選取' }}
+                      {{ isRowMappingSelectionActive(idx) ? '選取中…' : '從預覽選取' }}
                     </button>
                   </div>
                 </div>

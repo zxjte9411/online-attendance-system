@@ -1154,5 +1154,115 @@ describe('Component: ExportTemplateSection', () => {
       expect(wrapper.text()).toContain('已設定：Row 4–5')
       confirmSpy.mockRestore()
     })
+
+    it('switches active selection target when another row mapping picker is activated', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      const selectBtn0 = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      const selectBtn1 = wrapper.find('[data-test="select-from-preview-btn-1"]')
+
+      // 1. Activate target 0
+      await selectBtn0.trigger('click')
+      expect(selectBtn0.attributes('aria-pressed')).toBe('true')
+      expect(selectBtn1.attributes('aria-pressed')).toBe('false')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('日期（定位欄位）')
+
+      // 2. Activate target 1 -> target 0 becomes inactive, target 1 becomes single active target
+      await selectBtn1.trigger('click')
+      expect(selectBtn0.attributes('aria-pressed')).toBe('false')
+      expect(selectBtn1.attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').text()).toContain('實際上班時間')
+
+      // 3. Select column D from preview table -> only target 1 is updated
+      const headerD = wrapper.find('[data-test="preview-column-header-D"]')
+      await headerD.trigger('click')
+      await flushPromises()
+
+      expect((wrapper.find('[data-test="row-col-input-0"]').element as HTMLInputElement).value).toBe('B') // unchanged
+      expect((wrapper.find('[data-test="row-col-input-1"]').element as HTMLInputElement).value).toBe('D') // updated
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      expect(selectBtn1.attributes('aria-pressed')).toBe('false')
+    })
+
+    it('resets all Issue #37 preview and selection session state on same-template workbook replacement', async () => {
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
+      vi.mocked(exportTemplatesApi.replaceExportTemplate).mockResolvedValue({
+        template: mockTemplate,
+        warning: '舊範本檔案清理失敗：Storage timeout',
+      })
+
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      })
+      await flushPromises()
+
+      // 1. Set header reference range on 8月
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('已設定：Row 4–5')
+
+      // 2. Enter active selection mode on row mapping 0
+      const selectBtn0 = wrapper.find('[data-test="select-from-preview-btn-0"]')
+      await selectBtn0.trigger('click')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(true)
+
+      // 3. Open replace form and replace file with same template ID
+      const replaceToggleBtn = wrapper.findAll('button').find((b) => b.text().includes('更換檔案'))
+      await replaceToggleBtn!.trigger('click')
+      await flushPromises()
+
+      const fileInput = wrapper.find('input[type="file"]')
+      const dummyFile = new File(['fake xlsx'], 'replacement.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      Object.defineProperty(fileInput.element, 'files', {
+        value: [dummyFile],
+        writable: false,
+      })
+      await fileInput.trigger('change')
+      await flushPromises()
+
+      const replaceForm = wrapper.findAll('form').find((f) => f.text().includes('確認更換'))
+      await replaceForm!.trigger('submit')
+      await flushPromises()
+
+      // 4. Assert partial-success warning / message is preserved
+      const statusMsg = wrapper.find('[role="status"]')
+      expect(statusMsg.exists()).toBe(true)
+      expect(statusMsg.text()).toContain('XLSX 範本檔案已成功更換，但舊檔案清理未完成：舊範本檔案清理失敗：Storage timeout')
+
+      // 5. Assert header reference range, active selection, and focused highlight are completely reset
+      expect(wrapper.find('[data-test="current-header-range-info"]').exists()).toBe(false)
+      expect((wrapper.find('[data-test="header-range-start"]').element as HTMLInputElement).value).toBe('')
+      expect((wrapper.find('[data-test="header-range-end"]').element as HTMLInputElement).value).toBe('')
+      expect(wrapper.find('[data-test="preview-selection-active-banner"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="select-from-preview-btn-0"]').attributes('aria-pressed')).toBe('false')
+
+      // 6. Assert first-time apply-all prompt semantics restart for the new workbook
+      confirmSpy.mockClear()
+      await wrapper.find('[data-test="header-range-start"]').setValue(4)
+      await wrapper.find('[data-test="header-range-end"]').setValue(5)
+      await wrapper.find('[data-test="apply-header-range-btn"]').trigger('click')
+      await flushPromises()
+
+      expect(confirmSpy).toHaveBeenCalledWith('是否將此標題參考範圍套用到所有工作表？（後續仍可個別調整）')
+
+      confirmSpy.mockRestore()
+    })
   })
 })
