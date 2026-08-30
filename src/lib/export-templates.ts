@@ -6,7 +6,7 @@ import {
   type RowMappingEntry,
   type StaticCellMappingEntry,
 } from '../domain/export-template/mapping-validator'
-import { parseDateCellValue } from '../domain/export-template/xlsx-export'
+import { isFormulaCell, parseDateCellValue } from '../domain/export-template/xlsx-export'
 
 export interface ExportTemplate {
   id: string
@@ -87,12 +87,21 @@ export interface WorkbookPreviewCell {
 
 export interface WorkbookPreviewRow {
   readonly rowNumber: number
+  readonly isHidden: boolean
   readonly cells: readonly WorkbookPreviewCell[]
+}
+
+export interface WorkbookPreviewColumn {
+  readonly column: string
+  readonly isHidden: boolean
 }
 
 export interface WorkbookWorksheetPreview {
   readonly name: string
-  readonly columns: readonly string[]
+  readonly isHidden: boolean
+  readonly isProtected: boolean
+  readonly hasImages: boolean
+  readonly columns: readonly WorkbookPreviewColumn[]
   readonly rows: readonly WorkbookPreviewRow[]
 }
 
@@ -120,18 +129,23 @@ export async function getWorkbookPreview(
   }
 
   return {
-    worksheets: workbook.worksheets.filter((worksheet) => worksheet.state === 'visible').map((worksheet) => {
+    worksheets: workbook.worksheets.map((worksheet) => {
       const previewRowCount = Math.min(worksheet.rowCount, WORKBOOK_PREVIEW_MAX_ROWS)
       const previewRows = Array.from({ length: previewRowCount }, (_, index) => {
         const rowNumber = index + 1
         return { rowNumber, row: worksheet.getRow(rowNumber) }
       })
       let rightmostValueColumn = 0
+      let rightmostMergedColumn = 0
 
       for (const { row } of previewRows) {
         row.eachCell((cell) => {
           if (hasPreviewValue(cell)) {
-            rightmostValueColumn = Math.max(rightmostValueColumn, Number(cell.col))
+            const columnNumber = Number(cell.col)
+            rightmostValueColumn = Math.max(rightmostValueColumn, columnNumber)
+            if (cell.isMerged && cell.master.address === cell.address) {
+              rightmostMergedColumn = Math.max(rightmostMergedColumn, getMergedRangeEndColumn(cell))
+            }
           }
         })
       }
@@ -139,7 +153,10 @@ export async function getWorkbookPreview(
       const visibleColumnCount = Math.min(
         WORKBOOK_PREVIEW_MAX_COLUMNS,
         rightmostValueColumn > 0
-          ? rightmostValueColumn + WORKBOOK_PREVIEW_TRAILING_COLUMNS
+          ? Math.max(
+              rightmostValueColumn + WORKBOOK_PREVIEW_TRAILING_COLUMNS,
+              rightmostMergedColumn
+            )
           : 0
       )
       const rows: WorkbookPreviewRow[] = []
@@ -148,10 +165,7 @@ export async function getWorkbookPreview(
         const cells: WorkbookPreviewCell[] = []
         row.eachCell((cell) => {
           const columnNumber = Number(cell.col)
-          if (
-            columnNumber <= visibleColumnCount &&
-            hasPreviewValue(cell)
-          ) {
+          if (columnNumber <= visibleColumnCount && (hasPreviewValue(cell) || isMergedMember(cell))) {
             cells.push({
               column: columnNumberToLetter(columnNumber),
               rowNumber,
@@ -160,14 +174,23 @@ export async function getWorkbookPreview(
           }
         })
 
-        rows.push({ rowNumber, cells })
+        rows.push({ rowNumber, isHidden: row.hidden, cells })
       }
 
       return {
         name: worksheet.name,
-        columns: Array.from({ length: visibleColumnCount }, (_, index) =>
-          columnNumberToLetter(index + 1)
+        isHidden: worksheet.state !== 'visible',
+        isProtected: Boolean(
+          (worksheet as ExcelJS.Worksheet & { sheetProtection?: unknown }).sheetProtection
         ),
+        hasImages: worksheet.getImages().length > 0,
+        columns: Array.from({ length: visibleColumnCount }, (_, index) => {
+          const columnNumber = index + 1
+          return {
+            column: columnNumberToLetter(columnNumber),
+            isHidden: worksheet.getColumn(columnNumber).hidden,
+          }
+        }),
         rows,
       }
     }),
@@ -193,13 +216,74 @@ function hasPreviewValue(cell: ExcelJS.Cell): boolean {
   )
 }
 
+function isMergedMember(cell: ExcelJS.Cell): boolean {
+  return cell.isMerged && cell.master.address !== cell.address
+}
+
 function previewCellText(cell: ExcelJS.Cell): string {
   if (cell.value instanceof Date) {
     const formatted = formatExcelDateTime(cell.value, cell.numFmt)
     if (formatted) return formatted
   }
 
+  if (isFormulaCell(cell)) {
+    const result = cell.result as unknown
+    if (result !== undefined && result !== null) {
+      if (isCellErrorValue(result)) return `ƒ ${result.error}`
+      if (result instanceof Date) {
+        const formatted = formatExcelDateTime(result, cell.numFmt)
+        if (formatted) return `ƒ ${formatted}`
+      }
+      if (typeof result === 'object') {
+        if (cell.text && cell.text !== '[object Object]') return `ƒ ${cell.text}`
+        const formula = cell.formula || formulaFromValue(cell.value)
+        return `ƒ =${formula.replace(/^=/, '')}`
+      }
+      return `ƒ ${String(result)}`
+    }
+
+    const formula = cell.formula || formulaFromValue(cell.value)
+    return `ƒ =${formula.replace(/^=/, '')}`
+  }
+
+  if (isMergedMember(cell)) {
+    return `↖ merged ${getMergedRange(cell)}`
+  }
+
   return cell.text || String(cell.value)
+}
+
+function isCellErrorValue(value: unknown): value is { error: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'error' in value &&
+    typeof value.error === 'string'
+  )
+}
+
+function formulaFromValue(value: ExcelJS.CellValue): string {
+  if (typeof value === 'object' && value !== null && 'formula' in value) {
+    return value.formula || ''
+  }
+  return ''
+}
+
+function getMergedRange(cell: ExcelJS.Cell): string {
+  const address = cell.master.address
+  const range = cell.worksheet.model.merges.find((merge) => merge.startsWith(`${address}:`))
+  return range || address
+}
+
+function getMergedRangeEndColumn(cell: ExcelJS.Cell): number {
+  const endAddress = getMergedRange(cell).split(':').at(-1) || cell.master.address
+  const match = /^\$?([A-Z]+)\$?\d+$/i.exec(endAddress)
+  if (!match) return Number(cell.col)
+
+  return match[1].toUpperCase().split('').reduce(
+    (columnNumber, letter) => columnNumber * 26 + letter.charCodeAt(0) - 64,
+    0
+  )
 }
 
 function formatExcelDateTime(value: Date, numFmt: string | undefined): string | null {

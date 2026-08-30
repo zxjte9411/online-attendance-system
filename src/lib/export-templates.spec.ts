@@ -120,18 +120,47 @@ describe('Lib: Export Templates Service', () => {
     const bytes = new Uint8Array(await readFile(syntheticFixturePath))
     const preview = await getWorkbookPreview(bytes)
 
-    expect(preview.worksheets).toHaveLength(13)
+    expect(preview.worksheets).toHaveLength(14)
     expect(preview.worksheets.map((worksheet) => worksheet.name)).toContain('Aug')
-    expect(preview.worksheets.map((worksheet) => worksheet.name)).not.toContain('_HiddenLookup')
+    expect(preview.worksheets.map((worksheet) => worksheet.name)).toContain('_HiddenLookup')
+
+    const hiddenLookup = preview.worksheets.find((worksheet) => worksheet.name === '_HiddenLookup')
+    expect(hiddenLookup).toMatchObject({ isHidden: true, isProtected: false, hasImages: false })
+
+    const april = preview.worksheets.find((worksheet) => worksheet.name === 'Apr')
+    expect(april).toMatchObject({ isHidden: false, isProtected: true, hasImages: false })
+    expect(april?.rows[2]).toMatchObject({ rowNumber: 3, isHidden: true })
+    expect(april?.rows[2].cells).toContainEqual(
+      expect.objectContaining({ column: 'A', text: '隱藏說明列（Synthetic）' })
+    )
+
+    const march = preview.worksheets.find((worksheet) => worksheet.name === 'Mar')
+    expect(march?.columns.find((column) => column.column === 'K')).toEqual({
+      column: 'K',
+      isHidden: true,
+    })
+    expect(march?.rows[3].cells).toContainEqual(
+      expect.objectContaining({ column: 'K', text: '隱藏輔助欄' })
+    )
 
     const august = preview.worksheets.find((worksheet) => worksheet.name === 'Aug')
     expect(august).toBeDefined()
     if (!august) throw new Error('Aug worksheet missing from fixture preview')
 
     expect(august.columns).toHaveLength(11)
-    expect(august.columns.at(-1)).toBe('K')
+    expect(august.columns.at(-1)?.column).toBe('K')
     expect(august.rows).toHaveLength(200)
-    expect(august.rows[2]).toEqual({ rowNumber: 3, cells: [] })
+    expect(august).toMatchObject({ isHidden: false, isProtected: true, hasImages: false })
+    expect(august.rows[2]).toEqual({ rowNumber: 3, isHidden: false, cells: [] })
+    expect(august.rows[3].cells).toContainEqual(
+      expect.objectContaining({ column: 'E', text: '出勤時數統計' })
+    )
+    expect(august.rows[3].cells).toContainEqual(
+      expect.objectContaining({ column: 'F', text: '↖ merged E4:H4' })
+    )
+    expect(august.rows[5].cells).toContainEqual(
+      expect.objectContaining({ column: 'B', text: 'ƒ =CHOOSE(WEEKDAY(A6,2),"一","二","三","四","五","六","日")' })
+    )
     expect(august.rows[3].cells).toContainEqual({
       column: 'I',
       rowNumber: 4,
@@ -149,6 +178,7 @@ describe('Lib: Export Templates Service', () => {
       text: '備註：本檔為去識別化 synthetic fixture，所有資料皆為虛構。',
     })
     expect(august.rows[199].cells).toEqual([])
+    expect(august.columns.length).toBeLessThanOrEqual(50)
   })
 
   it('keeps empty row positions in the first 200 worksheet rows', async () => {
@@ -162,13 +192,153 @@ describe('Lib: Export Templates Service', () => {
     const preview = await getWorkbookPreview(bytes)
     const rows = preview.worksheets[0].rows
 
-    expect(preview.worksheets[0].columns).toEqual(['A', 'B', 'C', 'D'])
+    expect(preview.worksheets[0].columns).toEqual([
+      { column: 'A', isHidden: false },
+      { column: 'B', isHidden: false },
+      { column: 'C', isHidden: false },
+      { column: 'D', isHidden: false },
+    ])
     expect(rows).toHaveLength(200)
     expect(rows[0].rowNumber).toBe(1)
-    expect(rows[1]).toEqual({ rowNumber: 2, cells: [] })
+    expect(rows[1]).toEqual({ rowNumber: 2, isHidden: false, cells: [] })
     expect(rows[2].rowNumber).toBe(3)
     expect(rows[199].rowNumber).toBe(200)
     expect(rows[199].cells).toEqual([])
+  })
+
+  it('caps columns at 50 without expanding for a far empty cell', async () => {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('欄位上限')
+    worksheet.getCell('A1').value = '保留'
+    worksheet.getCell('AY1').value = '超出欄位上限'
+    worksheet.getCell('AZ1').value = ''
+
+    const preview = await getWorkbookPreview(
+      new Uint8Array(await workbook.xlsx.writeBuffer())
+    )
+    const result = preview.worksheets[0]
+
+    expect(result.columns).toHaveLength(50)
+    expect(result.columns.at(-1)?.column).toBe('AX')
+    expect(result.rows[0].cells).toEqual([
+      { column: 'A', rowNumber: 1, text: '保留' },
+    ])
+  })
+
+  it('exposes worksheet, row, column, formula, merge, and image edge metadata', async () => {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Visible')
+    const hiddenWorksheet = workbook.addWorksheet('Hidden')
+    hiddenWorksheet.state = 'hidden'
+
+    worksheet.getRow(2).hidden = true
+    worksheet.getColumn('B').hidden = true
+    worksheet.getColumn('D').hidden = true
+    worksheet.getCell('A1').value = 'visible'
+    worksheet.getCell('B1').value = 'hidden column'
+    worksheet.getCell('A2').value = 'hidden row'
+    worksheet.getCell('A3').value = { formula: '1+1', result: 2 }
+    worksheet.getCell('C3').value = { formula: 'SUM(A1:A2)' }
+    worksheet.getCell('D3').value = { formula: 'REF()', result: { error: '#REF!' } }
+    worksheet.getCell('E3').value = { formula: '1/0', result: { error: '#DIV/0!' } }
+    worksheet.getCell('F3').value = { formula: 'TEXT()', result: 'cached text' }
+    worksheet.getCell('G3').value = { formula: 'TRUE()', result: true }
+    worksheet.getCell('H3').value = { formula: 'TODAY()', result: new Date('2026-08-03T00:00:00.000Z') }
+    worksheet.getCell('H3').numFmt = 'yyyy/mm/dd'
+    worksheet.mergeCells('A4:H4')
+    worksheet.getCell('A4').value = 'Merged owner'
+    worksheet.getCell('Z200').value = ''
+
+    const imageId = workbook.addImage({
+      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      extension: 'png',
+    })
+    worksheet.addImage(imageId, 'Z1:Z2')
+    await worksheet.protect('secret', {})
+
+    const preview = await getWorkbookPreview(new Uint8Array(await workbook.xlsx.writeBuffer()))
+    const visible = preview.worksheets.find((sheet) => sheet.name === 'Visible')
+    expect(visible).toMatchObject({ isHidden: false, isProtected: true, hasImages: true })
+    expect(preview.worksheets.find((sheet) => sheet.name === 'Hidden')).toMatchObject({
+      isHidden: true,
+    })
+    if (!visible) throw new Error('Visible worksheet missing from preview')
+
+    expect(visible.columns).toEqual([
+      { column: 'A', isHidden: false },
+      { column: 'B', isHidden: true },
+      { column: 'C', isHidden: false },
+      { column: 'D', isHidden: true },
+      { column: 'E', isHidden: false },
+      { column: 'F', isHidden: false },
+      { column: 'G', isHidden: false },
+      { column: 'H', isHidden: false },
+      { column: 'I', isHidden: false },
+      { column: 'J', isHidden: false },
+    ])
+    expect(visible.rows).toHaveLength(200)
+    expect(visible.rows.find((row) => row.rowNumber === 2)).toMatchObject({ isHidden: true })
+    expect(visible.rows[0].cells).toContainEqual(
+      expect.objectContaining({ column: 'B', text: 'hidden column' })
+    )
+
+    const formulaRow = visible.rows.find((row) => row.rowNumber === 3)
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'A', text: 'ƒ 2' })
+    )
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'C', text: 'ƒ =SUM(A1:A2)' })
+    )
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'D', text: 'ƒ #REF!' })
+    )
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'E', text: 'ƒ #DIV/0!' })
+    )
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'F', text: 'ƒ cached text' })
+    )
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'G', text: 'ƒ true' })
+    )
+    expect(formulaRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'H', text: 'ƒ 2026/08/03' })
+    )
+
+    const mergedRow = visible.rows.find((row) => row.rowNumber === 4)
+    expect(mergedRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'A', text: 'Merged owner' })
+    )
+    expect(mergedRow?.cells).toContainEqual(
+      expect.objectContaining({ column: 'B', text: '↖ merged A4:H4' })
+    )
+    expect(mergedRow?.cells.map((cell) => cell.column)).toEqual([
+      'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+    ])
+  })
+
+  it('falls back to formula text for an unknown object-shaped cached result', async () => {
+    const sourceWorkbook = new ExcelJS.Workbook()
+    const sourceWorksheet = sourceWorkbook.addWorksheet('Unknown result')
+    sourceWorksheet.getCell('A1').value = { formula: 'ORIGINAL()' }
+    const bytes = await sourceWorkbook.xlsx.writeBuffer()
+
+    const xlsxPrototype = Object.getPrototypeOf(new ExcelJS.Workbook().xlsx)
+    const originalLoad = xlsxPrototype.load
+    const loadSpy = vi.spyOn(xlsxPrototype, 'load').mockImplementation(async function (this: any, input: any) {
+      await originalLoad.call(this, input)
+      this.workbook.getWorksheet('Unknown result').getCell('A1').value = {
+        formula: 'SOME_FORMULA()',
+        result: { unexpected: true },
+      }
+    })
+
+    try {
+      const preview = await getWorkbookPreview(new Uint8Array(bytes))
+      expect(preview.worksheets[0].rows[0].cells[0].text).toBe('ƒ =SOME_FORMULA()')
+    } finally {
+      loadSpy.mockRestore()
+    }
   })
 
   it('formats common Excel date and time number formats for preview', async () => {
