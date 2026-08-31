@@ -8,7 +8,7 @@ import { exportReportToCsv } from '../domain/report/csv-export'
 import {
   getCurrentUserId,
   listWorkContexts,
-  listWorkPolicies,
+  listLegacyWorkPolicies,
   type WorkContext,
   type WorkPolicy,
 } from '../lib/settings'
@@ -141,7 +141,7 @@ async function loadMonthData() {
   try {
     const userId = await getCurrentUserId()
     const [policies, records, statuses, overrides, dgpas, template] = await Promise.all([
-      listWorkPolicies(userId, requestedContextId),
+      listLegacyWorkPolicies(userId, requestedContextId),
       getMonthAttendanceRecords(requestedMonth),
       getDayStatusesForMonth(requestedMonth),
       getCalendarOverridesForMonth(requestedMonth),

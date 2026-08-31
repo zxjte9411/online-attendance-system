@@ -245,16 +245,20 @@ select is(
 -- 9. Independence & Coexistence
 -- Setup User A context and policy for attendance
 select * into temporary issue_20_a_context from public.create_work_context('Issue 20 A', 'Company A', 'Project A');
+select * into temporary issue_20_a_assignment
+from public.create_work_assignment('Issue 20 Employer', 'Issue 20 Client', 'Issue 20 Project', '2026-01-01', null);
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
   working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000020', id, 'Issue 20 A policy', '09:00', 480, 60,
+  '00000000-0000-0000-0000-000000000020', id, (select id from issue_20_a_assignment), 'Issue 20 A policy', '09:00', 480, 60,
   'STANDARD_START', 'NONE', 'NONE',
   array['1', '2', '3', '4', '5'], '2026-01-01', null
 from issue_20_a_context;
+set role authenticated;
 
 -- Clock in today (returns an attendance record)
 select clock_in_today();

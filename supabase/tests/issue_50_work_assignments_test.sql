@@ -244,6 +244,7 @@ create temp table test_policies (
 insert into test_policies (id)
 values (gen_random_uuid());
 
+set role postgres;
 insert into public.work_policies (
   id, user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, working_days, effective_from, effective_to

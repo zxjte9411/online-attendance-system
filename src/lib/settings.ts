@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './supabase'
-import { getWorkPolicyStatus } from './work-policy'
+import type { WorkAssignment } from '../domain/work-assignment/work-assignment'
+import { listWorkAssignments } from './work-assignment'
 
 export type {
   WorkAssignment,
@@ -15,7 +16,7 @@ export {
 
 const profileFields = 'id,display_name,timezone,created_at,updated_at'
 const contextFields = 'id,user_id,name,company_identifier,project_identifier,active,is_default,created_at,updated_at'
-const policyFields = 'id,user_id,context_id,name,standard_start_time,work_minutes,fixed_break_minutes,early_arrival_policy,clock_in_rounding_mode,clock_in_rounding_minutes,clock_out_rounding_mode,clock_out_rounding_minutes,working_days,effective_from,effective_to,timezone,created_at,updated_at'
+const policyFields = 'id,user_id,assignment_id,context_id,name,standard_start_time,work_minutes,fixed_break_minutes,early_arrival_policy,clock_in_rounding_mode,clock_in_rounding_minutes,clock_out_rounding_mode,clock_out_rounding_minutes,working_days,effective_from,effective_to,timezone,created_at,updated_at'
 
 export type Profile = {
   id: string
@@ -44,10 +45,11 @@ export type ClockInRoundingMode = 'NONE' | 'CEIL'
 export type ClockOutRoundingMode = 'NONE' | 'CEIL' | 'FLOOR'
 export type WorkingDay = '0' | '1' | '2' | '3' | '4' | '5' | '6'
 
-export type WorkPolicy = {
+type WorkPolicyFields = {
   id: string
   user_id: string
-  context_id: string
+  assignment_id?: string | null
+  context_id: string | null
   name: string
   standard_start_time: string
   work_minutes: number
@@ -65,7 +67,22 @@ export type WorkPolicy = {
   updated_at?: string
 }
 
-export type WorkPolicyInput = Omit<WorkPolicy, 'id' | 'user_id' | 'context_id' | 'created_at' | 'updated_at'>
+export type WorkPolicy = WorkPolicyFields
+
+export type WorkPolicyInput = Omit<WorkPolicyFields, 'id' | 'user_id' | 'assignment_id' | 'context_id' | 'created_at' | 'updated_at'>
+
+type AssignmentWorkPolicy = WorkPolicy & { assignment_id: string }
+
+export type SetupStatus = {
+  profile: Profile | null
+  assignments?: WorkAssignment[]
+  currentAssignment?: WorkAssignment | null
+  policies: WorkPolicy[]
+  complete: boolean
+  // Legacy setup consumers are migrated separately from this data-access lane.
+  contexts: WorkContext[]
+  defaultContext: WorkContext | null
+}
 
 export async function getCurrentUserId() {
   const { data, error } = await getSupabaseClient().auth.getSession()
@@ -162,7 +179,19 @@ export async function setDefaultWorkContext(userId: string, contextId: string) {
   return listWorkContexts(userId)
 }
 
-export async function listWorkPolicies(userId: string, contextId: string) {
+export async function listWorkPolicies(userId: string, assignmentId: string): Promise<WorkPolicy[]> {
+  const { data, error } = await getSupabaseClient()
+    .from('work_policies')
+    .select(policyFields)
+    .eq('user_id', userId)
+    .eq('assignment_id', assignmentId)
+    .order('effective_from', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []) as WorkPolicy[]
+}
+
+export async function listLegacyWorkPolicies(userId: string, contextId: string): Promise<WorkPolicy[]> {
   const { data, error } = await getSupabaseClient()
     .from('work_policies')
     .select(policyFields)
@@ -174,64 +203,82 @@ export async function listWorkPolicies(userId: string, contextId: string) {
   return (data ?? []) as WorkPolicy[]
 }
 
-export async function createWorkPolicy(userId: string, contextId: string, input: WorkPolicyInput) {
-  const { data, error } = await getSupabaseClient()
-    .from('work_policies')
-    .insert({ user_id: userId, context_id: contextId, ...input })
-    .select(policyFields)
-    .single()
+export async function createWorkPolicy(assignmentId: string, input: WorkPolicyInput): Promise<AssignmentWorkPolicy> {
+  const { data, error } = await getSupabaseClient().rpc('create_work_policy', {
+    p_assignment_id: assignmentId,
+    p_name: input.name,
+    p_standard_start_time: input.standard_start_time,
+    p_work_minutes: input.work_minutes,
+    p_fixed_break_minutes: input.fixed_break_minutes,
+    p_early_arrival_policy: input.early_arrival_policy,
+    p_clock_in_rounding_mode: input.clock_in_rounding_mode,
+    p_clock_in_rounding_minutes: input.clock_in_rounding_minutes,
+    p_clock_out_rounding_mode: input.clock_out_rounding_mode,
+    p_clock_out_rounding_minutes: input.clock_out_rounding_minutes,
+    p_working_days: input.working_days,
+    p_effective_from: input.effective_from,
+    p_effective_to: input.effective_to,
+    p_timezone: input.timezone,
+  })
 
   if (error) throw error
-  return data as WorkPolicy
+  return data as AssignmentWorkPolicy
 }
 
-export async function updateWorkPolicyEffectiveTo(userId: string, policyId: string, effectiveTo: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) {
-    throw new Error('請提供有效的制度結束日期。')
-  }
-
-  const client = getSupabaseClient()
-  const { data: policy, error: readError } = await client
-    .from('work_policies')
-    .select('effective_from')
-    .eq('id', policyId)
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (readError) throw readError
-  if (!policy) throw new Error('找不到要結束的 Work Policy。')
-  if (effectiveTo < policy.effective_from) {
-    throw new Error('制度結束日期不能早於生效起日。')
-  }
-
-  const { data, error } = await client
-    .from('work_policies')
-    .update({ effective_to: effectiveTo })
-    .eq('id', policyId)
-    .eq('user_id', userId)
-    .is('effective_to', null)
-    .select(policyFields)
-    .single()
+export async function updateWorkPolicy(policyId: string, input: WorkPolicyInput): Promise<AssignmentWorkPolicy> {
+  const { data, error } = await getSupabaseClient().rpc('update_work_policy', {
+    p_id: policyId,
+    p_name: input.name,
+    p_standard_start_time: input.standard_start_time,
+    p_work_minutes: input.work_minutes,
+    p_fixed_break_minutes: input.fixed_break_minutes,
+    p_early_arrival_policy: input.early_arrival_policy,
+    p_clock_in_rounding_mode: input.clock_in_rounding_mode,
+    p_clock_in_rounding_minutes: input.clock_in_rounding_minutes,
+    p_clock_out_rounding_mode: input.clock_out_rounding_mode,
+    p_clock_out_rounding_minutes: input.clock_out_rounding_minutes,
+    p_working_days: input.working_days,
+    p_effective_from: input.effective_from,
+    p_effective_to: input.effective_to,
+    p_timezone: input.timezone,
+  })
 
   if (error) throw error
-  return data as WorkPolicy
+  return data as AssignmentWorkPolicy
 }
 
-export async function getSetupStatus(userId: string) {
-  const profile = await getProfile(userId)
-  const contexts = await listWorkContexts(userId)
+export async function hasAttendanceRecordsForWorkPolicy(
+  policyId: string
+): Promise<boolean> {
+  const { data, error } = await getSupabaseClient().rpc('has_attendance_records_for_work_policy', {
+    p_id: policyId,
+  })
+
+  if (error) throw error
+  return Boolean(data)
+}
+
+export async function getSetupStatus(userId: string): Promise<SetupStatus> {
+  const [profile, contexts, assignments] = await Promise.all([
+    getProfile(userId),
+    listWorkContexts(userId),
+    listWorkAssignments(userId),
+  ])
   const defaultContext = contexts.find((context) => context.active && context.is_default) ?? null
-  const policies = defaultContext ? await listWorkPolicies(userId, defaultContext.id) : []
+  const setupAssignment = assignments[0] ?? null
+  const policies = defaultContext ? await listLegacyWorkPolicies(userId, defaultContext.id) : []
 
   return {
     profile,
+    assignments,
+    currentAssignment: setupAssignment,
     contexts,
     defaultContext,
     policies,
     complete: Boolean(
       profile?.display_name?.trim()
       && defaultContext
-      && policies.some((policy) => getWorkPolicyStatus(policy) === '目前適用'),
+      && policies.length > 0,
     ),
   }
 }

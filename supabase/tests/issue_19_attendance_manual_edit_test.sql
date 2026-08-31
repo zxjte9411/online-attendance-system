@@ -66,14 +66,30 @@ set local "request.jwt.claims" = '{"sub":"22222222-2222-4222-8222-222222222222"}
 insert into test_context_ids (label, id)
 select 'context_b', id from public.create_work_context('Context B', 'COMP-B', 'PROJ-B');
 
+create temp table test_assignment_ids (
+  user_id uuid primary key,
+  id uuid not null
+) on commit drop;
+
+insert into test_assignment_ids (user_id, id)
+select '22222222-2222-4222-8222-222222222222', id
+from public.create_work_assignment('Employer B', 'Client B', 'Project B', '2026-01-01', null);
+
+set local "request.jwt.claims" = '{"sub":"11111111-1111-4111-8111-111111111111"}';
+insert into test_assignment_ids (user_id, id)
+select '11111111-1111-4111-8111-111111111111', id
+from public.create_work_assignment('Employer A', 'Client A', 'Project A', '2026-01-01', null);
+
 -- Insert policies
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes,
   clock_out_rounding_mode, clock_out_rounding_minutes, working_days, effective_from, effective_to, timezone
 ) values (
   '22222222-2222-4222-8222-222222222222',
   (select id from test_context_ids where label = 'context_b'),
+  (select id from test_assignment_ids where user_id = '22222222-2222-4222-8222-222222222222'),
   'User B Policy',
   '09:00:00',
   480,
@@ -89,16 +105,19 @@ insert into public.work_policies (
   'Asia/Taipei'
 );
 
+set role authenticated;
 set local "request.jwt.claims" = '{"sub":"11111111-1111-4111-8111-111111111111"}';
 
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes,
   clock_out_rounding_mode, clock_out_rounding_minutes, working_days, effective_from, effective_to, timezone
 ) values
   (
     '11111111-1111-4111-8111-111111111111',
     (select id from test_context_ids where label = 'context_a1'),
+    (select id from test_assignment_ids where user_id = '11111111-1111-4111-8111-111111111111'),
     'Old Policy',
     '09:00:00',
     480,
@@ -116,6 +135,7 @@ insert into public.work_policies (
   (
     '11111111-1111-4111-8111-111111111111',
     (select id from test_context_ids where label = 'context_a1'),
+    (select id from test_assignment_ids where user_id = '11111111-1111-4111-8111-111111111111'),
     'Current Policy',
     '09:30:00',
     480,
@@ -130,6 +150,7 @@ insert into public.work_policies (
     null,
     'Asia/Taipei'
   );
+set role authenticated;
 
 -- 1. Default column values and constraints on new clock-in
 select clock_in_today();
@@ -263,19 +284,21 @@ select throws_ok(
   'same date duplicate MANUAL create is rejected by unique constraint'
 );
 
--- 7. Policy update does not touch untouched attendance record; explicit edit re-resolves policy
--- Step A: close Current Policy and introduce a new policy version for context_a1 starting from 2026-08-01 with standard_start_time 08:30:00
+-- 7. Policy update does not touch untouched attendance record; explicit edit re-resolves the legal current policy
+-- Step A: close Current Policy after the latest attendance date and introduce a later policy version
+set role postgres;
 update public.work_policies
-set effective_to = '2026-07-31'
+set effective_to = '2026-08-31'
 where name = 'Current Policy';
 
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes,
   clock_out_rounding_mode, clock_out_rounding_minutes, working_days, effective_from, effective_to, timezone
 ) values (
   '11111111-1111-4111-8111-111111111111',
   (select id from test_context_ids where label = 'context_a1'),
+  (select id from test_assignment_ids where user_id = '11111111-1111-4111-8111-111111111111'),
   'Updated Policy',
   '08:30:00',
   480,
@@ -286,10 +309,11 @@ insert into public.work_policies (
   'NONE',
   null,
   array[1, 2, 3, 4, 5],
-  '2026-08-01',
+  '2026-09-01',
   null,
   'Asia/Taipei'
 );
+set role authenticated;
 
 -- Step B: verify untouched 2026-08-10 attendance still retains original policy_snapshot and values
 select is(
@@ -310,7 +334,7 @@ select is(
   'untouched attendance retains its original effective_clock_in_at'
 );
 
--- Step C: explicit edit re-resolves policy and updates snapshots and calculations
+-- Step C: explicit edit re-resolves the legal current policy and updates snapshots and calculations
 select edit_attendance_record(
   (select id from public.attendance_records where work_date = '2026-08-10'),
   (select id from test_context_ids where label = 'context_a1'),
@@ -321,20 +345,20 @@ select edit_attendance_record(
 
 select is(
   (select policy_snapshot->>'name' from public.attendance_records where work_date = '2026-08-10'),
-  'Updated Policy',
-  'explicit edit re-resolves policy snapshot name to Updated Policy'
+  'Current Policy',
+  'explicit edit re-resolves policy snapshot name to Current Policy'
 );
 
 select is(
   (select policy_snapshot->>'standard_start_time' from public.attendance_records where work_date = '2026-08-10'),
-  '08:30:00',
-  'explicit edit re-resolves policy standard_start_time to 08:30:00'
+  '09:30:00',
+  'explicit edit re-resolves policy standard_start_time to 09:30:00'
 );
 
 select is(
   (select effective_clock_in_at from public.attendance_records where work_date = '2026-08-10'),
-  ('2026-08-10 08:30:00'::timestamp at time zone 'Asia/Taipei'),
-  'explicit edit recalculates effective_clock_in_at with updated policy'
+  ('2026-08-10 09:30:00'::timestamp at time zone 'Asia/Taipei'),
+  'explicit edit recalculates effective_clock_in_at with the current policy'
 );
 
 select is(
@@ -374,7 +398,7 @@ select edit_attendance_record(
   (select id from public.attendance_records where work_date = (now() at time zone 'Asia/Taipei')::date),
   (select id from test_context_ids where label = 'context_a1'),
   '08:30:00'::time,
-  '18:30:00'::time,
+  '19:30:00'::time,
   'Adjusted today clock record'
 );
 

@@ -142,22 +142,43 @@ values
   ('00000000-0000-0000-0000-000000000022', 'Issue 18 E'),
   ('00000000-0000-0000-0000-000000000023', 'Issue 18 F');
 
+create temp table issue_18_assignment_ids (
+  user_id uuid primary key,
+  id uuid not null
+) on commit drop;
+insert into issue_18_assignment_ids (user_id, id)
+values
+  ('00000000-0000-0000-0000-000000000018', gen_random_uuid()),
+  ('00000000-0000-0000-0000-000000000019', gen_random_uuid()),
+  ('00000000-0000-0000-0000-000000000020', gen_random_uuid()),
+  ('00000000-0000-0000-0000-000000000021', gen_random_uuid()),
+  ('00000000-0000-0000-0000-000000000022', gen_random_uuid()),
+  ('00000000-0000-0000-0000-000000000023', gen_random_uuid());
+insert into public.work_assignments (
+  id, user_id, staffing_employer, client_company, project, effective_from
+)
+select id, user_id, 'Issue 18 Employer', 'Issue 18 Client', 'Issue 18 Project',
+  (clock_timestamp() at time zone 'Asia/Taipei')::date
+from issue_18_assignment_ids;
+
 set role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000018';
 
 select * into temporary issue_18_a_context from public.create_work_context('Issue 18 A', 'Company A', 'Project A');
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
   working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000018', id, 'Issue 18 A policy', '00:00', 480, 60,
+  '00000000-0000-0000-0000-000000000018', id, (select id from issue_18_assignment_ids where user_id = '00000000-0000-0000-0000-000000000018'), 'Issue 18 A policy', '00:00', 480, 60,
   'STANDARD_START', 'NONE', 'NONE', array['0', '1', '2', '3', '4', '5', '6'],
   (clock_timestamp() at time zone 'Asia/Taipei')::date,
   (clock_timestamp() at time zone 'Asia/Taipei')::date
 from public.work_contexts
 where user_id = '00000000-0000-0000-0000-000000000018';
+set role authenticated;
 
 select * into temporary issue_18_a_clock_in from public.clock_in_today();
 select is((select count(*)::integer from issue_18_a_clock_in), 1, 'clock-in creates one record');
@@ -205,13 +226,14 @@ select is((select policy_snapshot from issue_18_a_clock_out), (select policy_sna
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000021';
 select * into temporary issue_18_d_context from public.create_work_context('Issue 18 D', 'Company D', 'Project D');
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
   working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000021', id, 'Issue 18 D policy',
+  '00000000-0000-0000-0000-000000000021', id, (select id from issue_18_assignment_ids where user_id = '00000000-0000-0000-0000-000000000021'), 'Issue 18 D policy',
   case when extract(hour from (clock_timestamp() at time zone 'Asia/Taipei')) < 23
     then (date_trunc('hour', clock_timestamp() at time zone 'Asia/Taipei') + interval '1 hour')::time
     else '23:59:59.999999'::time end,
@@ -219,6 +241,7 @@ select
   (clock_timestamp() at time zone 'Asia/Taipei')::date,
   (clock_timestamp() at time zone 'Asia/Taipei')::date
 from public.work_contexts where user_id = '00000000-0000-0000-0000-000000000021';
+set role authenticated;
 select * into temporary issue_18_d_clock_in from public.clock_in_today();
 select is(
   (select effective_clock_in_at from issue_18_d_clock_in),
@@ -234,13 +257,14 @@ select ok(
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000022';
 select * into temporary issue_18_e_context from public.create_work_context('Issue 18 E', 'Company E', 'Project E');
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
   working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000022', id, 'Issue 18 E policy',
+  '00000000-0000-0000-0000-000000000022', id, (select id from issue_18_assignment_ids where user_id = '00000000-0000-0000-0000-000000000022'), 'Issue 18 E policy',
   case when extract(hour from (clock_timestamp() at time zone 'Asia/Taipei')) < 23
     then (date_trunc('hour', clock_timestamp() at time zone 'Asia/Taipei') + interval '1 hour')::time
     else '23:59:59.999999'::time end,
@@ -248,6 +272,7 @@ select
   (clock_timestamp() at time zone 'Asia/Taipei')::date,
   (clock_timestamp() at time zone 'Asia/Taipei')::date
 from public.work_contexts where user_id = '00000000-0000-0000-0000-000000000022';
+set role authenticated;
 select * into temporary issue_18_e_clock_in from public.clock_in_today();
 select is(
   (select effective_clock_in_at from issue_18_e_clock_in),
@@ -263,13 +288,14 @@ select ok(
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000023';
 select * into temporary issue_18_f_context from public.create_work_context('Issue 18 F', 'Company F', 'Project F');
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes, clock_out_rounding_mode,
   working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000023', id, 'Issue 18 F policy',
+  '00000000-0000-0000-0000-000000000023', id, (select id from issue_18_assignment_ids where user_id = '00000000-0000-0000-0000-000000000023'), 'Issue 18 F policy',
   case when extract(hour from (clock_timestamp() at time zone 'Asia/Taipei')) > 0
     then (date_trunc('hour', clock_timestamp() at time zone 'Asia/Taipei') - interval '1 hour')::time
     else '00:00:00'::time end,
@@ -277,6 +303,7 @@ select
   (clock_timestamp() at time zone 'Asia/Taipei')::date,
   (clock_timestamp() at time zone 'Asia/Taipei')::date
 from public.work_contexts where user_id = '00000000-0000-0000-0000-000000000023';
+set role authenticated;
 select * into temporary issue_18_f_clock_in from public.clock_in_today();
 select ok((select effective_clock_in_at >= actual_clock_in_at from issue_18_f_clock_in), 'late CEIL persists an effective time not before actual time');
 select ok(
@@ -298,18 +325,20 @@ select ok(
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000019';
 select * into temporary issue_18_b_context from public.create_work_context('Issue 18 B', 'Company B', 'Project B');
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes,
   clock_out_rounding_mode, clock_out_rounding_minutes, working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000019', id, 'Issue 18 B policy', '00:00', 480, 0,
+  '00000000-0000-0000-0000-000000000019', id, (select id from issue_18_assignment_ids where user_id = '00000000-0000-0000-0000-000000000019'), 'Issue 18 B policy', '00:00', 480, 0,
   'STANDARD_START', 'NONE', null, 'CEIL', 60, array['0', '1', '2', '3', '4', '5', '6'],
   (clock_timestamp() at time zone 'Asia/Taipei')::date,
   (clock_timestamp() at time zone 'Asia/Taipei')::date
 from public.work_contexts
 where user_id = '00000000-0000-0000-0000-000000000019';
+set role authenticated;
 select * into temporary issue_18_b_clock_in from public.clock_in_today();
 select * into temporary issue_18_b_clock_out from public.clock_out_today();
 select ok((select effective_clock_out_at >= actual_clock_out_at from issue_18_b_clock_out), 'CEIL clock-out rounds upward');
@@ -317,18 +346,20 @@ select ok((select extract(minute from effective_clock_out_at at time zone 'Asia/
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000020';
 select * into temporary issue_18_c_context from public.create_work_context('Issue 18 C', 'Company C', 'Project C');
+set role postgres;
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, clock_in_rounding_mode, clock_out_rounding_mode,
   clock_out_rounding_minutes, working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000020', id, 'Issue 18 C policy', '00:00', 480, 0,
+  '00000000-0000-0000-0000-000000000020', id, (select id from issue_18_assignment_ids where user_id = '00000000-0000-0000-0000-000000000020'), 'Issue 18 C policy', '00:00', 480, 0,
   'STANDARD_START', 'NONE', 'FLOOR', 60, array['0', '1', '2', '3', '4', '5', '6'],
   (clock_timestamp() at time zone 'Asia/Taipei')::date,
   (clock_timestamp() at time zone 'Asia/Taipei')::date
 from public.work_contexts
 where user_id = '00000000-0000-0000-0000-000000000020';
+set role authenticated;
 select * into temporary issue_18_c_clock_in from public.clock_in_today();
 select * into temporary issue_18_c_clock_out from public.clock_out_today();
 select ok((select effective_clock_out_at <= actual_clock_out_at from issue_18_c_clock_out), 'FLOOR clock-out rounds downward');
