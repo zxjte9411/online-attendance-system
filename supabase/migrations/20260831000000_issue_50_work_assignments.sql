@@ -147,26 +147,12 @@ revoke all on function public.validate_work_assignment_update() from public;
 
 alter table public.work_assignments enable row level security;
 
-grant select, insert, update
-  on table public.work_assignments
-  to authenticated;
-
-revoke delete
-  on table public.work_assignments
-  from authenticated, anon, public;
+revoke all on table public.work_assignments from public, anon, authenticated;
+grant select on table public.work_assignments to authenticated;
 
 create policy work_assignments_owner_select on public.work_assignments
   for select to authenticated
   using (user_id = (select auth.uid()));
-
-create policy work_assignments_owner_insert on public.work_assignments
-  for insert to authenticated
-  with check (user_id = (select auth.uid()));
-
-create policy work_assignments_owner_update on public.work_assignments
-  for update to authenticated
-  using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
 
 create function public.create_work_assignment(
   p_staffing_employer text,

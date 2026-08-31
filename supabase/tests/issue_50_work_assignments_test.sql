@@ -1,6 +1,6 @@
 begin;
 
-select plan(44);
+select plan(50);
 
 select has_table('public', 'work_assignments', 'work_assignments table exists');
 select has_column('public', 'work_assignments', 'staffing_employer', 'staffing_employer column exists');
@@ -15,6 +15,22 @@ select has_index('public', 'work_assignments', 'work_assignments_user_id_idx', '
 select has_index('public', 'work_policies', 'work_policies_assignment_owner_idx', 'work_policies assignment_id index exists');
 select has_index('public', 'attendance_records', 'attendance_records_assignment_owner_idx', 'attendance_records assignment_id index exists');
 
+-- Privilege checks
+select is(
+  has_table_privilege('authenticated', 'public.work_assignments', 'SELECT'),
+  true,
+  'authenticated has SELECT privilege on work_assignments'
+);
+select is(
+  has_table_privilege('authenticated', 'public.work_assignments', 'INSERT'),
+  false,
+  'authenticated has no INSERT privilege on work_assignments'
+);
+select is(
+  has_table_privilege('authenticated', 'public.work_assignments', 'UPDATE'),
+  false,
+  'authenticated has no UPDATE privilege on work_assignments'
+);
 select is(
   has_table_privilege('authenticated', 'public.work_assignments', 'DELETE'),
   false,
@@ -22,9 +38,9 @@ select is(
 );
 select is(
   (select count(*)::integer from pg_policy
-   where polrelid = 'public.work_assignments'::regclass and polcmd = 'd'),
+   where polrelid = 'public.work_assignments'::regclass and polcmd in ('a', 'w', 'd')),
   0,
-  'work_assignments has no DELETE policy'
+  'work_assignments has no insert, update, or delete policies'
 );
 
 -- Setup test users
@@ -41,12 +57,19 @@ values
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000050';
 
--- 1. Standard creation with Staffing Employer, Client Company, Project, effective_from, effective_to
+-- Direct write attempts by authenticated user are rejected
+select throws_ok(
+  $$insert into public.work_assignments (user_id, staffing_employer, client_company, project, effective_from, effective_to)
+    values ('00000000-0000-0000-0000-000000000050', 'Direct Insert', 'Direct Client', 'Direct Project', '2026-01-01', '2026-03-31')$$,
+  '42501', null, 'direct INSERT by authenticated user on own data is rejected'
+);
+
 create temp table test_assignments (
   label text primary key,
   id uuid not null
 ) on commit drop;
 
+-- 1. Standard creation via RPC with Staffing Employer, Client Company, Project, effective_from, effective_to
 insert into test_assignments (label, id)
 select 'first', id
 from public.create_work_assignment('Staffing H1', 'Client A', 'Project P1', '2026-01-01', '2026-03-31');
@@ -54,13 +77,26 @@ from public.create_work_assignment('Staffing H1', 'Client A', 'Project P1', '202
 select is(
   (select count(*)::integer from public.work_assignments),
   1,
-  'work assignment is created and visible to owner'
+  'work assignment is created via RPC and visible to owner'
 );
 
 select is(
   (select staffing_employer from public.work_assignments where id = (select id from test_assignments where label = 'first')),
   'Staffing H1',
   'staffing_employer matches input'
+);
+
+select throws_ok(
+  $$update public.work_assignments
+    set staffing_employer = 'Direct Update'
+    where id = (select id from test_assignments where label = 'first')$$,
+  '42501', null, 'direct UPDATE by authenticated user on own data is rejected'
+);
+
+select throws_ok(
+  $$delete from public.work_assignments
+    where id = (select id from test_assignments where label = 'first')$$,
+  '42501', null, 'direct DELETE by authenticated user on own data is rejected'
 );
 
 -- 2. Adjacent assignment (inclusive dates, no overlap)
@@ -107,6 +143,9 @@ select is(
   'open-ended assignment has null effective_to'
 );
 
+-- Test DB constraints directly via privileged role
+reset role;
+
 -- 6. DB constraint: Overlap with existing assignment is rejected
 select throws_ok(
   $$insert into public.work_assignments (user_id, staffing_employer, client_company, project, effective_from, effective_to)
@@ -135,7 +174,10 @@ select throws_ok(
   '23514', null, 'staffing_employer cannot be blank'
 );
 
--- 10. Renewal: Same H/A/P contiguous renewal extends existing assignment period
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000050';
+
+-- 10. Renewal: Same H/A/P contiguous renewal extends existing assignment period via RPC
 insert into test_assignments (label, id)
 select 'renewal_base', id
 from public.create_work_assignment('Renewal Employer', 'Renewal Client', 'Renewal Project', '2027-01-01', '2027-06-30');
@@ -168,7 +210,7 @@ select is(
   'same H/A/P with gap creates a new assignment'
 );
 
--- 12. Identity edit: Without attendance, H/A/P can be edited
+-- 12. Identity edit: Without attendance, H/A/P can be edited via RPC
 insert into test_assignments (label, id)
 select 'editable', id
 from public.create_work_assignment('Original Staffing', 'Original Client', 'Original Proj', '2028-08-01', '2028-09-30');
@@ -232,9 +274,7 @@ insert into public.attendance_records (
   '{}'::jsonb, '{}'::jsonb, '{}'::jsonb
 );
 
-set local role authenticated;
-set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000050';
-
+-- Trigger level validation tests (under privileged role)
 select throws_ok(
   $$update public.work_assignments
     set staffing_employer = 'Blocked Change'
@@ -255,6 +295,21 @@ select throws_ok(
     where id = (select id from test_assignments where label = 'editable')$$,
   'P0001', null, 'cannot modify project after attendance records exist'
 );
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000050';
+
+-- RPC update is also blocked by the trigger
+select throws_ok(
+  $$select public.update_work_assignment(
+      (select id from test_assignments where label = 'editable'),
+      'Blocked via RPC', 'Updated Client', 'Updated Proj',
+      '2028-08-01', '2028-09-30'
+    )$$,
+  'P0001', null, 'RPC update_work_assignment is blocked when attendance exists'
+);
+
+reset role;
 
 -- 14. Period edit: Period adjustment excluding child policy is blocked
 select throws_ok(
@@ -310,6 +365,7 @@ select is(
 );
 
 -- 19. User isolation with User B
+set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000051';
 
 select is(
@@ -325,21 +381,6 @@ select throws_ok(
     )$$,
   'P0001', null, 'User B cannot update User A assignment via update_work_assignment RPC'
 );
-
-do $$
-declare
-  updated_count integer;
-begin
-  update public.work_assignments
-  set staffing_employer = 'Hacked'
-  where id = '00000000-0000-0000-0000-000000000050';
-  get diagnostics updated_count = row_count;
-  if updated_count <> 0 then
-    raise exception 'RLS failed to block direct update across users';
-  end if;
-end $$;
-
-select ok(true, 'direct update across users updates 0 rows due to RLS');
 
 select throws_ok(
   $$insert into public.work_assignments (user_id, staffing_employer, client_company, project, effective_from)
