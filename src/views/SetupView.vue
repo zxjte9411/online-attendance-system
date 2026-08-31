@@ -2,32 +2,36 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ProfileForm from '../components/settings/ProfileForm.vue'
-import WorkContextForm from '../components/settings/WorkContextForm.vue'
+import WorkAssignmentForm from '../components/settings/WorkAssignmentForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
-import { getWorkPolicyStatus } from '../lib/work-policy'
 import {
   getCurrentUserId,
   getSetupStatus,
+  listWorkPolicies,
   type Profile,
-  type WorkContext,
   type WorkPolicy,
 } from '../lib/settings'
+import type { WorkAssignment } from '../domain/work-assignment/work-assignment'
+
+type AssignmentPolicy = WorkPolicy & { assignment_id: string }
 
 const router = useRouter()
 const mainRegion = ref<HTMLElement | null>(null)
 const errorRegion = ref<HTMLElement | null>(null)
 const userId = ref('')
 const profile = ref<Profile | null>(null)
-const defaultContext = ref<WorkContext | null>(null)
-const policies = ref<WorkPolicy[]>([])
+const assignments = ref<WorkAssignment[]>([])
+const selectedAssignmentId = ref('')
+const policies = ref<AssignmentPolicy[]>([])
 const step = ref<1 | 2 | 3>(1)
 const isLoading = ref(true)
 const errorMessage = ref('')
 const showProfileSaveActions = ref(false)
+const isLoadingPolicies = ref(false)
 
 const steps = [
   { number: 1, label: '個人資料' },
-  { number: 2, label: '工作情境' },
+  { number: 2, label: '工作派駐' },
   { number: 3, label: 'Work Policy' },
 ] as const
 
@@ -46,12 +50,14 @@ async function loadSetup() {
     userId.value = await getCurrentUserId()
     const status = await getSetupStatus(userId.value)
     profile.value = status.profile
-    defaultContext.value = status.defaultContext
-    policies.value = status.policies
+    assignments.value = status.assignments ?? []
+    selectedAssignmentId.value = status.currentAssignment?.id ?? assignments.value[0]?.id ?? ''
+    policies.value = []
+    await loadPolicies()
 
     step.value = !status.profile?.display_name?.trim()
       ? 1
-      : !status.defaultContext
+      : !selectedAssignmentId.value
         ? 2
         : 3
   } catch (error) {
@@ -66,7 +72,7 @@ async function loadSetup() {
 function canVisitStep(target: 1 | 2 | 3) {
   if (target === 1) return true
   if (target === 2) return Boolean(profile.value?.display_name?.trim())
-  return Boolean(profile.value?.display_name?.trim() && defaultContext.value)
+  return Boolean(profile.value?.display_name?.trim() && selectedAssignmentId.value)
 }
 
 function handleProfileSaved(savedProfile: Profile) {
@@ -83,17 +89,51 @@ function continueSetup() {
   step.value = 2
 }
 
-function handleContextSaved(contexts: WorkContext[]) {
-  defaultContext.value = contexts.find((context) => context.active && context.is_default) ?? null
-  step.value = 3
-}
-
-async function handlePolicySaved(savedPolicy: WorkPolicy) {
-  if (getWorkPolicyStatus(savedPolicy) === '目前適用') {
-    await router.replace({ name: 'today' })
+async function loadPolicies() {
+  if (!userId.value || !selectedAssignmentId.value) {
+    policies.value = []
     return
   }
 
+  isLoadingPolicies.value = true
+  try {
+    policies.value = await listWorkPolicies(userId.value, selectedAssignmentId.value) as AssignmentPolicy[]
+  } finally {
+    isLoadingPolicies.value = false
+  }
+}
+
+async function handleAssignmentSaved(savedAssignments: WorkAssignment[]) {
+  const previousIds = new Set(assignments.value.map((assignment) => assignment.id))
+  assignments.value = savedAssignments
+  const createdAssignment = savedAssignments.find((assignment) => !previousIds.has(assignment.id))
+  selectedAssignmentId.value = createdAssignment?.id
+    ?? (savedAssignments.some((assignment) => assignment.id === selectedAssignmentId.value)
+      ? selectedAssignmentId.value
+      : savedAssignments[0]?.id ?? '')
+  try {
+    await loadPolicies()
+    step.value = 3
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Work Policy 載入失敗，請稍後再試。'
+    await nextTick()
+    errorRegion.value?.focus()
+  }
+}
+
+async function selectAssignment(assignmentId: string) {
+  selectedAssignmentId.value = assignmentId
+  errorMessage.value = ''
+  try {
+    await loadPolicies()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Work Policy 載入失敗，請稍後再試。'
+    await nextTick()
+    errorRegion.value?.focus()
+  }
+}
+
+function handlePolicySaved(savedPolicy: AssignmentPolicy) {
   policies.value = [...policies.value, savedPolicy]
   step.value = 3
 }
@@ -115,7 +155,7 @@ async function handlePolicySaved(savedPolicy: WorkPolicy) {
       <section class="grid content-start gap-5 border-t border-accent pt-5" aria-labelledby="setup-title">
         <p class="text-[0.75rem] font-bold tracking-[0.12em] text-accent">準備你的工作日</p>
         <h1 id="setup-title" class="max-w-[13ch] font-display text-[clamp(2.25rem,6vw,4.25rem)] font-semibold leading-[1.08] tracking-[-0.055em] text-balance">先設定一次，再開始記錄。</h1>
-        <p class="max-w-[32rem] text-[clamp(1rem,1.5vw,1.125rem)] leading-relaxed text-muted text-pretty">完成個人資料後即可進入系統；工作情境與工作制度可以之後補齊。</p>
+        <p class="max-w-[32rem] text-[clamp(1rem,1.5vw,1.125rem)] leading-relaxed text-muted text-pretty">完成個人資料後即可進入系統；工作派駐與工作制度可以之後補齊。</p>
 
         <nav class="mt-3" aria-label="首次設定進度">
           <ol class="grid gap-2">
@@ -171,27 +211,38 @@ async function handlePolicySaved(savedPolicy: WorkPolicy) {
           </section>
         </div>
 
-        <div v-else-if="step === 2" class="grid gap-5" aria-labelledby="context-step-title">
+        <div v-else-if="step === 2" class="grid gap-5" aria-labelledby="assignment-step-title">
           <div class="grid gap-1 border-b border-line pb-5">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">02 / 工作情境</p>
-            <h2 id="context-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">這筆工作屬於哪裡？</h2>
-            <p class="text-sm leading-relaxed text-muted">公司與專案只是識別資料，不代表團隊或權限。</p>
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">02 / 工作派駐</p>
+            <h2 id="assignment-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">這份工作屬於哪個派駐？</h2>
+            <p class="text-sm leading-relaxed text-muted">先建立或選定工作派駐，再為它設定依日期生效的制度。</p>
           </div>
-          <WorkContextForm v-if="userId" :user-id="userId" :context="defaultContext" onboarding @saved="handleContextSaved" />
+          <div v-if="assignments.length" class="grid gap-3 rounded-[0.625rem] border border-accent-soft bg-accent-soft px-4 py-4">
+            <label class="font-semibold" for="setup-assignment">選擇工作派駐</label>
+            <select id="setup-assignment" v-model="selectedAssignmentId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="assignment_id">
+              <option v-for="assignment in assignments" :key="assignment.id" :value="assignment.id">{{ assignment.staffing_employer }} · {{ assignment.client_company }} · {{ assignment.project }}</option>
+            </select>
+            <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="selectAssignment(selectedAssignmentId)">使用這個工作派駐</button>
+          </div>
+          <WorkAssignmentForm v-if="userId" :user-id="userId" :existing-assignments="assignments" onboarding @saved="handleAssignmentSaved" />
           <button v-if="canVisitStep(1)" class="min-h-11 justify-self-start font-semibold text-accent underline decoration-[0.1em] underline-offset-[0.2em] transition duration-200 ease-out hover:text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" type="button" @click="step = 1">回到上一步</button>
         </div>
 
         <div v-else class="grid gap-5" aria-labelledby="policy-step-title">
           <div class="grid gap-1 border-b border-line pb-5">
             <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / Work Policy</p>
-            <h2 id="policy-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">確認你的工作制度。</h2>
-            <p class="text-sm leading-relaxed text-muted">這套規則會套用在指定日期；之後可在設定頁新增不重疊的版本。</p>
+            <h2 id="policy-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">為這筆派駐設定制度。</h2>
+            <p class="text-sm leading-relaxed text-muted">可建立過去、目前或未來的制度；日期不必涵蓋今天。</p>
           </div>
-          <div class="rounded-[0.625rem] border border-accent-soft bg-accent-soft px-4 py-3 text-sm">
-            <span class="text-muted">預設工作情境</span>
-            <strong class="mt-1 block">{{ defaultContext?.name }}</strong>
+          <div class="grid gap-1 rounded-[0.625rem] border border-accent-soft bg-accent-soft px-4 py-3 text-sm">
+            <label class="text-muted" for="setup-policy-assignment">工作派駐</label>
+            <select id="setup-policy-assignment" v-model="selectedAssignmentId" class="min-h-11 rounded-[0.5rem] border border-line bg-canvas px-3 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="policy_assignment_id" @change="selectAssignment(selectedAssignmentId)">
+              <option v-for="assignment in assignments" :key="assignment.id" :value="assignment.id">{{ assignment.staffing_employer }} · {{ assignment.client_company }} · {{ assignment.project }}</option>
+            </select>
+            <span class="font-mono text-xs text-muted">{{ assignments.find((assignment) => assignment.id === selectedAssignmentId)?.effective_from }} 至 {{ assignments.find((assignment) => assignment.id === selectedAssignmentId)?.effective_to || '未定' }}</span>
           </div>
-          <WorkPolicyForm v-if="userId && defaultContext" :user-id="userId" :context-id="defaultContext.id" :policies="policies" onboarding @saved="handlePolicySaved" />
+          <p v-if="isLoadingPolicies" class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted" role="status" aria-live="polite">正在載入這筆派駐的 Work Policy…</p>
+          <WorkPolicyForm v-else-if="userId && selectedAssignmentId" :assignment-id="selectedAssignmentId" :assignment="assignments.find((assignment) => assignment.id === selectedAssignmentId)" :policies="policies" onboarding @saved="handlePolicySaved" />
           <button v-if="canVisitStep(2)" class="min-h-11 justify-self-start font-semibold text-accent underline decoration-[0.1em] underline-offset-[0.2em] transition duration-200 ease-out hover:text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" type="button" @click="step = 2">回到上一步</button>
         </div>
       </section>
