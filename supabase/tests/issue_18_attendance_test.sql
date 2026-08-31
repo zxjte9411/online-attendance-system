@@ -22,7 +22,12 @@ select is(
   (select count(*)::integer
    from pg_constraint
    where conrelid = 'public.attendance_records'::regclass
-     and contype = 'f'),
+     and contype = 'f'
+     and conname in (
+       'attendance_records_user_id_fkey',
+       'attendance_records_context_owner_fkey',
+       'attendance_records_policy_owner_fkey'
+     )),
   3,
   'attendance_records has user, historical context, and historical policy foreign keys'
 );
