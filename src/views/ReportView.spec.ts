@@ -80,7 +80,7 @@ describe('ReportView', () => {
 
     vi.spyOn(settingsLib, 'getCurrentUserId').mockResolvedValue('user-1')
     vi.spyOn(settingsLib, 'listWorkContexts').mockResolvedValue(mockContexts)
-    vi.spyOn(settingsLib, 'listWorkPolicies').mockImplementation(async (_uid, ctxId) => {
+    vi.spyOn(settingsLib, 'listLegacyWorkPolicies').mockImplementation(async (_uid, ctxId) => {
       return ctxId === 'ctx-2' ? [mockPolicyCtx2] : [mockPolicyCtx1]
     })
     vi.spyOn(attendanceLib, 'getMonthAttendanceRecords').mockResolvedValue([])
@@ -214,7 +214,7 @@ describe('ReportView', () => {
   })
 
   it('切換 Work Context 時重新 query 並呈現新情境制度與資料', async () => {
-    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies')
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listLegacyWorkPolicies')
     const wrapper = mount(ReportView)
     await wrapper.find('[data-test="month-input"]').setValue('2026-08')
     await flushPromises()
@@ -252,8 +252,8 @@ describe('ReportView', () => {
     // Currently showing ctx-1 data
     expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(true)
 
-    // Make listWorkPolicies return a pending promise on next call
-    vi.spyOn(settingsLib, 'listWorkPolicies').mockReturnValue(pendingPromise)
+    // Make listLegacyWorkPolicies return a pending promise on next call
+    vi.spyOn(settingsLib, 'listLegacyWorkPolicies').mockReturnValue(pendingPromise)
 
     // Trigger context switch to ctx-2
     await wrapper.find('[data-test="context-select"]').setValue('ctx-2')
@@ -302,7 +302,7 @@ describe('ReportView', () => {
     const wrapper = mount(ReportView)
     await flushPromises()
 
-    const spy = vi.spyOn(settingsLib, 'listWorkPolicies')
+    const spy = vi.spyOn(settingsLib, 'listLegacyWorkPolicies')
     spy.mockReturnValueOnce(p1).mockReturnValueOnce(p2)
 
     // Switch to ctx-2 (req 1)
@@ -364,7 +364,7 @@ describe('ReportView', () => {
   })
 
   it('缺少適用 Work Policy 時顯示設定不完整提示並停用 CSV 下載', async () => {
-    vi.spyOn(settingsLib, 'listWorkPolicies').mockResolvedValue([])
+    vi.spyOn(settingsLib, 'listLegacyWorkPolicies').mockResolvedValue([])
 
     const wrapper = mount(ReportView)
     await flushPromises()
@@ -397,7 +397,7 @@ describe('ReportView', () => {
 
   it('無任何 Work Context 時結束 loading 並顯示 empty state，不發出 month query 且 CSV 按鈕停用', async () => {
     vi.spyOn(settingsLib, 'listWorkContexts').mockResolvedValue([])
-    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies')
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listLegacyWorkPolicies')
 
     const wrapper = mount(ReportView)
     await flushPromises()
