@@ -95,12 +95,10 @@ async function handleEditAssignment(assignment: WorkAssignment) {
     editingAssignment.value = assignment
     editingAssignmentHasAttendance.value = hasAttendance
     showAssignmentForm.value = true
-  } catch (error) {
+  } catch {
     editingAssignment.value = null
     showAssignmentForm.value = false
-    pageError.value = error instanceof Error
-      ? error.message
-      : '無法確認工作派駐的出勤紀錄狀態，請稍後再試。'
+    pageError.value = '無法確認此工作派駐是否已有出勤紀錄，請稍後再試。'
     await nextTick()
     errorRegion.value?.focus()
   }

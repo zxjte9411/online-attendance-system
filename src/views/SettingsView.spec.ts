@@ -133,10 +133,9 @@ describe('SettingsView.vue with Work Assignments', () => {
     await flushPromises()
 
     // Form should NOT be open
-    expect(wrapper.find('form[name="assignment-form"]').exists()).toBe(false)
     expect(wrapper.find('#assignment-staffing-employer').exists()).toBe(false)
-    // Page error should be visible
-    expect(wrapper.text()).toContain('網路連線逾時')
+    // Page error should be visible with stable domain copy
+    expect(wrapper.text()).toContain('無法確認此工作派駐是否已有出勤紀錄，請稍後再試。')
   })
 
   it('opens assignment edit form with locked H/A/P when attendance records exist', async () => {
