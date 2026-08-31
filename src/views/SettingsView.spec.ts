@@ -111,4 +111,85 @@ describe('SettingsView.vue with Work Assignments', () => {
 
     expect(wrapper.text()).toContain('生效起日')
   })
+
+  it('fails closed when attendance lookup rejects, not opening form and displaying error', async () => {
+    vi.mocked(hasAttendanceRecordsForAssignment).mockRejectedValue(new Error('網路連線逾時'))
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        stubs: {
+          ProfileForm: true,
+          WorkContextForm: true,
+          WorkPolicyForm: true,
+          ExportTemplateSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const editBtn = wrapper.findAll('button').find((b) => b.text() === '編輯')
+    expect(editBtn).toBeDefined()
+    await editBtn!.trigger('click')
+    await flushPromises()
+
+    // Form should NOT be open
+    expect(wrapper.find('form[name="assignment-form"]').exists()).toBe(false)
+    expect(wrapper.find('#assignment-staffing-employer').exists()).toBe(false)
+    // Page error should be visible
+    expect(wrapper.text()).toContain('網路連線逾時')
+  })
+
+  it('opens assignment edit form with locked H/A/P when attendance records exist', async () => {
+    vi.mocked(hasAttendanceRecordsForAssignment).mockResolvedValue(true)
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        stubs: {
+          ProfileForm: true,
+          WorkContextForm: true,
+          WorkPolicyForm: true,
+          ExportTemplateSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const editBtn = wrapper.findAll('button').find((b) => b.text() === '編輯')
+    expect(editBtn).toBeDefined()
+    await editBtn!.trigger('click')
+    await flushPromises()
+
+    // Form should be open
+    const staffingInput = wrapper.find<HTMLInputElement>('#assignment-staffing-employer')
+    expect(staffingInput.exists()).toBe(true)
+    expect(staffingInput.element.disabled).toBe(true)
+    expect(wrapper.text()).toContain('此工作派駐已有出勤紀錄')
+  })
+
+  it('opens assignment edit form with editable H/A/P when no attendance exists', async () => {
+    vi.mocked(hasAttendanceRecordsForAssignment).mockResolvedValue(false)
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        stubs: {
+          ProfileForm: true,
+          WorkContextForm: true,
+          WorkPolicyForm: true,
+          ExportTemplateSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const editBtn = wrapper.findAll('button').find((b) => b.text() === '編輯')
+    expect(editBtn).toBeDefined()
+    await editBtn!.trigger('click')
+    await flushPromises()
+
+    // Form should be open and editable
+    const staffingInput = wrapper.find<HTMLInputElement>('#assignment-staffing-employer')
+    expect(staffingInput.exists()).toBe(true)
+    expect(staffingInput.element.disabled).toBe(false)
+    expect(wrapper.text()).not.toContain('此工作派駐已有出勤紀錄')
+  })
 })

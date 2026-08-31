@@ -88,13 +88,22 @@ async function load() {
 }
 
 async function handleEditAssignment(assignment: WorkAssignment) {
-  editingAssignment.value = assignment
+  pageError.value = ''
+  actionMessage.value = ''
   try {
-    editingAssignmentHasAttendance.value = await hasAttendanceRecordsForAssignment(userId.value, assignment.id)
-  } catch {
-    editingAssignmentHasAttendance.value = false
+    const hasAttendance = await hasAttendanceRecordsForAssignment(userId.value, assignment.id)
+    editingAssignment.value = assignment
+    editingAssignmentHasAttendance.value = hasAttendance
+    showAssignmentForm.value = true
+  } catch (error) {
+    editingAssignment.value = null
+    showAssignmentForm.value = false
+    pageError.value = error instanceof Error
+      ? error.message
+      : '無法確認工作派駐的出勤紀錄狀態，請稍後再試。'
+    await nextTick()
+    errorRegion.value?.focus()
   }
-  showAssignmentForm.value = true
 }
 
 function handleAssignmentSaved(savedAssignments: WorkAssignment[], message: string) {
