@@ -1,6 +1,18 @@
 import { getSupabaseClient } from './supabase'
 import { getWorkPolicyStatus } from './work-policy'
 
+export type {
+  WorkAssignment,
+  WorkAssignmentInput,
+  WorkAssignmentStatus,
+} from '../domain/work-assignment/work-assignment'
+export {
+  listWorkAssignments,
+  createWorkAssignment,
+  updateWorkAssignment,
+  hasAttendanceRecordsForAssignment,
+} from './work-assignment'
+
 const profileFields = 'id,display_name,timezone,created_at,updated_at'
 const contextFields = 'id,user_id,name,company_identifier,project_identifier,active,is_default,created_at,updated_at'
 const policyFields = 'id,user_id,context_id,name,standard_start_time,work_minutes,fixed_break_minutes,early_arrival_policy,clock_in_rounding_mode,clock_in_rounding_minutes,clock_out_rounding_mode,clock_out_rounding_minutes,working_days,effective_from,effective_to,timezone,created_at,updated_at'

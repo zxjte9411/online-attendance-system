@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import ProfileForm from '../components/settings/ProfileForm.vue'
+import WorkAssignmentForm from '../components/settings/WorkAssignmentForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
 import ExportTemplateSection from '../components/settings/ExportTemplateSection.vue'
+import {
+  formatWorkAssignmentStatus,
+  getWorkAssignmentStatus,
+  type WorkAssignment,
+} from '../domain/work-assignment/work-assignment'
+import {
+  hasAttendanceRecordsForAssignment,
+  listWorkAssignments,
+} from '../lib/work-assignment'
 import { getWorkPolicyStatus } from '../lib/work-policy'
 import {
   getCurrentUserId,
@@ -19,6 +29,10 @@ import {
 
 const userId = ref('')
 const profile = ref<Profile | null>(null)
+const assignments = ref<WorkAssignment[]>([])
+const editingAssignment = ref<WorkAssignment | null>(null)
+const editingAssignmentHasAttendance = ref(false)
+const showAssignmentForm = ref(false)
 const contexts = ref<WorkContext[]>([])
 const policies = ref<WorkPolicy[]>([])
 const selectedContextId = ref('')
@@ -51,11 +65,13 @@ async function load() {
 
   try {
     userId.value = await getCurrentUserId()
-    const [savedProfile, savedContexts] = await Promise.all([
+    const [savedProfile, savedAssignments, savedContexts] = await Promise.all([
       getProfile(userId.value),
+      listWorkAssignments(userId.value),
       listWorkContexts(userId.value),
     ])
     profile.value = savedProfile
+    assignments.value = savedAssignments
     contexts.value = savedContexts
     const nextContext = savedContexts.find((context) => context.active && context.is_default)
       ?? savedContexts.find((context) => context.active)
@@ -69,6 +85,31 @@ async function load() {
   } finally {
     isLoading.value = false
   }
+}
+
+async function handleEditAssignment(assignment: WorkAssignment) {
+  pageError.value = ''
+  actionMessage.value = ''
+  try {
+    const hasAttendance = await hasAttendanceRecordsForAssignment(userId.value, assignment.id)
+    editingAssignment.value = assignment
+    editingAssignmentHasAttendance.value = hasAttendance
+    showAssignmentForm.value = true
+  } catch {
+    editingAssignment.value = null
+    showAssignmentForm.value = false
+    pageError.value = '無法確認此工作派駐是否已有出勤紀錄，請稍後再試。'
+    await nextTick()
+    errorRegion.value?.focus()
+  }
+}
+
+function handleAssignmentSaved(savedAssignments: WorkAssignment[], message: string) {
+  assignments.value = savedAssignments
+  showAssignmentForm.value = false
+  editingAssignment.value = null
+  editingAssignmentHasAttendance.value = false
+  actionMessage.value = message
 }
 
 async function loadPolicies() {
@@ -213,7 +254,7 @@ async function selectContext(contextId: string) {
     <section class="grid max-w-[42rem] gap-4" aria-labelledby="settings-title">
       <span class="inline-flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-accent"><span class="h-px w-6 bg-current" aria-hidden="true"></span>設定</span>
       <h1 id="settings-title" class="max-w-[13ch] font-display text-[clamp(2.25rem,8vw,4.5rem)] font-semibold leading-[1.12] tracking-[-0.055em] text-balance">把工作環境留在手邊。</h1>
-      <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">管理個人資料、工作情境與依日期生效的 Work Policy。</p>
+      <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">管理個人資料、工作派駐、工作情境與依日期生效的 Work Policy。</p>
     </section>
 
     <div class="mt-8 grid gap-3 border-y border-line py-4 sm:grid-cols-[1fr_1fr] sm:gap-0">
@@ -244,10 +285,49 @@ async function selectContext(contextId: string) {
         <ProfileForm v-if="userId" :user-id="userId" :profile="profile" @saved="profile = $event" />
       </section>
 
+      <section id="assignments" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-assignments-title">
+        <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
+          <div class="grid gap-1">
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">02 / 工作派駐</p>
+            <h2 id="settings-assignments-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作派駐</h2>
+            <p class="text-sm leading-relaxed text-muted">包含派遣雇主、派駐客戶與專案，適用期間不得與其他派駐重疊。</p>
+          </div>
+          <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="editingAssignment = null; editingAssignmentHasAttendance = false; showAssignmentForm = !showAssignmentForm">{{ showAssignmentForm ? '取消新增' : '新增工作派駐' }}</button>
+        </div>
+
+        <ul v-if="assignments.length" class="grid divide-y divide-line" aria-label="工作派駐列表">
+          <li v-for="assignment in assignments" :key="assignment.id" class="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div class="grid gap-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <strong>{{ assignment.staffing_employer }}</strong>
+                <span class="rounded-[0.375rem] border px-2 py-0.5 text-xs font-semibold" :class="getWorkAssignmentStatus(assignment) === 'CURRENT' ? 'border-accent-soft bg-accent-soft text-accent' : 'border-line text-muted'">{{ formatWorkAssignmentStatus(getWorkAssignmentStatus(assignment)) }}</span>
+              </div>
+              <span class="text-sm text-muted">{{ assignment.client_company }} · {{ assignment.project }}</span>
+              <span class="font-mono text-xs text-muted">{{ assignment.effective_from }} 至 {{ assignment.effective_to || '未定' }}</span>
+            </div>
+            <div class="flex flex-wrap gap-2 sm:justify-end">
+              <button class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="handleEditAssignment(assignment)">編輯</button>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">還沒有建立工作派駐。新增派駐後即可設定適用期間與工作歸屬。</p>
+
+        <div v-if="showAssignmentForm" class="border-t border-line pt-5">
+          <WorkAssignmentForm
+            :user-id="userId"
+            :assignment="editingAssignment"
+            :existing-assignments="assignments"
+            :has-attendance="editingAssignmentHasAttendance"
+            @saved="handleAssignmentSaved"
+            @cancel="showAssignmentForm = false"
+          />
+        </div>
+      </section>
+
       <section id="contexts" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-contexts-title">
         <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
           <div class="grid gap-1">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">02 / 工作情境</p>
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / 工作情境</p>
             <h2 id="settings-contexts-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作情境</h2>
             <p class="text-sm leading-relaxed text-muted">只有 active 情境可以成為預設。</p>
           </div>
@@ -280,7 +360,7 @@ async function selectContext(contextId: string) {
       <section id="policies" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-policies-title">
         <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
           <div class="grid gap-1">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / Work Policy</p>
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">04 / Work Policy</p>
             <h2 id="settings-policies-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">Work Policy 版本</h2>
             <p class="text-sm leading-relaxed text-muted">同一工作情境的生效日期不可重疊；歷史關聯會保留。</p>
           </div>
@@ -332,7 +412,7 @@ async function selectContext(contextId: string) {
 
       <section id="export-templates" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-export-templates-title">
         <div class="grid gap-1 border-b border-line pb-5">
-          <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">04 / XLSX 匯出範本</p>
+          <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">05 / XLSX 匯出範本</p>
           <h2 id="settings-export-templates-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">XLSX 匯出範本</h2>
           <p class="text-sm leading-relaxed text-muted">為各工作情境上傳專屬的 Excel 範本並配置欄位對應，即可在報表匯出填妥的檔案。</p>
         </div>
