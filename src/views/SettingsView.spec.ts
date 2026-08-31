@@ -6,6 +6,7 @@ import SettingsView from './SettingsView.vue'
 import {
   getCurrentUserId,
   getProfile,
+  hasAttendanceRecordsForWorkPolicy,
   listWorkContexts,
   listWorkPolicies,
 } from '../lib/settings'
@@ -22,7 +23,7 @@ vi.mock('../lib/settings', async (importOriginal) => ({
   listWorkContexts: vi.fn(),
   listWorkPolicies: vi.fn(),
   setDefaultWorkContext: vi.fn(),
-  updateWorkPolicyEffectiveTo: vi.fn(),
+  hasAttendanceRecordsForWorkPolicy: vi.fn(),
 }))
 
 vi.mock('../lib/work-assignment', async (importOriginal) => ({
@@ -69,6 +70,7 @@ describe('SettingsView.vue with Work Assignments', () => {
     vi.mocked(listWorkContexts).mockResolvedValue([])
     vi.mocked(listWorkPolicies).mockResolvedValue([])
     vi.mocked(hasAttendanceRecordsForAssignment).mockResolvedValue(false)
+    vi.mocked(hasAttendanceRecordsForWorkPolicy).mockResolvedValue(false)
   })
 
   it('renders work assignments list with status badges and details', async () => {
@@ -89,6 +91,61 @@ describe('SettingsView.vue with Work Assignments', () => {
     expect(wrapper.text()).toContain('派駐客戶 A · 專案 P1')
     expect(wrapper.text()).toContain('目前派駐')
     expect(wrapper.text()).toContain('已結束')
+  })
+
+  it('loads policies for the selected work assignment', async () => {
+    vi.mocked(listWorkPolicies).mockResolvedValue([{
+      id: 'policy-1',
+      name: '派駐制度',
+      effective_from: '2026-01-01',
+      effective_to: null,
+      standard_start_time: '09:00',
+      work_minutes: 480,
+    }] as never)
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        stubs: {
+          ProfileForm: true,
+          WorkContextForm: true,
+          WorkPolicyForm: true,
+          ExportTemplateSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(listWorkPolicies).toHaveBeenCalledWith(userId, 'wa-1')
+    expect(wrapper.text()).toContain('派駐制度')
+  })
+
+  it('checks policy attendance usage by policy id before editing', async () => {
+    vi.mocked(listWorkPolicies).mockResolvedValue([{
+      id: 'policy-1',
+      name: '派駐制度',
+      effective_from: '2026-01-01',
+      effective_to: null,
+      standard_start_time: '09:00',
+      work_minutes: 480,
+    }] as never)
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        stubs: {
+          ProfileForm: true,
+          WorkContextForm: true,
+          WorkPolicyForm: true,
+          ExportTemplateSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const editButton = wrapper.get('#policies').findAll('button').find((button) => button.text() === '編輯')
+    await editButton!.trigger('click')
+    await flushPromises()
+
+    expect(hasAttendanceRecordsForWorkPolicy).toHaveBeenCalledWith('policy-1')
   })
 
   it('toggles new assignment form', async () => {
