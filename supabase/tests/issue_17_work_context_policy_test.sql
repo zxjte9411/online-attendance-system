@@ -250,24 +250,37 @@ select is(
   'default uniqueness holds after atomic activation'
 );
 
+set local role postgres;
+create temp table issue_17_assignment_ids (id uuid not null) on commit drop;
+insert into issue_17_assignment_ids (id)
+values (gen_random_uuid());
+insert into public.work_assignments (
+  id, user_id, staffing_employer, client_company, project, effective_from, effective_to
+) values (
+  (select id from issue_17_assignment_ids),
+  '00000000-0000-0000-0000-000000000017',
+  'Issue 17 Employer', 'Issue 17 Client', 'Issue 17 Project', '2025-01-01', null
+);
+
 select throws_ok(
   $$insert into public.work_policies (
-      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
-      early_arrival_policy, working_days, effective_from
+      user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      early_arrival_policy, working_days, effective_from, effective_to
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'other-user'),
-      'Cross-account', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-01'
+      (select id from issue_17_assignment_ids),
+      'Cross-account', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-01', '2027-12-31'
     )$$,
   '23503', null, 'composite FK prevents cross-account policy contexts'
 );
 
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, working_days, effective_from
 )
 select
-  '00000000-0000-0000-0000-000000000017', id, 'Valid policy', '09:00', 480, 60,
+  '00000000-0000-0000-0000-000000000017', id, (select id from issue_17_assignment_ids), 'Valid policy', '09:00', 480, 60,
   'STANDARD_START', array['1', '2'], '2026-01-01'
 from issue_17_context_ids
 where label = 'first';
@@ -291,91 +304,98 @@ select ok(
   (select updated_at > created_at from public.work_policies where name = 'Valid policy'),
   'work_policies updated_at is maintained by a trigger'
 );
-select throws_ok(
+select lives_ok(
   $$update public.work_policies
     set name = 'Valid policy updated'
     where name = 'Valid policy'$$,
-  'P0001', null, 'work policy name cannot be changed after creation'
+  'unused work policy name can be changed'
 );
-select throws_ok(
+select lives_ok(
   $$update public.work_policies
-    set effective_to = '2026-02-01'
-    where name = 'Valid policy'$$,
-  'P0001', null, 'work policy effective_to cannot be changed twice'
+    set effective_to = '2026-01-30'
+    where name = 'Valid policy updated'$$,
+  'unused work policy effective_to can be changed'
 );
 
 insert into public.work_policies (
-  user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+  user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
   early_arrival_policy, working_days, effective_from, effective_to
 )
 select
-  '00000000-0000-0000-0000-000000000017', id, 'Second valid policy', '09:00', 480, 60,
+  '00000000-0000-0000-0000-000000000017', id, (select id from issue_17_assignment_ids), 'Second valid policy', '09:00', 480, 60,
   'STANDARD_START', array['1'], '2026-02-01', '2026-02-28'
 from issue_17_context_ids
 where label = 'first';
 
 select throws_ok(
   $$insert into public.work_policies (
-      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
       early_arrival_policy, clock_in_rounding_mode, clock_in_rounding_minutes,
       working_days, effective_from
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
+      (select id from issue_17_assignment_ids),
       'Bad rounding', '09:00', 480, 60, 'STANDARD_START', 'CEIL', 0, array['1'], '2027-01-01'
     )$$,
   '23514', null, 'rounding minutes must be positive when rounding is enabled'
 );
 select throws_ok(
   $$insert into public.work_policies (
-      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
       early_arrival_policy, working_days, effective_from, effective_to
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
+      (select id from issue_17_assignment_ids),
       'Bad dates', '09:00', 480, 60, 'STANDARD_START', array['1'], '2027-02-01', '2027-01-01'
     )$$,
   '23514', null, 'effective_to cannot precede effective_from'
 );
 select throws_ok(
   $$insert into public.work_policies (
-      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
       early_arrival_policy, working_days, effective_from
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
+      (select id from issue_17_assignment_ids),
       'No days', '09:00', 480, 60, 'STANDARD_START', array[]::text[], '2027-01-01'
     )$$,
   '23514', null, 'working_days cannot be empty'
 );
 select throws_ok(
   $$insert into public.work_policies (
-      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
       early_arrival_policy, working_days, effective_from
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
+      (select id from issue_17_assignment_ids),
       'Invalid day', '09:00', 480, 60, 'STANDARD_START', array['MONDAY'], '2027-03-01'
     )$$,
   '23514', null, 'working_days accepts only numeric day values'
 );
 select throws_ok(
   $$insert into public.work_policies (
-      user_id, context_id, name, standard_start_time, work_minutes, fixed_break_minutes,
+      user_id, context_id, assignment_id, name, standard_start_time, work_minutes, fixed_break_minutes,
       early_arrival_policy, working_days, effective_from, effective_to
     ) values (
       '00000000-0000-0000-0000-000000000017',
       (select id from issue_17_context_ids where label = 'first'),
+      (select id from issue_17_assignment_ids),
       'Overlapping', '09:00', 480, 60, 'STANDARD_START', array['1'], '2026-01-15', '2026-02-01'
     )$$,
   '23P01', null, 'overlapping policy effective dates are rejected'
 );
-select throws_ok(
+select lives_ok(
   $$update public.work_policies
     set effective_from = '2026-01-31'
     where name = 'Second valid policy'$$,
-  'P0001', null, 'work policy effective_from cannot be changed after creation'
+  'unused work policy effective_from can be changed'
 );
+
+set local role authenticated;
 
 select throws_ok(
   $$update public.work_contexts set is_default = true
@@ -393,7 +413,7 @@ select throws_ok(
   '42501', null, 'authenticated cannot delete work_contexts'
 );
 select throws_ok(
-  $$delete from public.work_policies where name = 'Valid policy'$$,
+  $$delete from public.work_policies where name = 'Valid policy updated'$$,
   '42501', null, 'authenticated cannot delete work_policies'
 );
 
