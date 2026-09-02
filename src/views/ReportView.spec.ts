@@ -278,10 +278,10 @@ describe('ReportView', () => {
 
     expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(true)
 
-    // Mock failure on next month fetch
+    // Mock failure on next query
     vi.spyOn(attendanceLib, 'getMonthAttendanceRecords').mockRejectedValue(new Error('Network error'))
 
-    await wrapper.find('[data-test="month-input"]').setValue('2026-09')
+    await wrapper.find('[data-test="context-select"]').setValue('ctx-2')
     await flushPromises()
 
     expect(wrapper.find('[data-test="load-error-banner"]').exists()).toBe(true)
