@@ -176,7 +176,6 @@ select is(
 -- 2. MANUAL create uses Asia/Taipei date/time, created_source = MANUAL, manually_adjusted = false
 select create_manual_attendance(
   '2026-08-10'::date,
-  (select id from test_context_ids where label = 'context_a1'),
   '09:30:00'::time,
   '18:30:00'::time,
   'Manual attendance note'
@@ -215,7 +214,6 @@ select is(
 -- 3. MANUAL create intentionally incomplete (no clock-out)
 select create_manual_attendance(
   '2026-08-11'::date,
-  (select id from test_context_ids where label = 'context_a1'),
   '09:30:00'::time,
   null,
   null
@@ -242,7 +240,6 @@ select is(
 -- 4. Applicable policy selected by historical date (e.g. 2026-03-15 matches Old Policy with standard_start_time 09:00:00)
 select create_manual_attendance(
   '2026-03-15'::date,
-  (select id from test_context_ids where label = 'context_a1'),
   '08:50:00'::time,
   '18:00:00'::time,
   null
@@ -262,15 +259,15 @@ select is(
 
 -- 5. Missing applicable policy rejected (date before 2026-01-01)
 select throws_ok(
-  format($$select create_manual_attendance('2025-12-31'::date, '%s'::uuid, '09:00:00'::time, '18:00:00'::time, null)$$, (select id from test_context_ids where label = 'context_a1')),
+  $$select create_manual_attendance('2025-12-31'::date, '09:00:00'::time, '18:00:00'::time, null)$$,
   'P0001',
-  null,
-  'MANUAL create without applicable policy is rejected'
+  '2025-12-31 沒有可用的 Work Assignment（NO_ASSIGNMENT）。',
+  'MANUAL create without applicable assignment is rejected with target date and domain code'
 );
 
 -- 6. Invariants: clock-out before clock-in rejected
 select throws_ok(
-  format($$select create_manual_attendance('2026-08-12'::date, '%s'::uuid, '18:00:00'::time, '09:00:00'::time, null)$$, (select id from test_context_ids where label = 'context_a1')),
+  $$select create_manual_attendance('2026-08-12'::date, '18:00:00'::time, '09:00:00'::time, null)$$,
   'P0001',
   null,
   'MANUAL create with clock-out before clock-in is rejected'
@@ -278,7 +275,7 @@ select throws_ok(
 
 -- Same-date duplicate rejected
 select throws_ok(
-  format($$select create_manual_attendance('2026-08-10'::date, '%s'::uuid, '09:00:00'::time, '18:00:00'::time, null)$$, (select id from test_context_ids where label = 'context_a1')),
+  $$select create_manual_attendance('2026-08-10'::date, '09:00:00'::time, '18:00:00'::time, null)$$,
   '23505',
   null,
   'same date duplicate MANUAL create is rejected by unique constraint'
@@ -337,7 +334,6 @@ select is(
 -- Step C: explicit edit re-resolves the legal current policy and updates snapshots and calculations
 select edit_attendance_record(
   (select id from public.attendance_records where work_date = '2026-08-10'),
-  (select id from test_context_ids where label = 'context_a1'),
   '08:30:00'::time,
   '17:30:00'::time,
   'Edited record with updated policy'
@@ -396,7 +392,6 @@ select is(
 -- Edit the CLOCK record
 select edit_attendance_record(
   (select id from public.attendance_records where work_date = (now() at time zone 'Asia/Taipei')::date),
-  (select id from test_context_ids where label = 'context_a1'),
   '08:30:00'::time,
   '19:30:00'::time,
   'Adjusted today clock record'
@@ -440,7 +435,6 @@ select is(
 -- 9. Clearing clock-out returns to valid incomplete/null-derived state
 select edit_attendance_record(
   (select id from public.attendance_records where work_date = '2026-08-10'),
-  (select id from test_context_ids where label = 'context_a1'),
   '08:30:00'::time,
   null,
   'Cleared clock-out'
@@ -482,7 +476,6 @@ grant all on test_record_ids to authenticated;
 insert into test_record_ids (label, id)
 select 'user_b_rec', id from public.create_manual_attendance(
   '2026-08-15'::date,
-  (select id from test_context_ids where label = 'context_b'),
   '09:00:00'::time,
   '18:00:00'::time,
   'User B attendance'
@@ -494,11 +487,10 @@ set local "request.jwt.claims" = '{"sub":"11111111-1111-4111-8111-111111111111"}
 select throws_ok(
   format($$select edit_attendance_record(
     '%s'::uuid,
-    '%s'::uuid,
     '10:00:00'::time,
     '19:00:00'::time,
     'Hacked'
-  )$$, (select id from test_record_ids where label = 'user_b_rec'), (select id from test_context_ids where label = 'context_a1')),
+  )$$, (select id from test_record_ids where label = 'user_b_rec')),
   'P0001',
   null,
   'User A cannot edit User B attendance record'
@@ -514,18 +506,17 @@ select throws_ok(
   'User A cannot delete User B attendance record'
 );
 
--- User A tries to create attendance using User B's context
-select throws_ok(
-  format($$select create_manual_attendance(
-    '2026-08-20'::date,
-    '%s'::uuid,
-    '09:00:00'::time,
-    '18:00:00'::time,
-    'Cross-user context'
-  )$$, (select id from test_context_ids where label = 'context_b')),
-  'P0001',
-  null,
-  'User A cannot use User B work context'
+-- User A's target-date create resolves only User A's assignment and policy.
+select create_manual_attendance(
+  '2026-08-20'::date,
+  '09:00:00'::time,
+  '18:00:00'::time,
+  'Owner-resolved target date'
+);
+select is(
+  (select policy_snapshot->>'name' from public.attendance_records where user_id = '11111111-1111-4111-8111-111111111111' and work_date = '2026-08-20'),
+  'Current Policy',
+  'target-date create does not use another user context and resolves the owner policy'
 );
 
 -- 11. Owner hard delete succeeds

@@ -11,7 +11,7 @@ export type AttendanceRecord = {
   work_date: string
   assignment_id?: string | null
   assignment_snapshot?: Record<string, unknown> | null
-  context_id: string
+  context_id: string | null
   work_policy_id: string
   actual_clock_in_at: string
   actual_clock_out_at: string | null
@@ -43,7 +43,6 @@ export type TodayAttendanceReadiness = {
 
 export type ManualAttendanceInput = {
   work_date: string
-  context_id: string
   actual_clock_in_time: string
   actual_clock_out_time?: string | null
   status_note?: string | null
@@ -51,7 +50,6 @@ export type ManualAttendanceInput = {
 
 export type EditAttendanceInput = {
   id: string
-  context_id: string
   actual_clock_in_time: string
   actual_clock_out_time?: string | null
   status_note?: string | null
@@ -151,7 +149,6 @@ export async function clockOutToday() {
 export async function createManualAttendance(input: ManualAttendanceInput) {
   const { data, error } = await getSupabaseClient().rpc('create_manual_attendance', {
     p_work_date: input.work_date,
-    p_context_id: input.context_id,
     p_actual_clock_in_time: input.actual_clock_in_time,
     p_actual_clock_out_time: input.actual_clock_out_time || null,
     p_status_note: input.status_note || null,
@@ -164,7 +161,6 @@ export async function createManualAttendance(input: ManualAttendanceInput) {
 export async function editAttendanceRecord(input: EditAttendanceInput) {
   const { data, error } = await getSupabaseClient().rpc('edit_attendance_record', {
     p_id: input.id,
-    p_context_id: input.context_id,
     p_actual_clock_in_time: input.actual_clock_in_time,
     p_actual_clock_out_time: input.actual_clock_out_time || null,
     p_status_note: input.status_note || null,

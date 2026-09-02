@@ -10,7 +10,6 @@ import {
   getMonthAttendanceRecords,
   type AttendanceRecord,
 } from '../lib/attendance'
-import { getCurrentUserId, getSetupStatus } from '../lib/settings'
 
 vi.mock('../lib/attendance', () => ({
   getMonthAttendanceRecords: vi.fn(),
@@ -19,35 +18,9 @@ vi.mock('../lib/attendance', () => ({
   deleteAttendanceRecord: vi.fn(),
 }))
 
-vi.mock('../lib/settings', () => ({
-  getCurrentUserId: vi.fn(),
-  getSetupStatus: vi.fn(),
-}))
-
 vi.mock('../lib/work-policy', () => ({
   getTaipeiToday: vi.fn(() => '2026-08-29'),
 }))
-
-const sampleContexts = [
-  {
-    id: 'context-1',
-    user_id: 'user-1',
-    name: 'Context Alpha',
-    company_identifier: 'COMP-A',
-    project_identifier: 'PROJ-A',
-    active: true,
-    is_default: true,
-  },
-  {
-    id: 'context-2',
-    user_id: 'user-1',
-    name: 'Context Beta',
-    company_identifier: 'COMP-B',
-    project_identifier: 'PROJ-B',
-    active: true,
-    is_default: false,
-  },
-]
 
 const completedClockRecord: AttendanceRecord = {
   id: 'rec-1',
@@ -164,17 +137,20 @@ const adjustedClockRecord: AttendanceRecord = {
   status_note: '主管確認補加班',
 }
 
+const assignmentSnapshotRecord: AttendanceRecord = {
+  ...completedClockRecord,
+  id: 'rec-assignment-snapshot',
+  context_snapshot: {},
+  assignment_snapshot: {
+    staffing_employer: '歷史派遣雇主',
+    client_company: '歷史派駐客戶',
+    project: '歷史專案',
+  },
+}
+
 describe('AttendanceView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
-    vi.mocked(getSetupStatus).mockResolvedValue({
-      profile: null,
-      contexts: sampleContexts as never,
-      defaultContext: sampleContexts[0] as never,
-      policies: [],
-      complete: true,
-    })
     vi.mocked(getMonthAttendanceRecords).mockResolvedValue([
       completedClockRecord,
       incompleteManualRecord,
@@ -182,7 +158,7 @@ describe('AttendanceView', () => {
     ])
   })
 
-  it('載入當前月份資料並渲染紀錄列表與 Context snapshot 識別', async () => {
+  it('目前沒有 Assignment 或 Policy 時仍可載入歷史月份資料', async () => {
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
 
@@ -236,7 +212,7 @@ describe('AttendanceView', () => {
     wrapper.unmount()
   })
 
-  it('點擊檢視明細顯示 snapshot summaries 與人可讀資訊', async () => {
+  it('點擊檢視明細優先顯示歷史保存的 snapshot 與人可讀資訊', async () => {
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
 
@@ -252,6 +228,27 @@ describe('AttendanceView', () => {
     expect(modal.text()).toContain('今日正常上班')
     expect(modal.text()).toContain('COMPLETED')
     expect(modal.text()).toContain('快照有效工時')
+    wrapper.unmount()
+  })
+
+  it('有 Assignment snapshot 時，列表與明細都顯示保存的工作歸屬', async () => {
+    vi.mocked(getMonthAttendanceRecords).mockResolvedValue([assignmentSnapshotRecord])
+
+    const wrapper = mount(AttendanceView, { attachTo: document.body })
+    await flushPromises()
+
+    const row = wrapper.get('[data-record-id="rec-assignment-snapshot"]')
+    expect(row.text()).toContain('歷史派遣雇主')
+    expect(row.text()).toContain('歷史派駐客戶')
+    expect(row.text()).toContain('歷史專案')
+
+    await row.get('[data-action="view-detail"]').trigger('click')
+    await flushPromises()
+
+    const modal = wrapper.get('[data-testid="detail-modal"]')
+    expect(modal.text()).toContain('歷史派遣雇主')
+    expect(modal.text()).toContain('歷史派駐客戶')
+    expect(modal.text()).toContain('歷史專案')
     wrapper.unmount()
   })
 
@@ -358,10 +355,10 @@ describe('AttendanceView', () => {
 
     const modal = wrapper.get('[data-testid="form-modal"]')
     expect(modal.text()).toContain('補登出勤紀錄')
+    expect(modal.find('select[name="context_id"]').exists()).toBe(false)
 
     // 填寫表單
     await modal.get('input[name="work_date"]').setValue('2026-08-15')
-    await modal.get('select[name="context_id"]').setValue('context-1')
     await modal.get('input[name="actual_clock_in_time"]').setValue('09:30')
     await modal.get('input[name="actual_clock_out_time"]').setValue('18:30')
     await modal.get('input[name="status_note"]').setValue('新補登備註')
@@ -371,7 +368,6 @@ describe('AttendanceView', () => {
 
     expect(createManualAttendance).toHaveBeenCalledWith({
       work_date: '2026-08-15',
-      context_id: 'context-1',
       actual_clock_in_time: '09:30',
       actual_clock_out_time: '18:30',
       status_note: '新補登備註',
@@ -391,6 +387,7 @@ describe('AttendanceView', () => {
 
     const modal = wrapper.get('[data-testid="form-modal"]')
     expect(modal.text()).toContain('修改出勤紀錄')
+    expect(modal.find('select[name="context_id"]').exists()).toBe(false)
 
     const dateInput = modal.get('input[name="work_date"]')
     expect(dateInput.attributes('disabled')).toBeDefined()
@@ -401,7 +398,6 @@ describe('AttendanceView', () => {
 
     expect(editAttendanceRecord).toHaveBeenCalledWith({
       id: 'rec-1',
-      context_id: 'context-1',
       actual_clock_in_time: '09:15',
       actual_clock_out_time: '19:30',
       status_note: '今日正常上班',
@@ -430,8 +426,11 @@ describe('AttendanceView', () => {
     wrapper.unmount()
   })
 
-  it('表單若有 DB 錯誤會清楚顯示錯誤訊息', async () => {
-    vi.mocked(createManualAttendance).mockRejectedValueOnce(new Error('此工作日已存在出勤紀錄。'))
+  it.each([
+    ['NO_ASSIGNMENT', '2026-08-10', '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。'],
+    ['MISSING_POLICY', '2026-08-11', '2026-08-11 找不到適用的 Work Policy（MISSING_POLICY）。'],
+  ])('日期特定 %s RPC 錯誤會原樣且可區分地顯示', async (resolution, workDate, errorMessage) => {
+    vi.mocked(createManualAttendance).mockRejectedValueOnce(new Error(errorMessage))
 
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
@@ -440,14 +439,14 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const modal = wrapper.get('[data-testid="form-modal"]')
-    await modal.get('input[name="work_date"]').setValue('2026-08-10')
-    await modal.get('select[name="context_id"]').setValue('context-1')
+    await modal.get('input[name="work_date"]').setValue(workDate)
     await modal.get('input[name="actual_clock_in_time"]').setValue('09:30')
 
     await modal.get('form').trigger('submit')
     await flushPromises()
 
-    expect(modal.text()).toContain('此工作日已存在出勤紀錄。')
+    expect(modal.get('[role="alert"]').text()).toContain(resolution)
+    expect(modal.get('[role="alert"]').text()).toBe(errorMessage)
     wrapper.unmount()
   })
 })
