@@ -10,7 +10,6 @@ import {
   getMonthAttendanceRecords,
   type AttendanceRecord,
 } from '../lib/attendance'
-import { getCurrentUserId, getSetupStatus } from '../lib/settings'
 
 vi.mock('../lib/attendance', () => ({
   getMonthAttendanceRecords: vi.fn(),
@@ -19,35 +18,9 @@ vi.mock('../lib/attendance', () => ({
   deleteAttendanceRecord: vi.fn(),
 }))
 
-vi.mock('../lib/settings', () => ({
-  getCurrentUserId: vi.fn(),
-  getSetupStatus: vi.fn(),
-}))
-
 vi.mock('../lib/work-policy', () => ({
   getTaipeiToday: vi.fn(() => '2026-08-29'),
 }))
-
-const sampleContexts = [
-  {
-    id: 'context-1',
-    user_id: 'user-1',
-    name: 'Context Alpha',
-    company_identifier: 'COMP-A',
-    project_identifier: 'PROJ-A',
-    active: true,
-    is_default: true,
-  },
-  {
-    id: 'context-2',
-    user_id: 'user-1',
-    name: 'Context Beta',
-    company_identifier: 'COMP-B',
-    project_identifier: 'PROJ-B',
-    active: true,
-    is_default: false,
-  },
-]
 
 const completedClockRecord: AttendanceRecord = {
   id: 'rec-1',
@@ -167,14 +140,6 @@ const adjustedClockRecord: AttendanceRecord = {
 describe('AttendanceView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
-    vi.mocked(getSetupStatus).mockResolvedValue({
-      profile: null,
-      contexts: sampleContexts as never,
-      defaultContext: sampleContexts[0] as never,
-      policies: [],
-      complete: true,
-    })
     vi.mocked(getMonthAttendanceRecords).mockResolvedValue([
       completedClockRecord,
       incompleteManualRecord,
@@ -182,7 +147,7 @@ describe('AttendanceView', () => {
     ])
   })
 
-  it('載入當前月份資料並渲染紀錄列表與 Context snapshot 識別', async () => {
+  it('目前沒有 Assignment 或 Policy 時仍可載入歷史月份資料', async () => {
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
 
@@ -236,7 +201,7 @@ describe('AttendanceView', () => {
     wrapper.unmount()
   })
 
-  it('點擊檢視明細顯示 snapshot summaries 與人可讀資訊', async () => {
+  it('點擊檢視明細優先顯示歷史保存的 snapshot 與人可讀資訊', async () => {
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
 
@@ -358,10 +323,10 @@ describe('AttendanceView', () => {
 
     const modal = wrapper.get('[data-testid="form-modal"]')
     expect(modal.text()).toContain('補登出勤紀錄')
+    expect(modal.find('select[name="context_id"]').exists()).toBe(false)
 
     // 填寫表單
     await modal.get('input[name="work_date"]').setValue('2026-08-15')
-    await modal.get('select[name="context_id"]').setValue('context-1')
     await modal.get('input[name="actual_clock_in_time"]').setValue('09:30')
     await modal.get('input[name="actual_clock_out_time"]').setValue('18:30')
     await modal.get('input[name="status_note"]').setValue('新補登備註')
@@ -371,7 +336,6 @@ describe('AttendanceView', () => {
 
     expect(createManualAttendance).toHaveBeenCalledWith({
       work_date: '2026-08-15',
-      context_id: 'context-1',
       actual_clock_in_time: '09:30',
       actual_clock_out_time: '18:30',
       status_note: '新補登備註',
@@ -391,6 +355,7 @@ describe('AttendanceView', () => {
 
     const modal = wrapper.get('[data-testid="form-modal"]')
     expect(modal.text()).toContain('修改出勤紀錄')
+    expect(modal.find('select[name="context_id"]').exists()).toBe(false)
 
     const dateInput = modal.get('input[name="work_date"]')
     expect(dateInput.attributes('disabled')).toBeDefined()
@@ -401,7 +366,6 @@ describe('AttendanceView', () => {
 
     expect(editAttendanceRecord).toHaveBeenCalledWith({
       id: 'rec-1',
-      context_id: 'context-1',
       actual_clock_in_time: '09:15',
       actual_clock_out_time: '19:30',
       status_note: '今日正常上班',
@@ -430,8 +394,9 @@ describe('AttendanceView', () => {
     wrapper.unmount()
   })
 
-  it('表單若有 DB 錯誤會清楚顯示錯誤訊息', async () => {
-    vi.mocked(createManualAttendance).mockRejectedValueOnce(new Error('此工作日已存在出勤紀錄。'))
+  it('日期特定 RPC 錯誤會原樣顯示', async () => {
+    const errorMessage = '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。'
+    vi.mocked(createManualAttendance).mockRejectedValueOnce(new Error(errorMessage))
 
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
@@ -441,13 +406,12 @@ describe('AttendanceView', () => {
 
     const modal = wrapper.get('[data-testid="form-modal"]')
     await modal.get('input[name="work_date"]').setValue('2026-08-10')
-    await modal.get('select[name="context_id"]').setValue('context-1')
     await modal.get('input[name="actual_clock_in_time"]').setValue('09:30')
 
     await modal.get('form').trigger('submit')
     await flushPromises()
 
-    expect(modal.text()).toContain('此工作日已存在出勤紀錄。')
+    expect(modal.text()).toContain(errorMessage)
     wrapper.unmount()
   })
 })

@@ -7,16 +7,10 @@ import {
   getMonthAttendanceRecords,
   type AttendanceRecord,
 } from '../lib/attendance'
-import {
-  getCurrentUserId,
-  getSetupStatus,
-  type WorkContext,
-} from '../lib/settings'
 import { getTaipeiToday } from '../lib/work-policy'
 
 const currentMonth = ref(getTaipeiToday().slice(0, 7))
 const records = ref<AttendanceRecord[]>([])
-const contexts = ref<WorkContext[]>([])
 const isLoading = ref(true)
 const loadError = ref('')
 const selectedRecord = ref<AttendanceRecord | null>(null)
@@ -33,7 +27,6 @@ let currentRequestId = 0
 // Form state
 const formRecordId = ref('')
 const formWorkDate = ref('')
-const formContextId = ref('')
 const formClockInTime = ref('')
 const formClockOutTime = ref('')
 const formStatusNote = ref('')
@@ -50,24 +43,8 @@ const incompleteCount = computed(() => records.value.filter((r) => r.actual_cloc
 const adjustedCount = computed(() => records.value.filter((r) => r.manually_adjusted).length)
 
 onMounted(async () => {
-  await loadContexts()
   await loadMonth()
 })
-
-async function loadContexts() {
-  try {
-    const userId = await getCurrentUserId()
-    const setup = await getSetupStatus(userId)
-    contexts.value = setup.contexts
-    if (!formContextId.value && setup.defaultContext) {
-      formContextId.value = setup.defaultContext.id
-    } else if (!formContextId.value && setup.contexts.length > 0) {
-      formContextId.value = setup.contexts[0].id
-    }
-  } catch {
-    // Non-blocking for contexts
-  }
-}
 
 async function loadMonth() {
   const requestId = ++currentRequestId
@@ -127,7 +104,6 @@ function openCreateForm() {
   isEditMode.value = false
   formRecordId.value = ''
   formWorkDate.value = getTaipeiToday()
-  formContextId.value = contexts.value.find((c) => c.is_default)?.id || contexts.value[0]?.id || ''
   formClockInTime.value = ''
   formClockOutTime.value = ''
   formStatusNote.value = ''
@@ -144,7 +120,6 @@ function openEditForm(record: AttendanceRecord) {
   isEditMode.value = true
   formRecordId.value = record.id
   formWorkDate.value = record.work_date
-  formContextId.value = record.context_id
   formClockInTime.value = formatTimeForInput(record.actual_clock_in_at)
   formClockOutTime.value = record.actual_clock_out_at ? formatTimeForInput(record.actual_clock_out_at) : ''
   formStatusNote.value = record.status_note || ''
@@ -164,10 +139,6 @@ async function handleFormSubmit() {
     formError.value = '請選擇工作日。'
     return
   }
-  if (!formContextId.value) {
-    formError.value = '請選擇工作環境 (Work Context)。'
-    return
-  }
   if (!formClockInTime.value) {
     formError.value = '請填寫上班時間。'
     return
@@ -182,7 +153,6 @@ async function handleFormSubmit() {
     if (isEditMode.value) {
       await editAttendanceRecord({
         id: formRecordId.value,
-        context_id: formContextId.value,
         actual_clock_in_time: formClockInTime.value,
         actual_clock_out_time: formClockOutTime.value || null,
         status_note: formStatusNote.value || null,
@@ -190,7 +160,6 @@ async function handleFormSubmit() {
     } else {
       await createManualAttendance({
         work_date: formWorkDate.value,
-        context_id: formContextId.value,
         actual_clock_in_time: formClockInTime.value,
         actual_clock_out_time: formClockOutTime.value || null,
         status_note: formStatusNote.value || null,
@@ -633,7 +602,7 @@ function formatRounding(mode: unknown, minutes: unknown) {
             {{ isEditMode ? '修改出勤紀錄' : '補登出勤紀錄' }}
           </h2>
           <p class="mt-1 text-xs text-muted">
-            {{ isEditMode ? '修改時間將重新依該日 Work Policy 進行工時計算。工作日不可直接修改。' : '手動補登出勤紀錄，將依工作日與選擇的環境套用對應制度。' }}
+            {{ isEditMode ? '修改時間將重新依該日 Work Policy 進行工時計算。工作日不可直接修改。' : '手動補登出勤紀錄，將依工作日套用對應制度。' }}
           </p>
         </div>
 
@@ -654,22 +623,6 @@ function formatRounding(mode: unknown, minutes: unknown) {
               :disabled="isEditMode"
               class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3 py-2 text-sm font-semibold disabled:bg-surface-soft disabled:text-muted focus-visible:outline-2 focus-visible:outline-accent"
             />
-          </div>
-
-          <!-- Work Context -->
-          <div class="grid gap-1.5">
-            <label class="text-xs font-bold tracking-wider text-muted" for="form-context-id">工作環境 (Work Context)</label>
-            <select
-              id="form-context-id"
-              v-model="formContextId"
-              name="context_id"
-              required
-              class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              <option v-for="ctx in contexts" :key="ctx.id" :value="ctx.id">
-                {{ ctx.name }} ({{ ctx.company_identifier }} / {{ ctx.project_identifier }})
-              </option>
-            </select>
           </div>
 
           <!-- Times -->
