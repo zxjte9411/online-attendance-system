@@ -11,7 +11,7 @@ export type AttendanceRecord = {
   work_date: string
   assignment_id?: string | null
   assignment_snapshot?: Record<string, unknown> | null
-  context_id: string
+  context_id: string | null
   work_policy_id: string
   actual_clock_in_at: string
   actual_clock_out_at: string | null
