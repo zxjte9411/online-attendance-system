@@ -137,6 +137,17 @@ const adjustedClockRecord: AttendanceRecord = {
   status_note: '主管確認補加班',
 }
 
+const assignmentSnapshotRecord: AttendanceRecord = {
+  ...completedClockRecord,
+  id: 'rec-assignment-snapshot',
+  context_snapshot: {},
+  assignment_snapshot: {
+    staffing_employer: '歷史派遣雇主',
+    client_company: '歷史派駐客戶',
+    project: '歷史專案',
+  },
+}
+
 describe('AttendanceView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -217,6 +228,27 @@ describe('AttendanceView', () => {
     expect(modal.text()).toContain('今日正常上班')
     expect(modal.text()).toContain('COMPLETED')
     expect(modal.text()).toContain('快照有效工時')
+    wrapper.unmount()
+  })
+
+  it('有 Assignment snapshot 時，列表與明細都顯示保存的工作歸屬', async () => {
+    vi.mocked(getMonthAttendanceRecords).mockResolvedValue([assignmentSnapshotRecord])
+
+    const wrapper = mount(AttendanceView, { attachTo: document.body })
+    await flushPromises()
+
+    const row = wrapper.get('[data-record-id="rec-assignment-snapshot"]')
+    expect(row.text()).toContain('歷史派遣雇主')
+    expect(row.text()).toContain('歷史派駐客戶')
+    expect(row.text()).toContain('歷史專案')
+
+    await row.get('[data-action="view-detail"]').trigger('click')
+    await flushPromises()
+
+    const modal = wrapper.get('[data-testid="detail-modal"]')
+    expect(modal.text()).toContain('歷史派遣雇主')
+    expect(modal.text()).toContain('歷史派駐客戶')
+    expect(modal.text()).toContain('歷史專案')
     wrapper.unmount()
   })
 
@@ -394,8 +426,10 @@ describe('AttendanceView', () => {
     wrapper.unmount()
   })
 
-  it('日期特定 RPC 錯誤會原樣顯示', async () => {
-    const errorMessage = '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。'
+  it.each([
+    ['NO_ASSIGNMENT', '2026-08-10', '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。'],
+    ['MISSING_POLICY', '2026-08-11', '2026-08-11 找不到適用的 Work Policy（MISSING_POLICY）。'],
+  ])('日期特定 %s RPC 錯誤會原樣且可區分地顯示', async (resolution, workDate, errorMessage) => {
     vi.mocked(createManualAttendance).mockRejectedValueOnce(new Error(errorMessage))
 
     const wrapper = mount(AttendanceView, { attachTo: document.body })
@@ -405,13 +439,14 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const modal = wrapper.get('[data-testid="form-modal"]')
-    await modal.get('input[name="work_date"]').setValue('2026-08-10')
+    await modal.get('input[name="work_date"]').setValue(workDate)
     await modal.get('input[name="actual_clock_in_time"]').setValue('09:30')
 
     await modal.get('form').trigger('submit')
     await flushPromises()
 
-    expect(modal.text()).toContain(errorMessage)
+    expect(modal.get('[role="alert"]').text()).toContain(resolution)
+    expect(modal.get('[role="alert"]').text()).toBe(errorMessage)
     wrapper.unmount()
   })
 })

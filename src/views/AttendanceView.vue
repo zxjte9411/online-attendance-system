@@ -459,10 +459,10 @@ function formatRounding(mode: unknown, minutes: unknown) {
           </div>
 
           <div class="grid gap-1">
-            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">Context 快照 / 備註</span>
-            <div class="truncate text-sm font-medium" :title="`${rec.context_snapshot?.name || '—'} (${rec.context_snapshot?.company_identifier || '—'} / ${rec.context_snapshot?.project_identifier || '—'})`">
-              {{ rec.context_snapshot?.name || '—' }}
-              <span class="text-xs text-muted">({{ rec.context_snapshot?.company_identifier || '—' }} / {{ rec.context_snapshot?.project_identifier || '—' }})</span>
+            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">{{ rec.assignment_snapshot ? 'Work Assignment 快照' : 'Context 快照' }} / 備註</span>
+            <div class="truncate text-sm font-medium" :title="`${rec.assignment_snapshot ? rec.assignment_snapshot.staffing_employer || '—' : rec.context_snapshot?.name || '—'} (${rec.assignment_snapshot ? rec.assignment_snapshot.client_company || '—' : rec.context_snapshot?.company_identifier || '—'} / ${rec.assignment_snapshot ? rec.assignment_snapshot.project || '—' : rec.context_snapshot?.project_identifier || '—'})`">
+              {{ rec.assignment_snapshot ? rec.assignment_snapshot.staffing_employer || '—' : rec.context_snapshot?.name || '—' }}
+              <span class="text-xs text-muted">({{ rec.assignment_snapshot ? rec.assignment_snapshot.client_company || '—' : rec.context_snapshot?.company_identifier || '—' }} / {{ rec.assignment_snapshot ? rec.assignment_snapshot.project || '—' : rec.context_snapshot?.project_identifier || '—' }})</span>
             </div>
             <p v-if="rec.status_note" class="truncate text-xs text-muted" :title="rec.status_note">
               備註：{{ rec.status_note }}
@@ -520,11 +520,11 @@ function formatRounding(mode: unknown, minutes: unknown) {
 
           <!-- Context Snapshot -->
           <div class="grid gap-3 rounded-xl border border-line bg-surface-soft p-4">
-            <h3 class="text-xs font-bold tracking-wider text-muted">保存的 Context 快照</h3>
+            <h3 class="text-xs font-bold tracking-wider text-muted">{{ selectedRecord.assignment_snapshot ? '保存的 Work Assignment 快照' : '保存的 Context 快照' }}</h3>
             <dl class="grid gap-2 sm:grid-cols-3">
-              <div><dt class="text-xs text-muted">名稱</dt><dd class="font-bold">{{ selectedRecord.context_snapshot.name || '—' }}</dd></div>
-              <div><dt class="text-xs text-muted">公司代碼</dt><dd class="font-mono font-semibold">{{ selectedRecord.context_snapshot.company_identifier || '—' }}</dd></div>
-              <div><dt class="text-xs text-muted">專案代碼</dt><dd class="font-mono font-semibold">{{ selectedRecord.context_snapshot.project_identifier || '—' }}</dd></div>
+              <div><dt class="text-xs text-muted">{{ selectedRecord.assignment_snapshot ? '派遣雇主' : '名稱' }}</dt><dd class="font-bold">{{ selectedRecord.assignment_snapshot ? selectedRecord.assignment_snapshot.staffing_employer || '—' : selectedRecord.context_snapshot.name || '—' }}</dd></div>
+              <div><dt class="text-xs text-muted">{{ selectedRecord.assignment_snapshot ? '派駐客戶' : '公司代碼' }}</dt><dd class="font-mono font-semibold">{{ selectedRecord.assignment_snapshot ? selectedRecord.assignment_snapshot.client_company || '—' : selectedRecord.context_snapshot.company_identifier || '—' }}</dd></div>
+              <div><dt class="text-xs text-muted">{{ selectedRecord.assignment_snapshot ? '專案' : '專案代碼' }}</dt><dd class="font-mono font-semibold">{{ selectedRecord.assignment_snapshot ? selectedRecord.assignment_snapshot.project || '—' : selectedRecord.context_snapshot.project_identifier || '—' }}</dd></div>
             </dl>
           </div>
 
