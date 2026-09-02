@@ -145,6 +145,129 @@ begin
 end;
 $$;
 
+create or replace function public.prevent_attendance_snapshot_update()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  resolution text;
+  resolved_assignment_id uuid;
+  resolved_policy_id uuid;
+  resolved_context_id uuid;
+  expected_assignment_snapshot jsonb;
+  expected_context_snapshot jsonb;
+  expected_policy_snapshot jsonb;
+begin
+  if new.user_id is distinct from old.user_id
+    or new.work_date is distinct from old.work_date
+    or new.created_source is distinct from old.created_source then
+    raise exception 'attendance history and snapshots are immutable'
+      using errcode = 'P0001';
+  end if;
+
+  if current_setting('app.attendance_rpc', true) is distinct from 'on' then
+    raise exception 'attendance history and snapshots are immutable'
+      using errcode = 'P0001';
+  end if;
+
+  if (select auth.uid()) is distinct from old.user_id then
+    raise exception 'attendance RPC owner mismatch'
+      using errcode = 'P0001';
+  end if;
+
+  if new.assignment_id is distinct from old.assignment_id
+    or new.assignment_snapshot is distinct from old.assignment_snapshot
+    or new.context_id is distinct from old.context_id
+    or new.context_snapshot is distinct from old.context_snapshot
+    or new.work_policy_id is distinct from old.work_policy_id
+    or new.policy_snapshot is distinct from old.policy_snapshot then
+    select r.resolution, r.assignment_id, r.policy_id
+    into resolution, resolved_assignment_id, resolved_policy_id
+    from public.resolve_work_assignment_policy(old.work_date) as r;
+
+    if resolution is distinct from 'RESOLVED'
+      or resolved_assignment_id is null
+      or resolved_policy_id is null then
+      raise exception 'attendance update resolution failed'
+        using errcode = 'P0001';
+    end if;
+
+    select wp.context_id
+    into resolved_context_id
+    from public.work_policies wp
+    where wp.id = resolved_policy_id
+      and wp.user_id = old.user_id
+      and wp.assignment_id = resolved_assignment_id;
+
+    select pg_catalog.jsonb_build_object(
+      'id', wa.id,
+      'user_id', wa.user_id,
+      'staffing_employer', wa.staffing_employer,
+      'client_company', wa.client_company,
+      'project', wa.project,
+      'effective_from', wa.effective_from,
+      'effective_to', wa.effective_to
+    )
+    into expected_assignment_snapshot
+    from public.work_assignments wa
+    where wa.id = resolved_assignment_id and wa.user_id = old.user_id;
+
+    if resolved_context_id is null then
+      expected_context_snapshot := '{}'::jsonb;
+    else
+      select pg_catalog.jsonb_build_object(
+        'id', wc.id,
+        'user_id', wc.user_id,
+        'name', wc.name,
+        'company_identifier', wc.company_identifier,
+        'project_identifier', wc.project_identifier,
+        'active', wc.active,
+        'is_default', wc.is_default
+      )
+      into expected_context_snapshot
+      from public.work_contexts wc
+      where wc.id = resolved_context_id and wc.user_id = old.user_id;
+    end if;
+
+    select pg_catalog.jsonb_build_object(
+      'id', wp.id,
+      'user_id', wp.user_id,
+      'assignment_id', wp.assignment_id,
+      'context_id', wp.context_id,
+      'name', wp.name,
+      'standard_start_time', wp.standard_start_time,
+      'work_minutes', wp.work_minutes,
+      'fixed_break_minutes', wp.fixed_break_minutes,
+      'early_arrival_policy', wp.early_arrival_policy,
+      'clock_in_rounding_mode', wp.clock_in_rounding_mode,
+      'clock_in_rounding_minutes', wp.clock_in_rounding_minutes,
+      'clock_out_rounding_mode', wp.clock_out_rounding_mode,
+      'clock_out_rounding_minutes', wp.clock_out_rounding_minutes,
+      'working_days', wp.working_days,
+      'effective_from', wp.effective_from,
+      'effective_to', wp.effective_to,
+      'timezone', wp.timezone
+    )
+    into expected_policy_snapshot
+    from public.work_policies wp
+    where wp.id = resolved_policy_id and wp.user_id = old.user_id;
+
+    if new.assignment_id is distinct from resolved_assignment_id
+      or new.context_id is distinct from resolved_context_id
+      or new.work_policy_id is distinct from resolved_policy_id
+      or new.assignment_snapshot is distinct from expected_assignment_snapshot
+      or new.context_snapshot is distinct from expected_context_snapshot
+      or new.policy_snapshot is distinct from expected_policy_snapshot then
+      raise exception 'attendance identity must match resolved assignment and policy'
+        using errcode = 'P0001';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
 drop function public.create_manual_attendance(date, uuid, time, time, text);
 
 create function public.create_manual_attendance(
