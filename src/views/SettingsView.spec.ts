@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsView from './SettingsView.vue'
 import {
@@ -73,9 +74,17 @@ describe('SettingsView.vue with Work Assignments', () => {
     vi.mocked(hasAttendanceRecordsForWorkPolicy).mockResolvedValue(false)
   })
 
-  it('renders work assignments list with status badges and details', async () => {
+  async function mountSettings(assignmentId?: string) {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/settings', name: 'settings', component: SettingsView }],
+    })
+    await router.push({ name: 'settings', query: assignmentId ? { assignment_id: assignmentId } : {} })
+    await router.isReady()
+
     const wrapper = mount(SettingsView, {
       global: {
+        plugins: [router],
         stubs: {
           ProfileForm: true,
           WorkContextForm: true,
@@ -85,6 +94,11 @@ describe('SettingsView.vue with Work Assignments', () => {
       },
     })
     await flushPromises()
+    return { wrapper, router }
+  }
+
+  it('renders work assignments list with status badges and details', async () => {
+    const { wrapper } = await mountSettings()
 
     expect(wrapper.text()).toContain('工作派駐')
     expect(wrapper.text()).toContain('派遣雇主 H1')
@@ -103,20 +117,26 @@ describe('SettingsView.vue with Work Assignments', () => {
       work_minutes: 480,
     }] as never)
 
-    const wrapper = mount(SettingsView, {
-      global: {
-        stubs: {
-          ProfileForm: true,
-          WorkContextForm: true,
-          WorkPolicyForm: true,
-          ExportTemplateSection: true,
-        },
-      },
-    })
-    await flushPromises()
+    const { wrapper } = await mountSettings()
 
     expect(listWorkPolicies).toHaveBeenCalledWith(userId, 'wa-1')
     expect(wrapper.text()).toContain('派駐制度')
+  })
+
+  it('uses a valid assignment_id query when selecting the initial assignment', async () => {
+    const { wrapper } = await mountSettings('wa-2')
+
+    expect(listWorkPolicies).toHaveBeenCalledWith(userId, 'wa-2')
+    expect(wrapper.get<HTMLSelectElement>('#policy-assignment').element.value).toBe('wa-2')
+    wrapper.unmount()
+  })
+
+  it('falls back to the first assignment when assignment_id query is invalid', async () => {
+    const { wrapper } = await mountSettings('missing-assignment')
+
+    expect(listWorkPolicies).toHaveBeenCalledWith(userId, 'wa-1')
+    expect(wrapper.get<HTMLSelectElement>('#policy-assignment').element.value).toBe('wa-1')
+    wrapper.unmount()
   })
 
   it('checks policy attendance usage by policy id before editing', async () => {
@@ -129,17 +149,7 @@ describe('SettingsView.vue with Work Assignments', () => {
       work_minutes: 480,
     }] as never)
 
-    const wrapper = mount(SettingsView, {
-      global: {
-        stubs: {
-          ProfileForm: true,
-          WorkContextForm: true,
-          WorkPolicyForm: true,
-          ExportTemplateSection: true,
-        },
-      },
-    })
-    await flushPromises()
+    const { wrapper } = await mountSettings()
 
     const editButton = wrapper.get('#policies').findAll('button').find((button) => button.text() === '編輯')
     await editButton!.trigger('click')
@@ -149,17 +159,7 @@ describe('SettingsView.vue with Work Assignments', () => {
   })
 
   it('toggles new assignment form', async () => {
-    const wrapper = mount(SettingsView, {
-      global: {
-        stubs: {
-          ProfileForm: true,
-          WorkContextForm: true,
-          WorkPolicyForm: true,
-          ExportTemplateSection: true,
-        },
-      },
-    })
-    await flushPromises()
+    const { wrapper } = await mountSettings()
 
     const addBtn = wrapper.findAll('button').find((b) => b.text() === '新增工作派駐')
     expect(addBtn).toBeDefined()
@@ -172,17 +172,7 @@ describe('SettingsView.vue with Work Assignments', () => {
   it('fails closed when attendance lookup rejects, not opening form and displaying error', async () => {
     vi.mocked(hasAttendanceRecordsForAssignment).mockRejectedValue(new Error('網路連線逾時'))
 
-    const wrapper = mount(SettingsView, {
-      global: {
-        stubs: {
-          ProfileForm: true,
-          WorkContextForm: true,
-          WorkPolicyForm: true,
-          ExportTemplateSection: true,
-        },
-      },
-    })
-    await flushPromises()
+    const { wrapper } = await mountSettings()
 
     const editBtn = wrapper.findAll('button').find((b) => b.text() === '編輯')
     expect(editBtn).toBeDefined()
@@ -198,17 +188,7 @@ describe('SettingsView.vue with Work Assignments', () => {
   it('opens assignment edit form with locked H/A/P when attendance records exist', async () => {
     vi.mocked(hasAttendanceRecordsForAssignment).mockResolvedValue(true)
 
-    const wrapper = mount(SettingsView, {
-      global: {
-        stubs: {
-          ProfileForm: true,
-          WorkContextForm: true,
-          WorkPolicyForm: true,
-          ExportTemplateSection: true,
-        },
-      },
-    })
-    await flushPromises()
+    const { wrapper } = await mountSettings()
 
     const editBtn = wrapper.findAll('button').find((b) => b.text() === '編輯')
     expect(editBtn).toBeDefined()
@@ -225,17 +205,7 @@ describe('SettingsView.vue with Work Assignments', () => {
   it('opens assignment edit form with editable H/A/P when no attendance exists', async () => {
     vi.mocked(hasAttendanceRecordsForAssignment).mockResolvedValue(false)
 
-    const wrapper = mount(SettingsView, {
-      global: {
-        stubs: {
-          ProfileForm: true,
-          WorkContextForm: true,
-          WorkPolicyForm: true,
-          ExportTemplateSection: true,
-        },
-      },
-    })
-    await flushPromises()
+    const { wrapper } = await mountSettings()
 
     const editBtn = wrapper.findAll('button').find((b) => b.text() === '編輯')
     expect(editBtn).toBeDefined()

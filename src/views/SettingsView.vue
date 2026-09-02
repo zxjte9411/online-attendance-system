@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkAssignmentForm from '../components/settings/WorkAssignmentForm.vue'
 import WorkContextForm from '../components/settings/WorkContextForm.vue'
@@ -29,6 +30,7 @@ import {
 
 type AssignmentPolicy = WorkPolicy & { assignment_id: string }
 
+const route = useRoute()
 const userId = ref('')
 const profile = ref<Profile | null>(null)
 const assignments = ref<WorkAssignment[]>([])
@@ -74,7 +76,12 @@ async function load() {
     profile.value = savedProfile
     assignments.value = savedAssignments
     contexts.value = savedContexts
-    selectedAssignmentId.value = savedAssignments[0]?.id ?? ''
+    const requestedAssignmentId = typeof route.query.assignment_id === 'string'
+      ? route.query.assignment_id
+      : ''
+    selectedAssignmentId.value = savedAssignments.some((assignment) => assignment.id === requestedAssignmentId)
+      ? requestedAssignmentId
+      : savedAssignments[0]?.id ?? ''
     const nextContext = savedContexts.find((context) => context.active && context.is_default)
       ?? savedContexts.find((context) => context.active)
       ?? savedContexts[0]
