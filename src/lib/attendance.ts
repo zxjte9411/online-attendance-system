@@ -1,12 +1,16 @@
 import { getTaipeiToday } from './work-policy'
 import { getSupabaseClient } from './supabase'
+import type { WorkPolicy } from './settings'
 
-const attendanceFields = 'id,user_id,work_date,context_id,work_policy_id,actual_clock_in_at,actual_clock_out_at,effective_clock_in_at,effective_clock_out_at,expected_clock_out_at,actual_elapsed_minutes,net_worked_minutes,regular_minutes,overtime_minutes,context_snapshot,policy_snapshot,calculation_snapshot,created_source,manually_adjusted,last_manual_edit_at,status_note,created_at,updated_at'
+const attendanceFields = 'id,user_id,work_date,assignment_id,assignment_snapshot,context_id,work_policy_id,actual_clock_in_at,actual_clock_out_at,effective_clock_in_at,effective_clock_out_at,expected_clock_out_at,actual_elapsed_minutes,net_worked_minutes,regular_minutes,overtime_minutes,context_snapshot,policy_snapshot,calculation_snapshot,created_source,manually_adjusted,last_manual_edit_at,status_note,created_at,updated_at'
+const readinessPolicyFields = 'id,user_id,assignment_id,context_id,name,standard_start_time,work_minutes,fixed_break_minutes,early_arrival_policy,clock_in_rounding_mode,clock_in_rounding_minutes,clock_out_rounding_mode,clock_out_rounding_minutes,working_days,effective_from,effective_to,timezone,created_at,updated_at'
 
 export type AttendanceRecord = {
   id: string
   user_id: string
   work_date: string
+  assignment_id?: string | null
+  assignment_snapshot?: Record<string, unknown> | null
   context_id: string
   work_policy_id: string
   actual_clock_in_at: string
@@ -27,6 +31,14 @@ export type AttendanceRecord = {
   status_note: string | null
   created_at?: string
   updated_at?: string
+}
+
+export type AttendanceReadinessResolution = 'NO_ASSIGNMENT' | 'MISSING_POLICY' | 'RESOLVED'
+
+export type TodayAttendanceReadiness = {
+  resolution: AttendanceReadinessResolution
+  assignmentId: string | null
+  policy: WorkPolicy | null
 }
 
 export type ManualAttendanceInput = {
@@ -60,6 +72,46 @@ export async function getTodayAttendanceRecord() {
 
   if (error) throw error
   return data as AttendanceRecord | null
+}
+
+export async function getTodayAttendanceReadiness(): Promise<TodayAttendanceReadiness> {
+  const client = getSupabaseClient()
+  const { data: resolutionData, error: resolutionError } = await client.rpc('resolve_work_assignment_policy', {
+    p_target_date: getTaipeiToday(),
+  })
+
+  if (resolutionError) throw resolutionError
+
+  const resolutionRow = (Array.isArray(resolutionData) ? resolutionData[0] : resolutionData) as {
+    resolution: AttendanceReadinessResolution
+    assignment_id: string | null
+    policy_id: string | null
+  } | null
+  if (!resolutionRow) throw new Error('找不到今日 Work Policy 解析結果。')
+
+  if (resolutionRow.resolution !== 'RESOLVED') {
+    return {
+      resolution: resolutionRow.resolution,
+      assignmentId: resolutionRow.assignment_id,
+      policy: null,
+    }
+  }
+  if (!resolutionRow.policy_id) throw new Error('今日 Work Policy 解析結果無效。')
+
+  const { data: policyData, error: policyError } = await client
+    .from('work_policies')
+    .select(readinessPolicyFields)
+    .eq('id', resolutionRow.policy_id)
+    .maybeSingle()
+
+  if (policyError) throw policyError
+  if (!policyData) throw new Error('找不到今日 Work Policy。')
+
+  return {
+    resolution: resolutionRow.resolution,
+    assignmentId: resolutionRow.assignment_id,
+    policy: policyData as WorkPolicy,
+  }
 }
 
 export async function getMonthAttendanceRecords(yearMonth: string) {
