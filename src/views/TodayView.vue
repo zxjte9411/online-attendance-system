@@ -7,15 +7,13 @@ import {
 import {
   clockInToday,
   clockOutToday,
+  getTodayAttendanceReadiness,
   getTodayAttendanceRecord,
   type AttendanceRecord,
+  type TodayAttendanceReadiness,
 } from '../lib/attendance'
-import {
-  getCurrentUserId,
-  getSetupStatus,
-  type WorkPolicy,
-} from '../lib/settings'
-import { getTaipeiToday, getWorkPolicyStatus } from '../lib/work-policy'
+import type { WorkPolicy } from '../lib/settings'
+import { getTaipeiToday } from '../lib/work-policy'
 
 type Action = 'clock-in' | 'clock-out'
 type PolicySummary = {
@@ -24,12 +22,11 @@ type PolicySummary = {
   work_minutes: number | null
   fixed_break_minutes: number | null
 }
-
 const now = ref(new Date())
 const record = ref<AttendanceRecord | null>(null)
-const policy = ref<WorkPolicy | null>(null)
+const policy = ref<TodayAttendanceReadiness['policy']>(null)
 const isLoading = ref(true)
-const setupIncomplete = ref(false)
+const readiness = ref<TodayAttendanceReadiness | null>(null)
 const action = ref<Action | null>(null)
 const loadError = ref('')
 const actionError = ref('')
@@ -85,11 +82,16 @@ const currentSummary = computed(() => {
   }
 })
 const isBusy = computed(() => action.value !== null)
+const settingsHref = computed(() => readiness.value?.assignmentId
+  ? `/settings?assignment_id=${encodeURIComponent(readiness.value.assignmentId)}#policies`
+  : '/settings')
 
 onMounted(() => {
   void load()
   clockTimer = setInterval(() => {
+    const previousDate = getTaipeiToday(now.value)
     now.value = new Date()
+    if (getTaipeiToday(now.value) !== previousDate) void load()
   }, 30_000)
 })
 
@@ -99,8 +101,9 @@ onUnmounted(() => {
 
 async function load() {
   isLoading.value = true
-  setupIncomplete.value = false
+  record.value = null
   policy.value = null
+  readiness.value = null
   loadError.value = ''
   successMessage.value = ''
 
@@ -110,19 +113,13 @@ async function load() {
     actionError.value = ''
     if (todayRecord) return
 
-    const userId = await getCurrentUserId()
-    const setup = await getSetupStatus(userId)
-    const currentPolicy = setup.policies.find((candidate) => (
-      candidate.context_id === setup.defaultContext?.id
-      && getWorkPolicyStatus(candidate, getTaipeiToday(now.value)) === '目前適用'
-    ))
-
-    if (!currentPolicy) {
-      setupIncomplete.value = true
-      return
+    const resolved = await getTodayAttendanceReadiness()
+    if (resolved.resolution === 'RESOLVED' && !resolved.policy) {
+      throw new Error('今日工作制度解析結果無效，請稍後再試。')
     }
 
-    policy.value = currentPolicy
+    readiness.value = resolved
+    policy.value = resolved.policy
   } catch (error) {
     if (actionError.value) {
       await focusError('action')
@@ -161,7 +158,12 @@ async function runClockAction(
   try {
     record.value = await clock()
     successMessage.value = message
-  } catch {
+  } catch (error) {
+    if (nextAction === 'clock-in' && isUnavailableError(error)) {
+      await load()
+      return
+    }
+
     actionError.value = '無法確認這次打卡是否完成，請重新載入今日狀態確認。'
     await focusError('action')
   } finally {
@@ -176,7 +178,23 @@ async function focusError(kind: 'load' | 'action') {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback
+  if (error instanceof Error && error.message) return error.message
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'message' in error
+    && typeof error.message === 'string'
+    && error.message
+  ) {
+    return error.message
+  }
+
+  return fallback
+}
+
+function isUnavailableError(error: unknown) {
+  const message = getErrorMessage(error, '')
+  return message === 'NO_ASSIGNMENT' || message === 'MISSING_POLICY'
 }
 
 function formatTime(value: string) {
@@ -284,14 +302,26 @@ function formatStartTime(value: string | null | undefined) {
       <button data-action="reload-status" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-[var(--error-ink)] bg-surface px-4 py-2 font-semibold text-[var(--error-ink)] transition duration-200 ease-out hover:-translate-y-px hover:bg-canvas active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" type="button" :disabled="isLoading" :aria-busy="isLoading" @click="load">重新確認今日狀態</button>
     </section>
 
-    <section v-else-if="setupIncomplete" class="mt-6 grid gap-2 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)]" aria-labelledby="today-setup-incomplete-title">
-      <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">WORK SETUP</span>
-      <h2 id="today-setup-incomplete-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">工作設定尚未完成。</h2>
-      <p class="text-sm leading-relaxed text-muted">目前沒有可套用的預設工作情境或工作制度；完成設定後即可開始今日出勤。</p>
+    <section v-else-if="readiness?.resolution === 'NO_ASSIGNMENT'" class="mt-6 grid gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="today-no-assignment-title" data-state="unavailable-no-assignment">
+      <div class="grid gap-2">
+        <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">今日不可打卡</span>
+        <h2 id="today-no-assignment-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">今天沒有工作派駐。</h2>
+        <p class="text-sm leading-relaxed text-muted">目前沒有可用的工作派駐，完成設定後才能開始今天的出勤。</p>
+      </div>
+      <a data-action="settings" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" href="/settings">前往工作設定</a>
     </section>
 
-    <div v-else-if="!isLoading && !loadError" class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.75fr)]">
-      <section v-if="viewState === 'preview'" class="grid gap-6 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="preview-title">
+    <section v-else-if="readiness?.resolution === 'MISSING_POLICY'" class="mt-6 grid gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="today-missing-policy-title" data-state="unavailable-missing-policy">
+      <div class="grid gap-2">
+        <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">今日不可打卡</span>
+        <h2 id="today-missing-policy-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">今天沒有適用的 Work Policy。</h2>
+        <p class="text-sm leading-relaxed text-muted">今天的工作派駐已解析，但沒有涵蓋今天日期的制度。請補上適用的 Work Policy。</p>
+      </div>
+      <a data-action="settings" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" :href="settingsHref">前往 Work Policy 設定</a>
+    </section>
+
+    <div v-else-if="record || (readiness?.resolution === 'RESOLVED' && policy)" class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.75fr)]">
+      <section v-if="viewState === 'preview'" class="grid gap-6 rounded-2xl border border-accent bg-surface p-5 shadow-[var(--shadow)] sm:p-8 forced-colors:border-[Highlight] forced-colors:bg-[Canvas] forced-colors:shadow-none" aria-labelledby="preview-title" data-state="preview">
         <div class="flex flex-wrap items-start justify-between gap-5 border-b border-line pb-5">
           <div class="grid gap-1">
             <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">CLIENT-TIME PREVIEW</span>
