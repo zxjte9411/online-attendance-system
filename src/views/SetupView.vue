@@ -75,6 +75,12 @@ function canVisitStep(target: 1 | 2 | 3) {
   return Boolean(profile.value?.display_name?.trim() && selectedAssignmentId.value)
 }
 
+function isStepComplete(target: 1 | 2 | 3) {
+  if (target === 1) return Boolean(profile.value?.display_name?.trim())
+  if (target === 2) return assignments.value.length > 0
+  return Boolean(selectedAssignmentId.value && policies.value.length > 0)
+}
+
 function handleProfileSaved(savedProfile: Profile) {
   profile.value = savedProfile
   showProfileSaveActions.value = true
@@ -170,7 +176,7 @@ function handlePolicySaved(savedPolicy: AssignmentPolicy) {
               >
                 <span class="font-mono text-sm tabular-nums" aria-hidden="true">{{ String(item.number).padStart(2, '0') }}</span>
                 <span>{{ item.label }}</span>
-                <span v-if="canVisitStep(item.number) && step !== item.number" class="ms-auto text-sm text-muted" aria-hidden="true">已完成</span>
+                <span v-if="isStepComplete(item.number) && step !== item.number" class="ms-auto text-sm text-muted" aria-hidden="true">已完成</span>
               </button>
             </li>
           </ol>
