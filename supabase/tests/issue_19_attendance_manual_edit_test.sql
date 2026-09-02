@@ -288,7 +288,7 @@ select throws_ok(
 -- Step A: close Current Policy after the latest attendance date and introduce a later policy version
 set role postgres;
 update public.work_policies
-set effective_to = '2026-08-31'
+set effective_to = (now() at time zone 'Asia/Taipei')::date
 where name = 'Current Policy';
 
 insert into public.work_policies (
@@ -309,7 +309,7 @@ insert into public.work_policies (
   'NONE',
   null,
   array[1, 2, 3, 4, 5],
-  '2026-09-01',
+  (now() at time zone 'Asia/Taipei')::date + 1,
   null,
   'Asia/Taipei'
 );
