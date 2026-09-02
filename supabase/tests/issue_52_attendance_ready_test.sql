@@ -1,6 +1,6 @@
 begin;
 
-select plan(23);
+select plan(29);
 
 select has_column('public', 'attendance_records', 'assignment_id', 'attendance keeps canonical assignment_id');
 select has_column('public', 'attendance_records', 'assignment_snapshot', 'attendance stores an optional assignment snapshot');
@@ -35,14 +35,18 @@ values
   ('00000000-0000-0000-0000-000000000520', 'issue52-no-assignment@example.test'),
   ('00000000-0000-0000-0000-000000000521', 'issue52-missing-policy@example.test'),
   ('00000000-0000-0000-0000-000000000522', 'issue52-ready@example.test'),
-  ('00000000-0000-0000-0000-000000000523', 'issue52-existing@example.test');
+  ('00000000-0000-0000-0000-000000000523', 'issue52-existing@example.test'),
+  ('00000000-0000-0000-0000-000000000524', 'issue52-stale-config@example.test'),
+  ('00000000-0000-0000-0000-000000000525', 'issue52-legacy-attendance@example.test');
 
 insert into public.profiles (id, display_name)
 values
   ('00000000-0000-0000-0000-000000000520', 'Issue 52 No Assignment'),
   ('00000000-0000-0000-0000-000000000521', 'Issue 52 Missing Policy'),
   ('00000000-0000-0000-0000-000000000522', 'Issue 52 Ready'),
-  ('00000000-0000-0000-0000-000000000523', 'Issue 52 Existing');
+  ('00000000-0000-0000-0000-000000000523', 'Issue 52 Existing'),
+  ('00000000-0000-0000-0000-000000000524', 'Issue 52 Stale Config'),
+  ('00000000-0000-0000-0000-000000000525', 'Issue 52 Legacy Attendance');
 
 create temp table issue_52_assignments (
   user_id uuid primary key,
@@ -159,6 +163,128 @@ select is((select id from issue_52_existing_retry), (select id from issue_52_exi
 select is((select policy_snapshot->>'name' from issue_52_existing_retry), 'Issue 52 Existing Policy', 'existing attendance retains its policy snapshot after configuration change');
 select lives_ok($$select public.clock_out_today()$$, 'clock-out succeeds from the existing attendance snapshot');
 select is((select calculation_snapshot->>'state' from public.attendance_records where id = (select id from issue_52_existing_clock_in)), 'COMPLETED', 'clock-out completes the existing attendance');
+
+set role postgres;
+insert into public.work_assignments (
+  user_id, staffing_employer, client_company, project, effective_from, effective_to
+)
+values
+  (
+    '00000000-0000-0000-0000-000000000524', 'Issue 52 Stale Employer',
+    'Issue 52 Stale Client', 'Issue 52 Stale Project',
+    (now() at time zone 'Asia/Taipei')::date - 10,
+    (now() at time zone 'Asia/Taipei')::date - 1
+  ),
+  (
+    '00000000-0000-0000-0000-000000000525', 'Issue 52 Legacy Employer',
+    'Issue 52 Legacy Client', 'Issue 52 Legacy Project',
+    (now() at time zone 'Asia/Taipei')::date - 10,
+    (now() at time zone 'Asia/Taipei')::date - 1
+  );
+
+insert into public.work_policies (
+  user_id, assignment_id, name, standard_start_time, work_minutes,
+  fixed_break_minutes, early_arrival_policy, working_days,
+  effective_from, effective_to
+)
+select
+  a.user_id, a.id, case a.user_id
+    when '00000000-0000-0000-0000-000000000524'::uuid then 'Issue 52 Stale Policy'
+    else 'Issue 52 Legacy Policy'
+  end,
+  '00:00', 480, 0, 'ACTUAL', array['0', '1', '2', '3', '4', '5', '6'],
+  a.effective_from, a.effective_to
+from public.work_assignments a
+where a.user_id in (
+  '00000000-0000-0000-0000-000000000524',
+  '00000000-0000-0000-0000-000000000525'
+);
+
+insert into public.attendance_records (
+  user_id, work_date, assignment_id, work_policy_id,
+  actual_clock_in_at, effective_clock_in_at, expected_clock_out_at,
+  assignment_snapshot, context_snapshot, policy_snapshot, calculation_snapshot
+)
+select
+  a.user_id, (now() at time zone 'Asia/Taipei')::date, a.id, p.id,
+  now(), now(), now() + interval '480 minutes',
+  pg_catalog.jsonb_build_object(
+    'id', a.id,
+    'user_id', a.user_id,
+    'staffing_employer', a.staffing_employer,
+    'client_company', a.client_company,
+    'project', a.project,
+    'effective_from', a.effective_from,
+    'effective_to', a.effective_to
+  ),
+  '{}'::jsonb,
+  pg_catalog.jsonb_build_object(
+    'id', p.id,
+    'user_id', p.user_id,
+    'assignment_id', p.assignment_id,
+    'context_id', p.context_id,
+    'name', p.name,
+    'work_minutes', p.work_minutes,
+    'fixed_break_minutes', p.fixed_break_minutes,
+    'clock_out_rounding_mode', p.clock_out_rounding_mode,
+    'clock_out_rounding_minutes', p.clock_out_rounding_minutes
+  ),
+  '{}'::jsonb
+from public.work_assignments a
+join public.work_policies p on p.assignment_id = a.id and p.user_id = a.user_id
+where a.user_id = '00000000-0000-0000-0000-000000000524';
+
+insert into public.attendance_records (
+  user_id, work_date, work_policy_id,
+  actual_clock_in_at, effective_clock_in_at, expected_clock_out_at,
+  assignment_snapshot, context_snapshot, policy_snapshot, calculation_snapshot
+)
+select
+  p.user_id, (now() at time zone 'Asia/Taipei')::date, p.id,
+  now(), now(), now() + interval '480 minutes',
+  null, '{}'::jsonb,
+  pg_catalog.jsonb_build_object(
+    'id', p.id,
+    'user_id', p.user_id,
+    'assignment_id', p.assignment_id,
+    'context_id', p.context_id,
+    'name', p.name,
+    'work_minutes', p.work_minutes,
+    'fixed_break_minutes', p.fixed_break_minutes,
+    'clock_out_rounding_mode', p.clock_out_rounding_mode,
+    'clock_out_rounding_minutes', p.clock_out_rounding_minutes
+  ),
+  '{}'::jsonb
+from public.work_policies p
+where p.user_id = '00000000-0000-0000-0000-000000000525';
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000524';
+select is(
+  (select resolution from public.resolve_work_assignment_policy((now() at time zone 'Asia/Taipei')::date)),
+  'NO_ASSIGNMENT',
+  'stale canonical attendance has no currently ready assignment configuration'
+);
+select * into temporary issue_52_stale_retry from public.clock_in_today();
+select is(
+  (select id from issue_52_stale_retry),
+  (select id from public.attendance_records where user_id = '00000000-0000-0000-0000-000000000524'),
+  'clock-in returns canonical existing attendance when current configuration is unavailable'
+);
+select lives_ok($$select public.clock_out_today()$$, 'stale canonical attendance can still clock out from its snapshot');
+
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000525';
+select lives_ok($$select public.clock_out_today()$$, 'legacy attendance can clock out from its policy snapshot');
+select is(
+  (select assignment_id from public.attendance_records where user_id = '00000000-0000-0000-0000-000000000525'),
+  null::uuid,
+  'clock-out does not infer or refill a legacy attendance assignment id'
+);
+select is(
+  (select assignment_snapshot from public.attendance_records where user_id = '00000000-0000-0000-0000-000000000525'),
+  null::jsonb,
+  'clock-out does not infer or refill a legacy attendance assignment snapshot'
+);
 
 select * from finish();
 
