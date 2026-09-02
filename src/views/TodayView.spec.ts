@@ -178,7 +178,12 @@ describe('TodayView', () => {
         assignmentId: resolution === 'MISSING_POLICY' ? 'assignment-2' : null,
         policy: null,
       })
-    vi.mocked(clockInToday).mockRejectedValueOnce(new Error(resolution))
+    vi.mocked(clockInToday).mockRejectedValueOnce({
+      code: 'P0001',
+      details: null,
+      hint: null,
+      message: resolution,
+    })
 
     const wrapper = mount(TodayView, { attachTo: document.body })
     await flushPromises()

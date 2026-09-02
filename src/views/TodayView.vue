@@ -178,11 +178,23 @@ async function focusError(kind: 'load' | 'action') {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback
+  if (error instanceof Error && error.message) return error.message
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'message' in error
+    && typeof error.message === 'string'
+    && error.message
+  ) {
+    return error.message
+  }
+
+  return fallback
 }
 
 function isUnavailableError(error: unknown) {
-  return error instanceof Error && (error.message === 'NO_ASSIGNMENT' || error.message === 'MISSING_POLICY')
+  const message = getErrorMessage(error, '')
+  return message === 'NO_ASSIGNMENT' || message === 'MISSING_POLICY'
 }
 
 function formatTime(value: string) {
