@@ -7,6 +7,7 @@ import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
 import ExportTemplateSection from '../components/settings/ExportTemplateSection.vue'
 import {
+  formatWorkAssignmentPeriod,
   formatWorkAssignmentStatus,
   getWorkAssignmentStatus,
   type WorkAssignment,
@@ -405,7 +406,7 @@ function selectContext(contextId: string) {
         <div class="grid gap-1.5">
           <label class="font-semibold" for="template-assignment">選擇工作派駐</label>
           <select id="template-assignment" v-model="selectedTemplateAssignmentId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="template_assignment_id">
-            <option v-for="assignment in assignments" :key="assignment.id" :value="assignment.id">{{ assignment.staffing_employer }} · {{ assignment.client_company }} · {{ assignment.project }}</option>
+            <option v-for="assignment in assignments" :key="assignment.id" :value="assignment.id">{{ assignment.staffing_employer }} · {{ assignment.client_company }} · {{ assignment.project }} ({{ formatWorkAssignmentPeriod(assignment) }})</option>
           </select>
         </div>
 

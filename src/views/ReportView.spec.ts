@@ -603,4 +603,49 @@ describe('ReportView', () => {
     const downloadButton = wrapper.find('[data-test="download-csv-button"]')
     expect(downloadButton.attributes('disabled')).toBeUndefined()
   })
+
+  it('兩筆雇主/客戶/專案相同但期間不同的 ENDED Assignment，option 可清楚區分且切換時使用正確 assignment id', async () => {
+    const endedAssignment1: WorkAssignment = {
+      id: 'assign-ended-1',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主 X',
+      client_company: '派駐客戶 Y',
+      project: '專案 Z',
+      effective_from: '2025-01-01',
+      effective_to: '2025-06-30',
+    }
+    const endedAssignment2: WorkAssignment = {
+      id: 'assign-ended-2',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主 X',
+      client_company: '派駐客戶 Y',
+      project: '專案 Z',
+      effective_from: '2025-07-01',
+      effective_to: '2025-12-31',
+    }
+
+    vi.spyOn(workAssignmentLib, 'listWorkAssignments').mockResolvedValue([
+      endedAssignment1,
+      endedAssignment2,
+    ])
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies').mockResolvedValue([])
+
+    const wrapper = mount(ReportView)
+    await flushPromises()
+
+    const options = wrapper.findAll('[data-test="assignment-select"] option')
+    expect(options).toHaveLength(2)
+
+    // Option 1 has 2025-01-01 ~ 2025-06-30
+    expect(options[0].text()).toContain('派遣雇主 X / 派駐客戶 Y / 專案 Z (2025-01-01 ~ 2025-06-30) (已結束)')
+    // Option 2 has 2025-07-01 ~ 2025-12-31
+    expect(options[1].text()).toContain('派遣雇主 X / 派駐客戶 Y / 專案 Z (2025-07-01 ~ 2025-12-31) (已結束)')
+    expect(options[0].text()).not.toBe(options[1].text())
+
+    // Switch selection to endedAssignment2
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-ended-2')
+    await flushPromises()
+
+    expect(listPoliciesSpy).toHaveBeenCalledWith('user-1', 'assign-ended-2')
+  })
 })

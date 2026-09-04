@@ -597,5 +597,72 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
         })
       }).toThrowError(/multiple work policies/)
     })
+
+    it('Canonical 欄位包含完整 staffing_employer/client_company/project，無 authoritative Context 時 legacy identifiers 為空且不猜值', () => {
+      const canonicalAssignment: WorkAssignment = {
+        id: 'assign-canon',
+        user_id: 'user-1',
+        staffing_employer: '派遣雇主 H',
+        client_company: '派駐客戶 C',
+        project: '專案 P',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+
+      const reportWithoutContext = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: canonicalAssignment,
+        workPolicies: [{ ...standardPolicy, assignment_id: 'assign-canon' }],
+        attendanceRecords: [],
+      })
+
+      expect(reportWithoutContext.context).toBeNull()
+      for (const row of reportWithoutContext.rows) {
+        expect(row.staffing_employer).toBe('派遣雇主 H')
+        expect(row.client_company).toBe('派駐客戶 C')
+        expect(row.project).toBe('專案 P')
+        // Must NOT guess assignment client_company or project into legacy identifiers
+        expect(row.company_identifier).toBe('')
+        expect(row.project_identifier).toBe('')
+      }
+    })
+
+    it('有 authoritative legacy Context 時，legacy identifiers 正確使用 Context 定義之識別碼', () => {
+      const canonicalAssignment: WorkAssignment = {
+        id: 'assign-canon',
+        user_id: 'user-1',
+        staffing_employer: '派遣雇主 H',
+        client_company: '派駐客戶 C',
+        project: '專案 P',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+
+      const authoritativeContext: WorkContext = {
+        id: 'ctx-auth-1',
+        user_id: 'user-1',
+        name: '舊版情境',
+        company_identifier: 'LEGACY_COMP_ID',
+        project_identifier: 'LEGACY_PROJ_ID',
+        active: true,
+        is_default: true,
+      }
+
+      const reportWithContext = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: canonicalAssignment,
+        context: authoritativeContext,
+        workPolicies: [{ ...standardPolicy, assignment_id: 'assign-canon' }],
+        attendanceRecords: [],
+      })
+
+      expect(reportWithContext.context).toBe(authoritativeContext)
+      for (const row of reportWithContext.rows) {
+        expect(row.company_identifier).toBe('LEGACY_COMP_ID')
+        expect(row.project_identifier).toBe('LEGACY_PROJ_ID')
+        expect(row.client_company).toBe('派駐客戶 C')
+        expect(row.project).toBe('專案 P')
+      }
+    })
   })
 })

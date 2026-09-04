@@ -16,6 +16,7 @@ import {
 import {
   getWorkAssignmentStatus,
   formatWorkAssignmentStatus,
+  formatWorkAssignmentPeriod,
   type WorkAssignment,
 } from '../domain/work-assignment/work-assignment'
 import {
@@ -312,7 +313,7 @@ function formatExceptionFlagLabel(flag: string): string {
             class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent"
           >
             <option v-for="assign in assignments" :key="assign.id" :value="assign.id">
-              {{ assign.client_company }} / {{ assign.project }} ({{ formatWorkAssignmentStatus(getWorkAssignmentStatus(assign)) }})
+              {{ assign.staffing_employer }} / {{ assign.client_company }} / {{ assign.project }} ({{ formatWorkAssignmentPeriod(assign) }}) ({{ formatWorkAssignmentStatus(getWorkAssignmentStatus(assign)) }})
             </option>
           </select>
         </div>

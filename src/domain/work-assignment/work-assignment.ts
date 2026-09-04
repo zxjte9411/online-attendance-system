@@ -42,6 +42,14 @@ export function formatWorkAssignmentStatus(status: WorkAssignmentStatus): string
   }
 }
 
+export function formatWorkAssignmentPeriod(
+  assignment: Pick<WorkAssignment, 'effective_from' | 'effective_to'>
+): string {
+  const from = assignment.effective_from
+  const to = assignment.effective_to ? assignment.effective_to : '至今'
+  return `${from} ~ ${to}`
+}
+
 export function doAssignmentPeriodsOverlap(
   a: { effective_from: string; effective_to: string | null },
   b: { effective_from: string; effective_to: string | null }

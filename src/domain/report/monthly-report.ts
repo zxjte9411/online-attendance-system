@@ -27,6 +27,9 @@ export type DailyReportRow = {
   weekday: number // 0 (Sun) - 6 (Sat)
   weekdayLabel: string // 週日..週六
   in_assignment_period: boolean
+  staffing_employer: string
+  client_company: string
+  project: string
   company_identifier: string
   project_identifier: string
   actual_clock_in_at: string | null
@@ -72,7 +75,7 @@ export type MonthlyReportSummary = {
 export type MonthlyReport = {
   yearMonth: string
   assignment: WorkAssignment
-  context: WorkContext
+  context?: WorkContext | null
   rows: DailyReportRow[]
   summary: MonthlyReportSummary
   hasConfigurationError: boolean
@@ -104,23 +107,13 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
   const assignment: WorkAssignment = params.assignment ?? {
     id: params.context?.id ?? '',
     user_id: params.context?.user_id ?? '',
-    staffing_employer: params.context?.company_identifier ?? '',
-    client_company: params.context?.company_identifier ?? '',
-    project: params.context?.project_identifier ?? '',
+    staffing_employer: '',
+    client_company: '',
+    project: '',
     effective_from: '1970-01-01',
     effective_to: null,
     created_at: params.context?.created_at ?? '',
     updated_at: params.context?.updated_at ?? '',
-  }
-
-  const context: WorkContext = params.context ?? {
-    id: assignment.id,
-    user_id: assignment.user_id,
-    name: `${assignment.staffing_employer} · ${assignment.client_company}`,
-    company_identifier: assignment.client_company,
-    project_identifier: assignment.project,
-    active: true,
-    is_default: false,
   }
 
   const attendanceMap = new Map<string, AttendanceRecord>()
@@ -185,8 +178,11 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
         weekday,
         weekdayLabel,
         in_assignment_period: false,
-        company_identifier: assignment.client_company,
-        project_identifier: assignment.project,
+        staffing_employer: assignment.staffing_employer,
+        client_company: assignment.client_company,
+        project: assignment.project,
+        company_identifier: params.context?.company_identifier ?? '',
+        project_identifier: params.context?.project_identifier ?? '',
         actual_clock_in_at: null,
         actual_clock_out_at: null,
         effective_clock_in_at: null,
@@ -283,8 +279,8 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       exception_flags.push('OTHER_CONTEXT_ATTENDANCE')
     }
 
-    let company_identifier = assignment.client_company
-    let project_identifier = assignment.project
+    let company_identifier = params.context?.company_identifier ?? ''
+    let project_identifier = params.context?.project_identifier ?? ''
     if (attendance?.context_snapshot) {
       const snap = attendance.context_snapshot
       if (typeof snap.company_identifier === 'string') {
@@ -311,6 +307,9 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       weekday,
       weekdayLabel,
       in_assignment_period: true,
+      staffing_employer: assignment.staffing_employer,
+      client_company: assignment.client_company,
+      project: assignment.project,
       company_identifier,
       project_identifier,
       actual_clock_in_at: attendance?.actual_clock_in_at ?? null,
@@ -357,7 +356,7 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
   return {
     yearMonth,
     assignment,
-    context,
+    context: params.context ?? null,
     rows,
     summary,
     hasConfigurationError: missingPolicyDates.length > 0,

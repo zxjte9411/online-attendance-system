@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   doAssignmentPeriodsOverlap,
+  formatWorkAssignmentPeriod,
   formatWorkAssignmentStatus,
   getWorkAssignmentStatus,
   isUninterruptedRenewal,
@@ -44,6 +45,26 @@ describe('Work Assignment Domain Model', () => {
       )
       expect(status).toBe('ENDED')
       expect(formatWorkAssignmentStatus(status)).toBe('已結束')
+    })
+  })
+
+  describe('formatWorkAssignmentPeriod', () => {
+    it('formats closed period with from and to dates', () => {
+      expect(
+        formatWorkAssignmentPeriod({
+          effective_from: '2025-01-01',
+          effective_to: '2025-06-30',
+        })
+      ).toBe('2025-01-01 ~ 2025-06-30')
+    })
+
+    it('formats open-ended period with 至今', () => {
+      expect(
+        formatWorkAssignmentPeriod({
+          effective_from: '2026-01-01',
+          effective_to: null,
+        })
+      ).toBe('2026-01-01 ~ 至今')
     })
   })
 

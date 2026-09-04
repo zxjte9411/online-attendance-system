@@ -312,7 +312,8 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     // 8/10 (in assignment) - row index 10
     const rowAug10 = lines[10].split(',')
     expect(rowAug10[0]).toBe('2026-08-10')
-    expect(rowAug10[2]).toBe('客戶公司')
+    expect(rowAug10[2]).toBe('') // legacy company_identifier blank without authoritative context
+    expect(rowAug10[3]).toBe('') // legacy project_identifier blank without authoritative context
     expect(rowAug10[9]).toBe('480') // scheduled_minutes
 
     // 8/20 (outside assignment) - row index 20
@@ -368,7 +369,68 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     // Check a workday
     const rowAug3 = lines[3].split(',')
     expect(rowAug3[0]).toBe('2026-08-03')
-    expect(rowAug3[2]).toBe('客戶公司')
+    expect(rowAug3[2]).toBe('') // legacy company_identifier blank without authoritative context
+    expect(rowAug3[3]).toBe('') // legacy project_identifier blank without authoritative context
     expect(rowAug3[9]).toBe('480')
+  })
+
+  it('Regression: CSV 不會在 legacy company_identifier / project_identifier 欄位輸出 Assignment 語意值', () => {
+    const reportWithoutContext = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: {
+        id: 'assign-reg',
+        user_id: 'user-1',
+        staffing_employer: '派遣公司 A',
+        client_company: '客戶企業 B',
+        project: '機密專案 C',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      },
+      workPolicies: [{ ...mockPolicy, assignment_id: 'assign-reg' }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(reportWithoutContext)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const rowAug3 = lines[3].split(',')
+
+    // CSV header index 2 is company_identifier, index 3 is project_identifier
+    expect(rowAug3[2]).not.toBe('客戶企業 B')
+    expect(rowAug3[2]).toBe('')
+    expect(rowAug3[3]).not.toBe('機密專案 C')
+    expect(rowAug3[3]).toBe('')
+  })
+
+  it('Regression: 若有 authoritative Context，CSV legacy 欄位正確輸出 Context 識別碼', () => {
+    const reportWithContext = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: {
+        id: 'assign-reg',
+        user_id: 'user-1',
+        staffing_employer: '派遣公司 A',
+        client_company: '客戶企業 B',
+        project: '機密專案 C',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      },
+      context: {
+        id: 'ctx-1',
+        user_id: 'user-1',
+        name: '舊版 Context',
+        company_identifier: 'AUTH_LEGACY_COMPANY',
+        project_identifier: 'AUTH_LEGACY_PROJECT',
+        active: true,
+        is_default: true,
+      },
+      workPolicies: [{ ...mockPolicy, assignment_id: 'assign-reg' }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(reportWithContext)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const rowAug3 = lines[3].split(',')
+
+    expect(rowAug3[2]).toBe('AUTH_LEGACY_COMPANY')
+    expect(rowAug3[3]).toBe('AUTH_LEGACY_PROJECT')
   })
 })
