@@ -58,13 +58,28 @@ describe('Work Assignment Domain Model', () => {
       ).toBe('2025-01-01 ~ 2025-06-30')
     })
 
-    it('formats open-ended period with 至今', () => {
+    it('formats CURRENT open-ended period with 至今', () => {
       expect(
-        formatWorkAssignmentPeriod({
-          effective_from: '2026-01-01',
-          effective_to: null,
-        })
+        formatWorkAssignmentPeriod(
+          {
+            effective_from: '2026-01-01',
+            effective_to: null,
+          },
+          today
+        )
       ).toBe('2026-01-01 ~ 至今')
+    })
+
+    it('formats FUTURE open-ended period with 未定 (not 至今)', () => {
+      const periodText = formatWorkAssignmentPeriod(
+        {
+          effective_from: '2027-01-01',
+          effective_to: null,
+        },
+        today
+      )
+      expect(periodText).toBe('2027-01-01 ~ 未定')
+      expect(periodText).not.toContain('至今')
     })
   })
 

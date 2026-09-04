@@ -43,11 +43,15 @@ export function formatWorkAssignmentStatus(status: WorkAssignmentStatus): string
 }
 
 export function formatWorkAssignmentPeriod(
-  assignment: Pick<WorkAssignment, 'effective_from' | 'effective_to'>
+  assignment: Pick<WorkAssignment, 'effective_from' | 'effective_to'>,
+  today = getTaipeiToday()
 ): string {
   const from = assignment.effective_from
-  const to = assignment.effective_to ? assignment.effective_to : '至今'
-  return `${from} ~ ${to}`
+  if (!assignment.effective_to) {
+    const status = getWorkAssignmentStatus(assignment, today)
+    return status === 'FUTURE' ? `${from} ~ 未定` : `${from} ~ 至今`
+  }
+  return `${from} ~ ${assignment.effective_to}`
 }
 
 export function doAssignmentPeriodsOverlap(
