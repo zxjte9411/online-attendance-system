@@ -56,7 +56,10 @@ export function findApplicableWorkPolicy(
   assignmentId?: string | null,
 ): WorkPolicy | null {
   const matching = policies.filter((policy) => {
-    if (assignmentId !== undefined && policy.assignment_id !== assignmentId) return false
+    if (assignmentId !== undefined && assignmentId !== null) {
+      const scopeId = policy.assignment_id ?? policy.context_id
+      if (scopeId && scopeId !== assignmentId) return false
+    }
     if (date < policy.effective_from) return false
     if (policy.effective_to && date > policy.effective_to) return false
     return true
