@@ -135,11 +135,13 @@ async function handleAssignmentSaved(savedAssignments: WorkAssignment[]) {
 }
 
 async function selectAssignment(assignmentId: string) {
+  const requestAssignmentId = assignmentId
   selectedAssignmentId.value = assignmentId
   errorMessage.value = ''
   try {
     await loadPolicies()
   } catch (error) {
+    if (requestAssignmentId !== selectedAssignmentId.value) return
     errorMessage.value = error instanceof Error ? error.message : 'Work Policy 載入失敗，請稍後再試。'
     await nextTick()
     errorRegion.value?.focus()
