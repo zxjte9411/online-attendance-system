@@ -182,10 +182,12 @@ describe('SetupView', () => {
       [],
       [{ id: 'policy-a', assignment_id: 'assignment-a' }],
     )
+    vi.mocked(listWorkPolicies).mockResolvedValue([])
 
     const stepButtons = wrapper.find('nav[aria-label="首次設定進度"]').findAll('button')
     await stepButtons[1].trigger('click')
     await wrapper.get('#setup-assignment').setValue('assignment-b')
+    await flushPromises()
 
     expect(stepButtons[2].text()).not.toContain('已完成')
 
@@ -206,9 +208,11 @@ describe('SetupView', () => {
       [{ id: 'policy-a', assignment_id: 'assignment-a' }],
     )
     let resolveA!: (policies: unknown[]) => void
-    vi.mocked(listWorkPolicies).mockReturnValue(new Promise((resolve) => {
-      resolveA = resolve
-    }) as never)
+    vi.mocked(listWorkPolicies)
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveA = resolve
+      }) as never)
+      .mockResolvedValue([])
 
     const stepButtons = wrapper.find('nav[aria-label="首次設定進度"]').findAll('button')
     await stepButtons[1].trigger('click')
@@ -235,9 +239,11 @@ describe('SetupView', () => {
       [{ id: 'policy-a', assignment_id: 'assignment-a' }],
     )
     let rejectA!: (error: Error) => void
-    vi.mocked(listWorkPolicies).mockReturnValue(new Promise((_, reject) => {
-      rejectA = reject
-    }) as never)
+    vi.mocked(listWorkPolicies)
+      .mockReturnValueOnce(new Promise((_, reject) => {
+        rejectA = reject
+      }) as never)
+      .mockResolvedValue([])
 
     const stepButtons = wrapper.find('nav[aria-label="首次設定進度"]').findAll('button')
     await stepButtons[1].trigger('click')
@@ -251,6 +257,32 @@ describe('SetupView', () => {
     const policyForm = wrapper.findComponent(WorkPolicyForm)
     expect(policyForm.props('assignmentId')).toBe('assignment-b')
     expect(policyForm.props('policies')).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('從 Step 2 切換派駐後載入 B 的 Work Policy', async () => {
+    const assignmentA = { id: 'assignment-a', user_id: 'user-1', staffing_employer: '雇主 A', client_company: '客戶 A', project: '專案 A', effective_from: '2026-01-01', effective_to: null }
+    const assignmentB = { id: 'assignment-b', user_id: 'user-1', staffing_employer: '雇主 B', client_company: '客戶 B', project: '專案 B', effective_from: '2026-01-01', effective_to: null }
+    const { wrapper } = await mountSetup(
+      profile,
+      [assignmentA, assignmentB],
+      [],
+      [{ id: 'policy-a', assignment_id: 'assignment-a' }],
+    )
+    vi.mocked(listWorkPolicies).mockResolvedValue([{ id: 'policy-b', assignment_id: 'assignment-b' }] as never)
+
+    const stepButtons = wrapper.find('nav[aria-label="首次設定進度"]').findAll('button')
+    await stepButtons[1].trigger('click')
+    await wrapper.get('#setup-assignment').setValue('assignment-b')
+    await flushPromises()
+
+    expect(listWorkPolicies).toHaveBeenLastCalledWith('user-1', 'assignment-b')
+    expect(stepButtons[2].text()).toContain('已完成')
+
+    await stepButtons[2].trigger('click')
+    const policyForm = wrapper.findComponent(WorkPolicyForm)
+    expect(policyForm.props('assignmentId')).toBe('assignment-b')
+    expect(policyForm.props('policies')).toEqual([{ id: 'policy-b', assignment_id: 'assignment-b' }])
     wrapper.unmount()
   })
 })
