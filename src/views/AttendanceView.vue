@@ -7,6 +7,7 @@ import {
   getMonthAttendanceRecords,
   type AttendanceRecord,
 } from '../lib/attendance'
+import { presentErrorMessage } from '../lib/error-presentation'
 import { getTaipeiToday } from '../lib/work-policy'
 
 const currentMonth = ref(getTaipeiToday().slice(0, 7))
@@ -169,7 +170,7 @@ async function handleFormSubmit() {
     closeForm()
     await loadMonth()
   } catch (err) {
-    formError.value = err instanceof Error && err.message ? err.message : '儲存出勤紀錄失敗，請檢查輸入。'
+    formError.value = presentErrorMessage(err, '儲存出勤紀錄失敗，請檢查輸入。')
   } finally {
     isSubmitting.value = false
   }

@@ -430,7 +430,13 @@ describe('AttendanceView', () => {
     ['NO_ASSIGNMENT', '2026-08-10', '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。'],
     ['MISSING_POLICY', '2026-08-11', '2026-08-11 找不到適用的 Work Policy（MISSING_POLICY）。'],
   ])('日期特定 %s RPC 錯誤會原樣且可區分地顯示', async (resolution, workDate, errorMessage) => {
-    vi.mocked(createManualAttendance).mockRejectedValueOnce(new Error(errorMessage))
+    vi.mocked(createManualAttendance).mockRejectedValueOnce({
+      message: errorMessage,
+      code: 'P0001',
+      details: `RPC resolution: ${resolution}`,
+      hint: '請先完成工作派駐與政策設定。',
+      status: 400,
+    })
 
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()

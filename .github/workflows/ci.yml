@@ -25,5 +25,6 @@ jobs:
       - run: supabase start
       - run: supabase db reset
       - run: supabase test db
+      - run: ./scripts/test-issue-62-attendance-concurrency.sh
       - run: supabase db advisors --local --fail-on error
       - run: ./scripts/smoke-edge-function.sh
