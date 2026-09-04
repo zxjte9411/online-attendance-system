@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   resolveCalendarDay,
   findApplicableWorkPolicy,
+  findApplicableWorkAssignment,
+  resolveApplicableWorkPolicy,
   type DgpaCalendarRow,
 } from './resolver'
 import type { CalendarOverride } from '../calendar-status/overview'
-import type { WorkPolicy } from '../../lib/settings'
+import type { WorkPolicy, WorkAssignment } from '../../lib/settings'
 
 describe('Domain Calendar Resolver (resolveCalendarDay)', () => {
   const sampleDgpaWorkday: DgpaCalendarRow = {
@@ -252,5 +254,186 @@ describe('Work Policy Resolver (findApplicableWorkPolicy)', () => {
     // Date before any policy -> returns null
     const match2025 = findApplicableWorkPolicy('2025-12-31', policies)
     expect(match2025).toBeNull()
+  })
+
+  it('throws invariant violation error if multiple policies match for the same date and assignment', () => {
+    const overlappingPolicy: WorkPolicy = {
+      ...policyV1,
+      id: 'pol-v1-overlap',
+      effective_from: '2026-01-01',
+      effective_to: '2026-12-31',
+    }
+
+    expect(() => {
+      findApplicableWorkPolicy('2026-06-10', [policyV1, overlappingPolicy])
+    }).toThrow('multiple work policies resolve for assignment and target date')
+  })
+})
+
+describe('findApplicableWorkAssignment', () => {
+  const assignmentA: WorkAssignment = {
+    id: 'wa-a',
+    user_id: 'user-1',
+    staffing_employer: 'Employer A',
+    client_company: 'Client A',
+    project: 'Project A',
+    effective_from: '2026-08-01',
+    effective_to: '2026-08-15',
+  }
+
+  const assignmentB: WorkAssignment = {
+    id: 'wa-b',
+    user_id: 'user-1',
+    staffing_employer: 'Employer B',
+    client_company: 'Client B',
+    project: 'Project B',
+    effective_from: '2026-08-20',
+    effective_to: null,
+  }
+
+  it('resolves active assignment for target date within effective range', () => {
+    expect(findApplicableWorkAssignment('2026-08-10', [assignmentA, assignmentB])?.id).toBe('wa-a')
+    expect(findApplicableWorkAssignment('2026-08-25', [assignmentA, assignmentB])?.id).toBe('wa-b')
+  })
+
+  it('returns null on NO_ASSIGNMENT (date before, in gap, or empty list)', () => {
+    expect(findApplicableWorkAssignment('2026-07-31', [assignmentA, assignmentB])).toBeNull()
+    expect(findApplicableWorkAssignment('2026-08-17', [assignmentA, assignmentB])).toBeNull()
+    expect(findApplicableWorkAssignment('2026-08-10', [])).toBeNull()
+  })
+
+  it('throws invariant violation error if multiple assignments match the same target date', () => {
+    const overlappingAssignment: WorkAssignment = {
+      ...assignmentB,
+      id: 'wa-overlap',
+      effective_from: '2026-08-05',
+    }
+
+    expect(() => {
+      findApplicableWorkAssignment('2026-08-10', [assignmentA, overlappingAssignment])
+    }).toThrow('multiple work assignments resolve for target date')
+  })
+})
+
+describe('resolveApplicableWorkPolicy', () => {
+  const assignment1: WorkAssignment = {
+    id: 'wa-1',
+    user_id: 'user-1',
+    staffing_employer: 'Emp 1',
+    client_company: 'Client 1',
+    project: 'Project 1',
+    effective_from: '2026-08-01',
+    effective_to: '2026-08-15',
+  }
+
+  const assignment2: WorkAssignment = {
+    id: 'wa-2',
+    user_id: 'user-1',
+    staffing_employer: 'Emp 2',
+    client_company: 'Client 2',
+    project: 'Project 2',
+    effective_from: '2026-08-20',
+    effective_to: '2026-08-31',
+  }
+
+  const policy1: WorkPolicy = {
+    id: 'pol-1',
+    user_id: 'user-1',
+    assignment_id: 'wa-1',
+    context_id: null,
+    name: 'Policy 1 (Mon-Fri)',
+    standard_start_time: '09:00:00',
+    work_minutes: 480,
+    fixed_break_minutes: 60,
+    early_arrival_policy: 'STANDARD_START',
+    clock_in_rounding_mode: 'NONE',
+    clock_in_rounding_minutes: null,
+    clock_out_rounding_mode: 'NONE',
+    clock_out_rounding_minutes: null,
+    working_days: ['1', '2', '3', '4', '5'],
+    effective_from: '2026-08-01',
+    effective_to: '2026-08-15',
+    timezone: 'Asia/Taipei',
+  }
+
+  const policy2: WorkPolicy = {
+    id: 'pol-2',
+    user_id: 'user-1',
+    assignment_id: 'wa-2',
+    context_id: null,
+    name: 'Policy 2 (Tue-Sat)',
+    standard_start_time: '10:00:00',
+    work_minutes: 480,
+    fixed_break_minutes: 60,
+    early_arrival_policy: 'STANDARD_START',
+    clock_in_rounding_mode: 'NONE',
+    clock_in_rounding_minutes: null,
+    clock_out_rounding_mode: 'NONE',
+    clock_out_rounding_minutes: null,
+    working_days: ['2', '3', '4', '5', '6'],
+    effective_from: '2026-08-20',
+    effective_to: null,
+    timezone: 'Asia/Taipei',
+  }
+
+  it('returns null on NO_ASSIGNMENT (empty assignments list)', () => {
+    const policy = resolveApplicableWorkPolicy({
+      date: '2026-08-05',
+      workAssignments: [],
+      workPolicies: [policy1],
+    })
+    expect(policy).toBeNull()
+  })
+
+  it('returns null on MISSING_POLICY (assignment exists but has no policy)', () => {
+    const policy = resolveApplicableWorkPolicy({
+      date: '2026-08-05',
+      workAssignments: [assignment1],
+      workPolicies: [], // No policies
+    })
+    expect(policy).toBeNull()
+  })
+
+  it('returns null during gap between two assignments', () => {
+    const policy = resolveApplicableWorkPolicy({
+      date: '2026-08-18', // Between wa-1 (ends Aug 15) and wa-2 (starts Aug 20)
+      workAssignments: [assignment1, assignment2],
+      workPolicies: [policy1, policy2],
+    })
+    expect(policy).toBeNull()
+  })
+
+  it('correctly maps target date to canonical assignment policy without misapplying across assignments', () => {
+    // Under wa-1
+    const p1 = resolveApplicableWorkPolicy({
+      date: '2026-08-10',
+      workAssignments: [assignment1, assignment2],
+      workPolicies: [policy1, policy2],
+    })
+    expect(p1?.id).toBe('pol-1')
+
+    // Under wa-2
+    const p2 = resolveApplicableWorkPolicy({
+      date: '2026-08-25',
+      workAssignments: [assignment1, assignment2],
+      workPolicies: [policy1, policy2],
+    })
+    expect(p2?.id).toBe('pol-2')
+  })
+
+  it('does not apply past assignment policy to future dates or future assignment policy to past dates', () => {
+    // Before wa-1 starts
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-07-31',
+      workAssignments: [assignment1],
+      workPolicies: [policy1],
+    })).toBeNull()
+
+    // After wa-1 ends
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-08-16',
+      workAssignments: [assignment1],
+      workPolicies: [policy1],
+    })).toBeNull()
   })
 })

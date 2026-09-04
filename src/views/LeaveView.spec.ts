@@ -7,6 +7,8 @@ import {
   getDayStatusesForMonth,
   getCalendarOverridesForMonth,
   getMonthAttendanceDates,
+  getCalendarWorkAssignments,
+  getCalendarWorkPolicies,
   upsertDayStatus,
   deleteDayStatus,
   upsertCalendarOverride,
@@ -21,13 +23,16 @@ import {
 import type { DgpaCalendarRow } from '../domain/dgpa-calendar/resolver'
 import {
   getSetupStatus,
-  getCurrentUserId,
+  type WorkPolicy,
+  type WorkAssignment,
 } from '../lib/settings'
 
 vi.mock('../lib/day-status-calendar', () => ({
   getDayStatusesForMonth: vi.fn(),
   getCalendarOverridesForMonth: vi.fn(),
   getMonthAttendanceDates: vi.fn(),
+  getCalendarWorkAssignments: vi.fn(),
+  getCalendarWorkPolicies: vi.fn(),
   upsertDayStatus: vi.fn(),
   deleteDayStatus: vi.fn(),
   upsertCalendarOverride: vi.fn(),
@@ -40,7 +45,6 @@ vi.mock('../lib/dgpa-calendar', () => ({
 }))
 
 vi.mock('../lib/settings', () => ({
-  getCurrentUserId: vi.fn(),
   getSetupStatus: vi.fn(),
 }))
 
@@ -131,6 +135,36 @@ const mockDgpaRows: DgpaCalendarRow[] = [
 
 const mockAttendanceDates = new Set(['2026-08-10', '2026-08-11', '2026-08-15', '2026-08-20'])
 
+const mockAssignment: WorkAssignment = {
+  id: 'wa-1',
+  user_id: 'user-1',
+  staffing_employer: '派遣公司',
+  client_company: '客戶公司',
+  project: '專案A',
+  effective_from: '2026-01-01',
+  effective_to: null,
+}
+
+const mockWorkPolicy: WorkPolicy = {
+  id: 'pol-1',
+  user_id: 'user-1',
+  assignment_id: 'wa-1',
+  context_id: null,
+  name: '標準制度',
+  standard_start_time: '09:00:00',
+  work_minutes: 480,
+  fixed_break_minutes: 60,
+  early_arrival_policy: 'STANDARD_START',
+  clock_in_rounding_mode: 'NONE',
+  clock_in_rounding_minutes: null,
+  clock_out_rounding_mode: 'NONE',
+  clock_out_rounding_minutes: null,
+  working_days: ['1', '2', '3', '4', '5'],
+  effective_from: '2026-01-01',
+  effective_to: null,
+  timezone: 'Asia/Taipei',
+}
+
 describe('LeaveView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -138,51 +172,8 @@ describe('LeaveView', () => {
     vi.mocked(getCalendarOverridesForMonth).mockResolvedValue([...mockCalendarOverrides])
     vi.mocked(getMonthAttendanceDates).mockResolvedValue(new Set(mockAttendanceDates))
     vi.mocked(getDgpaCalendarForMonth).mockResolvedValue([...mockDgpaRows])
-    vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
-    vi.mocked(getSetupStatus).mockResolvedValue({
-      profile: { id: 'user-1', display_name: '測試使用者', timezone: 'Asia/Taipei' },
-      contexts: [
-        {
-          id: 'ctx-1',
-          user_id: 'user-1',
-          name: '預設工作',
-          company_identifier: 'C1',
-          project_identifier: 'P1',
-          active: true,
-          is_default: true,
-        },
-      ],
-      defaultContext: {
-        id: 'ctx-1',
-        user_id: 'user-1',
-        name: '預設工作',
-        company_identifier: 'C1',
-        project_identifier: 'P1',
-        active: true,
-        is_default: true,
-      },
-      policies: [
-        {
-          id: 'pol-1',
-          user_id: 'user-1',
-          context_id: 'ctx-1',
-          name: '標準制度',
-          standard_start_time: '09:00:00',
-          work_minutes: 480,
-          fixed_break_minutes: 60,
-          early_arrival_policy: 'STANDARD_START',
-          clock_in_rounding_mode: 'NONE',
-          clock_in_rounding_minutes: null,
-          clock_out_rounding_mode: 'NONE',
-          clock_out_rounding_minutes: null,
-          working_days: ['1', '2', '3', '4', '5'],
-          effective_from: '2026-01-01',
-          effective_to: null,
-          timezone: 'Asia/Taipei',
-        },
-      ],
-      complete: true,
-    })
+    vi.mocked(getCalendarWorkAssignments).mockResolvedValue([mockAssignment])
+    vi.mocked(getCalendarWorkPolicies).mockResolvedValue([mockWorkPolicy])
   })
 
   it('載入當前月份並呈現 DGPA 狀態、特殊狀態優先、日曆覆寫與出勤共存之列表', async () => {
@@ -193,6 +184,9 @@ describe('LeaveView', () => {
     expect(getCalendarOverridesForMonth).toHaveBeenCalledWith('2026-08')
     expect(getMonthAttendanceDates).toHaveBeenCalledWith('2026-08')
     expect(getDgpaCalendarForMonth).toHaveBeenCalledWith('2026-08')
+    expect(getCalendarWorkAssignments).toHaveBeenCalled()
+    expect(getCalendarWorkPolicies).toHaveBeenCalled()
+    expect(getSetupStatus).not.toHaveBeenCalled()
 
     // 檢查 DGPA 狀態列
     const dgpaStatus = wrapper.find('[data-testid="dgpa-status-summary"]')
@@ -242,7 +236,7 @@ describe('LeaveView', () => {
   })
 
   it('Work Policy 查詢失敗時正確傳播錯誤並呈現 load error，而非靜默轉為 empty policies', async () => {
-    vi.mocked(getSetupStatus).mockRejectedValueOnce(new Error('Work policy database query failed'))
+    vi.mocked(getCalendarWorkPolicies).mockRejectedValueOnce(new Error('Work policy database query failed'))
 
     const wrapper = mount(LeaveView)
     await flushPromises()
@@ -250,19 +244,24 @@ describe('LeaveView', () => {
     const errorAlert = wrapper.find('[role="alert"]')
     expect(errorAlert.exists()).toBe(true)
     expect(errorAlert.text()).toContain('日曆與狀態資料載入失敗')
-    // 列表表格不應在載入失敗時正常渲染假資料
     expect(wrapper.find('table').exists()).toBe(false)
   })
 
-  it('真正沒有 default context 時正常解析為空制度並允許週末預設 fallback', async () => {
-    vi.mocked(getSetupStatus).mockResolvedValueOnce({
-      profile: null,
-      contexts: [],
-      defaultContext: null,
-      policies: [],
-      complete: false,
-    })
-    // 且該月份無 DGPA 資料
+  it('Work Assignment 查詢失敗時正確傳播錯誤並呈現 load error', async () => {
+    vi.mocked(getCalendarWorkAssignments).mockRejectedValueOnce(new Error('Work assignment database query failed'))
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    const errorAlert = wrapper.find('[role="alert"]')
+    expect(errorAlert.exists()).toBe(true)
+    expect(errorAlert.text()).toContain('日曆與狀態資料載入失敗')
+    expect(wrapper.find('table').exists()).toBe(false)
+  })
+
+  it('Profile-only、完全沒有 Assignment / Policy 時，月份可正常載入，weekday/weekend fallback 可見，Calendar Override 與 Special Status CRUD 可用', async () => {
+    vi.mocked(getCalendarWorkAssignments).mockResolvedValueOnce([])
+    vi.mocked(getCalendarWorkPolicies).mockResolvedValueOnce([])
     vi.mocked(getDgpaCalendarForMonth).mockResolvedValueOnce([])
     vi.mocked(getCalendarOverridesForMonth).mockResolvedValueOnce([])
     vi.mocked(getDayStatusesForMonth).mockResolvedValueOnce([])
@@ -277,35 +276,59 @@ describe('LeaveView', () => {
     // 2026-08-03 為週一 -> 預設平日 (WORKDAY)
     const rowAug03 = wrapper.find('[data-testid="day-row-2026-08-03"]')
     expect(rowAug03.text()).toContain('預設平日')
+
+    // 驗證無 Assignment / Policy 時仍可開啟編輯並儲存 Special Status 與 Calendar Override
+    const editBtn = rowAug03.find('[data-action="edit-day"]')
+    await editBtn.trigger('click')
+
+    await wrapper.find('[data-testid="day-status-type"]').setValue('REMOTE')
+    await wrapper.find('[data-testid="day-status-note"]').setValue('在家遠端')
+    await wrapper.find('[data-testid="calendar-override-type"]').setValue('HOLIDAY')
+    await wrapper.find('[data-testid="calendar-override-name"]').setValue('部門放假')
+
+    vi.mocked(upsertCalendarOverride).mockResolvedValueOnce({
+      id: 'co-new',
+      user_id: 'user-1',
+      calendar_date: '2026-08-03',
+      day_type: 'HOLIDAY',
+      name: '部門放假',
+      note: null,
+    })
+
+    vi.mocked(upsertDayStatus).mockResolvedValueOnce({
+      id: 'ds-new',
+      user_id: 'user-1',
+      work_date: '2026-08-03',
+      status: 'REMOTE',
+      note: '在家遠端',
+    })
+
+    const saveBtn = wrapper.find('[data-action="save-day"]')
+    await saveBtn.trigger('click')
+    await flushPromises()
+
+    expect(upsertCalendarOverride).toHaveBeenCalledWith({
+      calendar_date: '2026-08-03',
+      day_type: 'HOLIDAY',
+      name: '部門放假',
+      note: null,
+    })
+    expect(upsertDayStatus).toHaveBeenCalledWith({
+      work_date: '2026-08-03',
+      status: 'REMOTE',
+      note: '在家遠端',
+    })
   })
 
-  it('有 default context 但特定日期無適用制度時才正確 fallback 至預設平日或週末預設', async () => {
-    vi.mocked(getSetupStatus).mockResolvedValueOnce({
-      profile: { id: 'user-1', display_name: 'Test', timezone: 'Asia/Taipei' },
-      contexts: [{ id: 'ctx-1', user_id: 'user-1', name: '預設工作', company_identifier: 'C1', project_identifier: 'P1', active: true, is_default: true }],
-      defaultContext: { id: 'ctx-1', user_id: 'user-1', name: '預設工作', company_identifier: 'C1', project_identifier: 'P1', active: true, is_default: true },
-      policies: [
-        {
-          id: 'pol-future',
-          user_id: 'user-1',
-          context_id: 'ctx-1',
-          name: '未來制度',
-          standard_start_time: '09:00:00',
-          work_minutes: 480,
-          fixed_break_minutes: 60,
-          early_arrival_policy: 'STANDARD_START',
-          clock_in_rounding_mode: 'NONE',
-          clock_in_rounding_minutes: null,
-          clock_out_rounding_mode: 'NONE',
-          clock_out_rounding_minutes: null,
-          working_days: ['1', '2', '3', '4', '5'],
-          effective_from: '2026-09-01', // 2026-08 尚未生效
-          effective_to: null,
-          timezone: 'Asia/Taipei',
-        },
-      ],
-      complete: true,
-    })
+  it('有 Assignment 但 target date 位於 policy gap (MISSING_POLICY) 時，該日正常 fallback，不視為頁面錯誤', async () => {
+    vi.mocked(getCalendarWorkAssignments).mockResolvedValueOnce([mockAssignment])
+    vi.mocked(getCalendarWorkPolicies).mockResolvedValueOnce([
+      {
+        ...mockWorkPolicy,
+        effective_from: '2026-09-01', // 2026-08 尚未生效
+        effective_to: null,
+      },
+    ])
     vi.mocked(getDgpaCalendarForMonth).mockResolvedValueOnce([])
     vi.mocked(getCalendarOverridesForMonth).mockResolvedValueOnce([])
     vi.mocked(getDayStatusesForMonth).mockResolvedValueOnce([])
@@ -313,9 +336,126 @@ describe('LeaveView', () => {
     const wrapper = mount(LeaveView)
     await flushPromises()
 
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     // 2026-08-03 (週一) 由於 8 月沒有適用 policy，fallback 至 預設平日
     const rowAug03 = wrapper.find('[data-testid="day-row-2026-08-03"]')
     expect(rowAug03.text()).toContain('預設平日')
+  })
+
+  it('future Assignment 或已結束 Assignment 不會把其 Policy 錯套到不屬於它的日期', async () => {
+    const futureAssignment: WorkAssignment = {
+      ...mockAssignment,
+      effective_from: '2026-09-01',
+      effective_to: null,
+    }
+    const futurePolicy: WorkPolicy = {
+      ...mockWorkPolicy,
+      effective_from: '2026-09-01',
+      effective_to: null,
+      working_days: ['1', '2', '3', '4', '5', '6'], // 週一至週六
+    }
+
+    vi.mocked(getCalendarWorkAssignments).mockResolvedValueOnce([futureAssignment])
+    vi.mocked(getCalendarWorkPolicies).mockResolvedValueOnce([futurePolicy])
+    vi.mocked(getDgpaCalendarForMonth).mockResolvedValueOnce([])
+    vi.mocked(getCalendarOverridesForMonth).mockResolvedValueOnce([])
+    vi.mocked(getDayStatusesForMonth).mockResolvedValueOnce([])
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    // 2026-08-01 為週六，因 8 月無有效 assignment，不得套用 9 月的週六制度，應維持週末預設
+    const rowAug01 = wrapper.find('[data-testid="day-row-2026-08-01"]')
+    expect(rowAug01.text()).toContain('週末預設')
+  })
+
+  it('同一月份跨 Assignment boundary 時，各日期使用各自 canonical applicable Policy；gap 日期沒有 policy', async () => {
+    const assignment1: WorkAssignment = {
+      id: 'wa-1',
+      user_id: 'user-1',
+      staffing_employer: '派遣公司1',
+      client_company: '客戶公司1',
+      project: '專案1',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-15',
+    }
+    const assignment2: WorkAssignment = {
+      id: 'wa-2',
+      user_id: 'user-1',
+      staffing_employer: '派遣公司2',
+      client_company: '客戶公司2',
+      project: '專案2',
+      effective_from: '2026-08-20',
+      effective_to: '2026-08-31',
+    }
+    const policy1: WorkPolicy = {
+      ...mockWorkPolicy,
+      id: 'pol-1',
+      assignment_id: 'wa-1',
+      working_days: ['1', '2', '3', '4', '5'], // 週一至週五
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-15',
+    }
+    const policy2: WorkPolicy = {
+      ...mockWorkPolicy,
+      id: 'pol-2',
+      assignment_id: 'wa-2',
+      working_days: ['2', '3', '4', '5', '6'], // 週二至週六
+      effective_from: '2026-08-20',
+      effective_to: '2026-08-31',
+    }
+
+    vi.mocked(getCalendarWorkAssignments).mockResolvedValueOnce([assignment1, assignment2])
+    vi.mocked(getCalendarWorkPolicies).mockResolvedValueOnce([policy1, policy2])
+    vi.mocked(getDgpaCalendarForMonth).mockResolvedValueOnce([])
+    vi.mocked(getCalendarOverridesForMonth).mockResolvedValueOnce([])
+    vi.mocked(getDayStatusesForMonth).mockResolvedValueOnce([])
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+
+    // 2026-08-08 (週六): under assignment1 (Mon-Fri) -> 制度非工作日
+    const rowAug08 = wrapper.find('[data-testid="day-row-2026-08-08"]')
+    expect(rowAug08.text()).toContain('制度非工作日')
+
+    // 2026-08-17 (週一): gap period -> 預設平日
+    const rowAug17 = wrapper.find('[data-testid="day-row-2026-08-17"]')
+    expect(rowAug17.text()).toContain('預設平日')
+
+    // 2026-08-22 (週六): under assignment2 (Tue-Sat) -> 制度工作日
+    const rowAug22 = wrapper.find('[data-testid="day-row-2026-08-22"]')
+    expect(rowAug22.text()).toContain('制度工作日')
+
+    // 2026-08-24 (週一): under assignment2 (Tue-Sat) -> 制度非工作日
+    const rowAug24 = wrapper.find('[data-testid="day-row-2026-08-24"]')
+    expect(rowAug24.text()).toContain('制度非工作日')
+  })
+
+  it('同月份存在多筆重疊 Assignment 之 invariant violation 時呈現錯誤提示', async () => {
+    const overlapping1: WorkAssignment = {
+      ...mockAssignment,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-20',
+    }
+    const overlapping2: WorkAssignment = {
+      ...mockAssignment,
+      id: 'wa-2',
+      effective_from: '2026-08-10',
+      effective_to: '2026-08-31',
+    }
+
+    vi.mocked(getCalendarWorkAssignments).mockResolvedValueOnce([overlapping1, overlapping2])
+
+    const wrapper = mount(LeaveView)
+    await flushPromises()
+
+    const errorAlert = wrapper.find('[role="alert"]')
+    expect(errorAlert.exists()).toBe(true)
+    expect(errorAlert.text()).toContain('日曆與狀態資料載入失敗')
+    expect(wrapper.find('table').exists()).toBe(false)
   })
 
   it('支援點擊「更新 DGPA」呼叫 Edge Function 並在成功後重新載入資料', async () => {

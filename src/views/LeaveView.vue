@@ -14,6 +14,8 @@ import {
   getDayStatusesForMonth,
   getCalendarOverridesForMonth,
   getMonthAttendanceDates,
+  getCalendarWorkAssignments,
+  getCalendarWorkPolicies,
   upsertDayStatus,
   deleteDayStatus,
   upsertCalendarOverride,
@@ -24,11 +26,7 @@ import {
   syncDgpaCalendarYear,
 } from '../lib/dgpa-calendar'
 import type { DgpaCalendarRow } from '../domain/dgpa-calendar/resolver'
-import {
-  getSetupStatus,
-  getCurrentUserId,
-  type WorkPolicy,
-} from '../lib/settings'
+import type { WorkPolicy, WorkAssignment } from '../lib/settings'
 import { presentErrorMessage } from '../lib/error-presentation'
 import { getTaipeiToday } from '../lib/work-policy'
 
@@ -39,6 +37,7 @@ const dayStatuses = ref<DayStatus[]>([])
 const calendarOverrides = ref<CalendarOverride[]>([])
 const attendanceDates = ref<Set<string>>(new Set())
 const dgpaRows = ref<DgpaCalendarRow[]>([])
+const workAssignments = ref<WorkAssignment[]>([])
 const workPolicies = ref<WorkPolicy[]>([])
 
 // DGPA Sync UI state
@@ -83,6 +82,7 @@ const overviewDays = computed(() => {
     calendarOverrides: calendarOverrides.value,
     attendanceDates: attendanceDates.value,
     dgpaRows: dgpaRows.value,
+    workAssignments: workAssignments.value,
     workPolicies: workPolicies.value,
   })
 })
@@ -95,12 +95,6 @@ watch(currentMonth, (newMonth) => {
   void loadMonth(newMonth)
 })
 
-async function loadPolicies(): Promise<WorkPolicy[]> {
-  const userId = await getCurrentUserId()
-  const setup = await getSetupStatus(userId)
-  return setup.policies
-}
-
 async function loadMonth(yearMonth: string): Promise<boolean> {
   const requestId = ++currentRequestId
   isLoading.value = true
@@ -109,20 +103,33 @@ async function loadMonth(yearMonth: string): Promise<boolean> {
   syncSuccess.value = ''
 
   try {
-    const [statuses, overrides, attendances, dgpas, policies] = await Promise.all([
+    const [statuses, overrides, attendances, dgpas, assignments, policies] = await Promise.all([
       getDayStatusesForMonth(yearMonth),
       getCalendarOverridesForMonth(yearMonth),
       getMonthAttendanceDates(yearMonth),
       getDgpaCalendarForMonth(yearMonth),
-      loadPolicies(),
+      getCalendarWorkAssignments(),
+      getCalendarWorkPolicies(),
     ])
 
     if (requestId !== currentRequestId) return false
+
+    // Validate resolution invariant for the month by building overview
+    buildMonthOverview({
+      yearMonth,
+      dayStatuses: statuses,
+      calendarOverrides: overrides,
+      attendanceDates: attendances,
+      dgpaRows: dgpas,
+      workAssignments: assignments,
+      workPolicies: policies,
+    })
 
     dayStatuses.value = statuses
     calendarOverrides.value = overrides
     attendanceDates.value = attendances
     dgpaRows.value = dgpas
+    workAssignments.value = assignments
     workPolicies.value = policies
     return true
   } catch (error) {

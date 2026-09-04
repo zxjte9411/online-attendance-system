@@ -8,7 +8,7 @@ import {
   type CalendarOverride,
 } from './overview'
 import type { DgpaCalendarRow } from '../dgpa-calendar/resolver'
-import type { WorkPolicy } from '../../lib/settings'
+import type { WorkPolicy, WorkAssignment } from '../../lib/settings'
 
 describe('buildMonthOverview', () => {
   it('generates all days for a given month with correct weekdays and default weekend fallback', () => {
@@ -291,6 +291,155 @@ describe('resolveMonthDays', () => {
     expect(days[3].date).toBe('2026-08-04')
     expect(days[3].resolved.source).toBe('WORK_POLICY')
     expect(days[3].resolved.dayType).toBe('WORKDAY')
+  })
+
+  it('correctly resolves days when crossing assignments with a gap and falls back to DGPA/weekend in gap and no-assignment states', () => {
+    const assignment1: WorkAssignment = {
+      id: 'wa-1',
+      user_id: 'u1',
+      staffing_employer: 'Emp 1',
+      client_company: 'Client 1',
+      project: 'Project 1',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-15',
+    }
+
+    const assignment2: WorkAssignment = {
+      id: 'wa-2',
+      user_id: 'u1',
+      staffing_employer: 'Emp 2',
+      client_company: 'Client 2',
+      project: 'Project 2',
+      effective_from: '2026-08-20',
+      effective_to: '2026-08-31',
+    }
+
+    const policy1: WorkPolicy = {
+      id: 'wp-1',
+      user_id: 'u1',
+      assignment_id: 'wa-1',
+      context_id: null,
+      name: 'Mon-Fri',
+      standard_start_time: '09:00:00',
+      work_minutes: 480,
+      fixed_break_minutes: 60,
+      early_arrival_policy: 'STANDARD_START',
+      clock_in_rounding_mode: 'NONE',
+      clock_in_rounding_minutes: null,
+      clock_out_rounding_mode: 'NONE',
+      clock_out_rounding_minutes: null,
+      working_days: ['1', '2', '3', '4', '5'],
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-15',
+      timezone: 'Asia/Taipei',
+    }
+
+    const policy2: WorkPolicy = {
+      id: 'wp-2',
+      user_id: 'u1',
+      assignment_id: 'wa-2',
+      context_id: null,
+      name: 'Tue-Sat',
+      standard_start_time: '10:00:00',
+      work_minutes: 480,
+      fixed_break_minutes: 60,
+      early_arrival_policy: 'STANDARD_START',
+      clock_in_rounding_mode: 'NONE',
+      clock_in_rounding_minutes: null,
+      clock_out_rounding_mode: 'NONE',
+      clock_out_rounding_minutes: null,
+      working_days: ['2', '3', '4', '5', '6'],
+      effective_from: '2026-08-20',
+      effective_to: '2026-08-31',
+      timezone: 'Asia/Taipei',
+    }
+
+    const overview = buildMonthOverview({
+      yearMonth: '2026-08',
+      dayStatuses: [],
+      calendarOverrides: [],
+      attendanceDates: new Set(),
+      workAssignments: [assignment1, assignment2],
+      workPolicies: [policy1, policy2],
+    })
+
+    // 2026-08-03 (Mon): under wa-1 + wp-1 -> WORK_POLICY WORKDAY
+    const aug03 = overview.find((d) => d.date === '2026-08-03')!
+    expect(aug03.resolvedSource).toBe('WORK_POLICY')
+    expect(aug03.resolvedDayType).toBe('WORKDAY')
+
+    // 2026-08-08 (Sat): under wa-1 + wp-1 -> WORK_POLICY HOLIDAY (wp-1 is Mon-Fri)
+    const aug08 = overview.find((d) => d.date === '2026-08-08')!
+    expect(aug08.resolvedSource).toBe('WORK_POLICY')
+    expect(aug08.resolvedDayType).toBe('HOLIDAY')
+
+    // 2026-08-17 (Mon): gap period between wa-1 and wa-2 -> NO_ASSIGNMENT -> WEEKEND_FALLBACK WORKDAY
+    const aug17 = overview.find((d) => d.date === '2026-08-17')!
+    expect(aug17.resolvedSource).toBe('WEEKEND_FALLBACK')
+    expect(aug17.resolvedDayType).toBe('WORKDAY')
+
+    // 2026-08-22 (Sat): under wa-2 + wp-2 -> WORK_POLICY WORKDAY (wp-2 has Sat in working_days)
+    const aug22 = overview.find((d) => d.date === '2026-08-22')!
+    expect(aug22.resolvedSource).toBe('WORK_POLICY')
+    expect(aug22.resolvedDayType).toBe('WORKDAY')
+
+    // 2026-08-24 (Mon): under wa-2 + wp-2 -> WORK_POLICY HOLIDAY (wp-2 is Tue-Sat, Mon not included)
+    const aug24 = overview.find((d) => d.date === '2026-08-24')!
+    expect(aug24.resolvedSource).toBe('WORK_POLICY')
+    expect(aug24.resolvedDayType).toBe('HOLIDAY')
+  })
+
+  it('falls back completely to weekend/DGPA when workAssignments is empty (Profile-only user)', () => {
+    const overview = buildMonthOverview({
+      yearMonth: '2026-08',
+      dayStatuses: [],
+      calendarOverrides: [],
+      attendanceDates: new Set(),
+      workAssignments: [],
+      workPolicies: [],
+    })
+
+    // 2026-08-03 (Mon): default weekday -> WORKDAY
+    const aug03 = overview.find((d) => d.date === '2026-08-03')!
+    expect(aug03.resolvedSource).toBe('WEEKEND_FALLBACK')
+    expect(aug03.resolvedDayType).toBe('WORKDAY')
+
+    // 2026-08-02 (Sun): default weekend -> HOLIDAY
+    const aug02 = overview.find((d) => d.date === '2026-08-02')!
+    expect(aug02.resolvedSource).toBe('WEEKEND_FALLBACK')
+    expect(aug02.resolvedDayType).toBe('HOLIDAY')
+  })
+
+  it('propagates invariant error if multiple assignments overlap in a month', () => {
+    const assignmentA: WorkAssignment = {
+      id: 'wa-a',
+      user_id: 'u1',
+      staffing_employer: 'Emp A',
+      client_company: 'Client A',
+      project: 'Project A',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-20',
+    }
+    const assignmentOverlap: WorkAssignment = {
+      id: 'wa-overlap',
+      user_id: 'u1',
+      staffing_employer: 'Emp B',
+      client_company: 'Client B',
+      project: 'Project B',
+      effective_from: '2026-08-10',
+      effective_to: '2026-08-25',
+    }
+
+    expect(() => {
+      buildMonthOverview({
+        yearMonth: '2026-08',
+        dayStatuses: [],
+        calendarOverrides: [],
+        attendanceDates: new Set(),
+        workAssignments: [assignmentA, assignmentOverlap],
+        workPolicies: [],
+      })
+    }).toThrow('multiple work assignments resolve for target date')
   })
 })
 

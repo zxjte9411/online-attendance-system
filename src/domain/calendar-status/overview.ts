@@ -1,12 +1,12 @@
 import {
   resolveCalendarDay,
-  findApplicableWorkPolicy,
+  resolveApplicableWorkPolicy,
   type CalendarResolutionSource,
   type CalendarDayType,
   type DgpaCalendarRow,
   type DgpaBaseline,
 } from '../dgpa-calendar/resolver'
-import type { WorkPolicy } from '../../lib/settings'
+import type { WorkPolicy, WorkAssignment } from '../../lib/settings'
 
 export type DayStatusType = 'LEAVE' | 'REMOTE' | 'BUSINESS_TRIP'
 export type { CalendarDayType }
@@ -102,6 +102,7 @@ export function resolveMonthDays(params: {
   dayStatuses?: DayStatus[]
   calendarOverrides?: CalendarOverride[]
   dgpaRows?: DgpaCalendarRow[]
+  workAssignments?: WorkAssignment[]
   workPolicies?: WorkPolicy[]
 }): ResolvedMonthDay[] {
   const {
@@ -109,6 +110,7 @@ export function resolveMonthDays(params: {
     dayStatuses = [],
     calendarOverrides = [],
     dgpaRows = [],
+    workAssignments,
     workPolicies = [],
   } = params
 
@@ -146,7 +148,11 @@ export function resolveMonthDays(params: {
     const dayStatus = dayStatusMap.get(date) ?? null
     const calendarOverride = calendarOverrideMap.get(date) ?? null
     const dgpaRow = dgpaMap.get(date) ?? null
-    const applicableWorkPolicy = findApplicableWorkPolicy(date, workPolicies)
+    const applicableWorkPolicy = resolveApplicableWorkPolicy({
+      date,
+      workAssignments,
+      workPolicies,
+    })
 
     const resolved = resolveCalendarDay({
       date,
@@ -178,6 +184,7 @@ export function buildMonthOverview(params: {
   calendarOverrides: CalendarOverride[]
   attendanceDates: Set<string>
   dgpaRows?: DgpaCalendarRow[]
+  workAssignments?: WorkAssignment[]
   workPolicies?: WorkPolicy[]
 }): DailyOverview[] {
   const {
@@ -186,6 +193,7 @@ export function buildMonthOverview(params: {
     calendarOverrides,
     attendanceDates,
     dgpaRows = [],
+    workAssignments,
     workPolicies = [],
   } = params
 
@@ -194,6 +202,7 @@ export function buildMonthOverview(params: {
     dayStatuses,
     calendarOverrides,
     dgpaRows,
+    workAssignments,
     workPolicies,
   })
 
