@@ -1,6 +1,6 @@
 import { getSupabaseClient } from './supabase'
 import { listWorkAssignments } from './work-assignment'
-import type { WorkPolicy, WorkAssignment } from './settings'
+import { policyFields, type WorkPolicy, type WorkAssignment } from './settings'
 import type {
   DayStatus,
   CalendarOverride,
@@ -154,9 +154,6 @@ export async function deleteCalendarOverride(id: string): Promise<void> {
   if (error) throw error
 }
 
-const calendarPolicyFields =
-  'id,user_id,assignment_id,context_id,name,standard_start_time,work_minutes,fixed_break_minutes,early_arrival_policy,clock_in_rounding_mode,clock_in_rounding_minutes,clock_out_rounding_mode,clock_out_rounding_minutes,working_days,effective_from,effective_to,timezone,created_at,updated_at'
-
 export async function getCalendarWorkAssignments(userId?: string): Promise<WorkAssignment[]> {
   const uid = userId ?? (await requireCurrentUserId())
   return listWorkAssignments(uid)
@@ -166,7 +163,7 @@ export async function getCalendarWorkPolicies(userId?: string): Promise<WorkPoli
   const uid = userId ?? (await requireCurrentUserId())
   const { data, error } = await getSupabaseClient()
     .from('work_policies')
-    .select(calendarPolicyFields)
+    .select(policyFields)
     .eq('user_id', uid)
     .order('effective_from', { ascending: true })
 

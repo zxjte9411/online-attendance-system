@@ -1,6 +1,5 @@
 import {
   resolveCalendarDay,
-  findApplicableWorkPolicy,
   resolveApplicableWorkPolicy,
   type CalendarResolutionSource,
   type CalendarDayType,
