@@ -236,4 +236,55 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     expect(rowAug4[11]).toBe('450') // net_worked
     expect(rowAug4[19]).toBe('') // calculation_version blank
   })
+
+  it('N/A 日期輸出 blank semantics，不輸出 0、false 或 ABSENT 等偽造資料', () => {
+    const partialAssignment = {
+      id: 'assign-p',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 P',
+      effective_from: '2026-08-10',
+      effective_to: null,
+    }
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: partialAssignment,
+      workPolicies: [mockPolicy],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(report)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+
+    // 8/1 is row index 1 (header is 0). 8/1 is outside period (effective_from is 2026-08-10)
+    const rowAug1 = lines[1].split(',')
+    expect(rowAug1[0]).toBe('2026-08-01') // date
+    expect(rowAug1[1]).toBe('6') // weekday Saturday
+    expect(rowAug1[2]).toBe('') // company_identifier blank
+    expect(rowAug1[3]).toBe('') // project_identifier blank
+    expect(rowAug1[4]).toBe('') // actual_clock_in_at blank
+    expect(rowAug1[5]).toBe('') // effective_clock_in_at blank
+    expect(rowAug1[6]).toBe('') // actual_clock_out_at blank
+    expect(rowAug1[7]).toBe('') // effective_clock_out_at blank
+    expect(rowAug1[8]).toBe('') // expected_clock_out_at blank
+    expect(rowAug1[9]).toBe('') // scheduled_minutes blank, NOT '0'
+    expect(rowAug1[10]).toBe('') // actual_elapsed_minutes blank
+    expect(rowAug1[11]).toBe('') // net_worked_minutes blank
+    expect(rowAug1[12]).toBe('') // regular_minutes blank
+    expect(rowAug1[13]).toBe('') // overtime_minutes blank
+    expect(rowAug1[14]).toBe('') // leave_minutes blank, NOT '0'
+    expect(rowAug1[15]).toBe('') // absence_minutes blank, NOT '0'
+    expect(rowAug1[16]).toBe('') // created_source blank
+    expect(rowAug1[17]).toBe('') // manually_adjusted blank, NOT 'false'
+    expect(rowAug1[18]).toBe('') // last_manual_edit_at blank
+    expect(rowAug1[19]).toBe('') // calculation_version blank
+    expect(rowAug1[20]).toBe('') // status blank, NOT 'ABSENT'
+    expect(rowAug1[21]).toBe('') // note blank
+    expect(rowAug1[22]).toBe('HOLIDAY') // calendar_day_type preserved
+    expect(rowAug1[23]).toBe('WEEKEND_FALLBACK') // calendar_source preserved
+    expect(rowAug1[24]).toBe('') // is_incomplete blank, NOT 'false'
+    expect(rowAug1[25]).toBe('') // exception_flags blank
+  })
 })

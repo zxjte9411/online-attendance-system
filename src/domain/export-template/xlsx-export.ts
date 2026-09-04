@@ -209,6 +209,9 @@ export async function exportReportToXlsx({
   // 1. Collect all Daily row target addresses
   const dailyTargetAddresses = new Set<string>()
   for (const reportRow of report.rows) {
+    if (reportRow.in_assignment_period === false) {
+      continue
+    }
     const rowNum = dateRowMap.get(reportRow.date)!
     for (const rowEntry of config.rowMapping) {
       const col = rowEntry.targetColumn.trim().toUpperCase()
@@ -254,9 +257,9 @@ export async function exportReportToXlsx({
     if (staticEntry.sourceField === 'year_month') {
       rawValue = targetMonth
     } else if (staticEntry.sourceField === 'company_identifier') {
-      rawValue = report.context.company_identifier
+      rawValue = report.assignment?.client_company ?? report.context?.company_identifier ?? null
     } else if (staticEntry.sourceField === 'project_identifier') {
-      rawValue = report.context.project_identifier
+      rawValue = report.context?.project_identifier ?? null
     }
 
     try {
@@ -277,6 +280,9 @@ export async function exportReportToXlsx({
 
   // 4. Write Daily Row Mappings (Literal values)
   for (const reportRow of report.rows) {
+    if (reportRow.in_assignment_period === false) {
+      continue
+    }
     const rowNum = dateRowMap.get(reportRow.date)!
 
     for (const rowEntry of config.rowMapping) {

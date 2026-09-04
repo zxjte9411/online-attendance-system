@@ -12,6 +12,17 @@ import type { MonthlyReport } from '../report/monthly-report'
 function createMockReport(yearMonth = '2026-08'): MonthlyReport {
   return {
     yearMonth,
+    assignment: {
+      id: 'assign-1',
+      user_id: 'user-1',
+      staffing_employer: 'ACME_EMPLOYER',
+      client_company: 'ACME_CORP',
+      project: 'PROJ_ALPHA',
+      effective_from: '2026-01-01',
+      effective_to: null,
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    },
     context: {
       id: 'ctx-1',
       user_id: 'user-1',
@@ -39,6 +50,7 @@ function createMockReport(yearMonth = '2026-08'): MonthlyReport {
         date: '2026-08-01',
         weekday: 6,
         weekdayLabel: '週六',
+        in_assignment_period: true,
         calendar_day_type: 'HOLIDAY',
         calendar_source: 'WEEKEND_FALLBACK',
         calendar_name: null,
@@ -71,6 +83,7 @@ function createMockReport(yearMonth = '2026-08'): MonthlyReport {
         date: '2026-08-02',
         weekday: 0,
         weekdayLabel: '週日',
+        in_assignment_period: true,
         calendar_day_type: 'HOLIDAY',
         calendar_source: 'WEEKEND_FALLBACK',
         calendar_name: null,
@@ -103,6 +116,7 @@ function createMockReport(yearMonth = '2026-08'): MonthlyReport {
         date: '2026-08-03',
         weekday: 1,
         weekdayLabel: '週一',
+        in_assignment_period: true,
         calendar_day_type: 'WORKDAY',
         calendar_source: 'WORK_POLICY',
         calendar_name: null,
@@ -532,6 +546,154 @@ describe('Domain: XLSX Export Engine', () => {
       ).rejects.toThrowError(
         expect.objectContaining({ code: 'MAPPING_INVALID' })
       )
+    })
+
+    it('N/A 日期不寫入 daily row mapping，保留範本原有儲存格內容且不因該格公式中斷匯出', async () => {
+      // Create workbook with formula in row 6 (2026-08-01 D6)
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('8月')
+      ws.getCell('B6').value = '2026-08-01'
+      ws.getCell('D6').value = { formula: 'SUM(1,2)' } // formula cell on N/A date
+      ws.getCell('E6').value = 'PRESERVED_ORIGINAL'
+      ws.getCell('B7').value = '2026-08-03'
+      ws.getCell('D7').value = null
+      ws.getCell('E7').value = null
+
+      const customBytes = new Uint8Array(await wb.xlsx.writeBuffer())
+
+      const naReport = {
+        yearMonth: '2026-08',
+        assignment: {
+          id: 'assign-1',
+          user_id: 'user-1',
+          staffing_employer: '派遣雇主',
+          client_company: '客戶公司',
+          project: '專案 P',
+          effective_from: '2026-08-03', // Aug 1 is outside assignment period
+          effective_to: null,
+        },
+        context: {
+          id: 'ctx-1',
+          user_id: 'user-1',
+          name: '預設情境',
+          company_identifier: 'COMPANY_A',
+          project_identifier: 'PROJECT_X',
+          active: true,
+          is_default: true,
+        },
+        summary: {
+          scheduled_minutes: 480,
+          leave_minutes: 0,
+          absence_minutes: 0,
+          regular_minutes: 480,
+          overtime_minutes: 0,
+          actual_elapsed_minutes: 540,
+          net_worked_minutes: 480,
+          incomplete_count: 0,
+          exception_count: 0,
+        },
+        rows: [
+          {
+            date: '2026-08-01',
+            weekday: 6,
+            weekdayLabel: '週六',
+            in_assignment_period: false, // N/A date
+            calendar_day_type: 'HOLIDAY',
+            calendar_source: 'DEFAULT_WEEKEND',
+            calendar_name: null,
+            status: null,
+            scheduled_minutes: 0,
+            actual_clock_in_at: null,
+            effective_clock_in_at: null,
+            actual_clock_out_at: null,
+            effective_clock_out_at: null,
+            expected_clock_out_at: null,
+            actual_elapsed_minutes: null,
+            net_worked_minutes: null,
+            regular_minutes: null,
+            overtime_minutes: null,
+            leave_minutes: 0,
+            absence_minutes: 0,
+            is_incomplete: false,
+            created_source: null,
+            manually_adjusted: false,
+            last_manual_edit_at: null,
+            calculation_version: null,
+            note: null,
+            company_identifier: 'COMPANY_A',
+            project_identifier: 'PROJECT_X',
+            exception_flags: [],
+            attendance_id: null,
+            attendance_context_id: null,
+          },
+          {
+            date: '2026-08-03',
+            weekday: 1,
+            weekdayLabel: '週一',
+            in_assignment_period: true,
+            calendar_day_type: 'WORKDAY',
+            calendar_source: 'WORK_POLICY',
+            calendar_name: null,
+            status: null,
+            scheduled_minutes: 480,
+            actual_clock_in_at: '2026-08-03T01:00:00.000Z',
+            effective_clock_in_at: '2026-08-03T01:00:00.000Z',
+            actual_clock_out_at: '2026-08-03T10:00:00.000Z',
+            effective_clock_out_at: '2026-08-03T10:00:00.000Z',
+            expected_clock_out_at: '2026-08-03T10:00:00.000Z',
+            actual_elapsed_minutes: 540,
+            net_worked_minutes: 480,
+            regular_minutes: 480,
+            overtime_minutes: 0,
+            leave_minutes: 0,
+            absence_minutes: 0,
+            is_incomplete: false,
+            created_source: 'CLOCK',
+            manually_adjusted: false,
+            last_manual_edit_at: null,
+            calculation_version: '1',
+            note: 'ATTENDANCE_NOTE',
+            company_identifier: 'COMPANY_A',
+            project_identifier: 'PROJECT_X',
+            exception_flags: [],
+            attendance_id: 'att-1',
+            attendance_context_id: 'ctx-1',
+          },
+        ],
+        missingPolicyDates: [],
+        hasConfigurationError: false,
+      }
+
+      const customConfig: ExportTemplateConfig = {
+        name: '測試範本',
+        monthWorksheetMapping: { '2026-08': '8月' },
+        rowMapping: [
+          { sourceField: 'date', targetColumn: 'B' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'D' },
+          { sourceField: 'note', targetColumn: 'E' },
+        ],
+        staticCellMapping: [],
+      }
+
+      // Should succeed without throwing FORMULA_CELL_OVERWRITE for D6
+      const exportedBytes = await exportReportToXlsx({
+        templateBytes: customBytes,
+        report: naReport as any,
+        config: customConfig,
+        targetMonth: '2026-08',
+      })
+
+      // Verify original content preserved in row 6
+      const exportedWb = new ExcelJS.Workbook()
+      await exportedWb.xlsx.load(exportedBytes.slice().buffer as ArrayBuffer)
+      const exportedWs = exportedWb.getWorksheet('8月')!
+
+      // D6 formula preserved
+      expect(exportedWs.getCell('D6').formula).toBe('SUM(1,2)')
+      // E6 original content preserved (not overwritten with blank or dummy company)
+      expect(exportedWs.getCell('E6').value).toBe('PRESERVED_ORIGINAL')
+      // Row 7 (active date) written
+      expect(exportedWs.getCell('E7').value).toBe('ATTENDANCE_NOTE')
     })
   })
 })

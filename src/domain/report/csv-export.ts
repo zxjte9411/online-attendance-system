@@ -76,6 +76,38 @@ export function exportReportToCsv(report: MonthlyReport): string {
   const headerLine = CSV_HEADERS.map((h) => escapeCsvField(h)).join(',')
 
   const rowLines = report.rows.map((row: DailyReportRow) => {
+    if (row.in_assignment_period === false) {
+      const fields: unknown[] = [
+        row.date,
+        row.weekday,
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        row.calendar_day_type,
+        row.calendar_source,
+        '',
+        '',
+      ]
+      return fields.map((f) => escapeCsvField(f)).join(',')
+    }
+
     const fields: unknown[] = [
       row.date,
       row.weekday,
