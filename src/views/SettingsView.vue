@@ -59,6 +59,8 @@ const errorRegion = ref<HTMLElement | null>(null)
 const selectedContext = computed(() => contexts.value.find((context) => context.id === selectedContextId.value) ?? null)
 const defaultContext = computed(() => contexts.value.find((context) => context.active && context.is_default) ?? null)
 const selectedAssignment = computed(() => assignments.value.find((assignment) => assignment.id === selectedAssignmentId.value) ?? null)
+const selectedTemplateAssignmentId = ref('')
+const selectedTemplateAssignment = computed(() => assignments.value.find((assignment) => assignment.id === selectedTemplateAssignmentId.value) ?? null)
 
 onMounted(load)
 
@@ -82,6 +84,7 @@ async function load() {
     selectedAssignmentId.value = savedAssignments.some((assignment) => assignment.id === requestedAssignmentId)
       ? requestedAssignmentId
       : savedAssignments[0]?.id ?? ''
+    selectedTemplateAssignmentId.value = selectedAssignmentId.value || savedAssignments[0]?.id || ''
     const nextContext = savedContexts.find((context) => context.active && context.is_default)
       ?? savedContexts.find((context) => context.active)
       ?? savedContexts[0]
@@ -124,6 +127,9 @@ async function handleAssignmentSaved(savedAssignments: WorkAssignment[], message
     ?? (savedAssignments.some((assignment) => assignment.id === selectedAssignmentId.value)
       ? selectedAssignmentId.value
       : savedAssignments[0]?.id ?? '')
+  if (!savedAssignments.some((assignment) => assignment.id === selectedTemplateAssignmentId.value)) {
+    selectedTemplateAssignmentId.value = selectedAssignmentId.value || savedAssignments[0]?.id || ''
+  }
   actionMessage.value = message
   await loadPolicies()
 }
@@ -393,24 +399,24 @@ function selectContext(contextId: string) {
         <div class="grid gap-1 border-b border-line pb-5">
           <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">05 / XLSX 匯出範本</p>
           <h2 id="settings-export-templates-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">XLSX 匯出範本</h2>
-          <p class="text-sm leading-relaxed text-muted">為各工作情境上傳專屬的 Excel 範本並配置欄位對應，即可在報表匯出填妥的檔案。</p>
+          <p class="text-sm leading-relaxed text-muted">為各工作派駐上傳專屬的 Excel 範本並配置欄位對應，即可在報表匯出填妥的檔案。</p>
         </div>
 
         <div class="grid gap-1.5">
-          <label class="font-semibold" for="template-context">選擇工作情境</label>
-          <select id="template-context" v-model="selectedContextId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="template_context_id" @change="selectContext(selectedContextId)">
-            <option v-for="context in contexts" :key="context.id" :value="context.id">{{ context.name }}{{ context.is_default ? '（目前預設）' : '' }}</option>
+          <label class="font-semibold" for="template-assignment">選擇工作派駐</label>
+          <select id="template-assignment" v-model="selectedTemplateAssignmentId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="template_assignment_id">
+            <option v-for="assignment in assignments" :key="assignment.id" :value="assignment.id">{{ assignment.staffing_employer }} · {{ assignment.client_company }} · {{ assignment.project }}</option>
           </select>
         </div>
 
-        <div v-if="selectedContext" class="grid gap-4">
+        <div v-if="selectedTemplateAssignment" class="grid gap-4">
           <ExportTemplateSection
             :user-id="userId"
-            :context-id="selectedContext.id"
-            :context-name="selectedContext.name"
+            :assignment-id="selectedTemplateAssignment.id"
+            :assignment-name="`${selectedTemplateAssignment.staffing_employer} · ${selectedTemplateAssignment.client_company} · ${selectedTemplateAssignment.project}`"
           />
         </div>
-        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">請先建立工作情境以設定匯出範本。</p>
+        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">請先建立工作派駐以設定匯出範本。</p>
       </section>
     </div>
   </div>
