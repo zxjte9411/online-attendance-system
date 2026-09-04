@@ -5,6 +5,7 @@ import type { WorkContext, WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
 import type { DayStatus, CalendarOverride } from '../calendar-status/overview'
 import type { DgpaCalendarRow } from '../dgpa-calendar/resolver'
+import type { WorkAssignment } from '../work-assignment/work-assignment'
 
 const mockContext: WorkContext = {
   id: 'ctx-1',
@@ -433,5 +434,235 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     expect(summary.absence_minutes).toBe(calculatedAbsence)
     expect(summary.incomplete_count).toBe(calculatedIncomplete)
     expect(summary.incomplete_count).toBe(1)
+  })
+
+  describe('Issue #55: Work Assignment Period, N/A Dates and Policy Gaps', () => {
+    const baseAssignment: WorkAssignment = {
+      id: 'assign-test',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 P',
+      effective_from: '2026-08-10',
+      effective_to: null,
+    }
+
+    const standardPolicy: WorkPolicy = {
+      ...mockPolicy,
+      assignment_id: 'assign-test',
+      effective_from: '2026-08-01',
+      effective_to: null,
+    }
+
+    it('案例 1 (月中開始)：派駐起日前的日期標為 N/A，不計入 scheduled 或 absence', () => {
+      // 2026-08-10 開始 (8/1~8/9 非派駐期間)
+      const report = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: baseAssignment,
+        workPolicies: [standardPolicy],
+        attendanceRecords: [],
+      })
+
+      // 8/1 ~ 8/9 in_assignment_period = false
+      const naRows = report.rows.filter((r) => r.date < '2026-08-10')
+      expect(naRows).toHaveLength(9)
+      for (const r of naRows) {
+        expect(r.in_assignment_period).toBe(false)
+        expect(r.scheduled_minutes).toBe(0)
+        expect(r.absence_minutes).toBe(0)
+      }
+
+      // 8/10 ~ 8/31 in_assignment_period = true
+      const activeRows = report.rows.filter((r) => r.date >= '2026-08-10')
+      expect(activeRows).toHaveLength(22)
+      for (const r of activeRows) {
+        expect(r.in_assignment_period).toBe(true)
+      }
+
+      // Total scheduled only includes working days from 8/10 to 8/31 (16 working days * 480 = 7680)
+      expect(report.summary.scheduled_minutes).toBe(7680)
+      expect(report.hasConfigurationError).toBe(false)
+      expect(report.missingPolicyDates).toHaveLength(0)
+    })
+
+    it('案例 2 (月中結束)：派駐迄日後的日期標為 N/A，不計入 scheduled 或 absence', () => {
+      const endMonthAssignment: WorkAssignment = {
+        ...baseAssignment,
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-20',
+      }
+
+      const report = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: endMonthAssignment,
+        workPolicies: [standardPolicy],
+        attendanceRecords: [],
+      })
+
+      // 8/1 ~ 8/20 in_assignment_period = true (14 workdays * 480 = 6720)
+      const activeRows = report.rows.filter((r) => r.date <= '2026-08-20')
+      expect(activeRows).toHaveLength(20)
+      for (const r of activeRows) {
+        expect(r.in_assignment_period).toBe(true)
+      }
+
+      // 8/21 ~ 8/31 in_assignment_period = false
+      const naRows = report.rows.filter((r) => r.date > '2026-08-20')
+      expect(naRows).toHaveLength(11)
+      for (const r of naRows) {
+        expect(r.in_assignment_period).toBe(false)
+        expect(r.scheduled_minutes).toBe(0)
+        expect(r.absence_minutes).toBe(0)
+      }
+
+      expect(report.summary.scheduled_minutes).toBe(6720)
+      expect(report.hasConfigurationError).toBe(false)
+    })
+
+    it('案例 3 (Policy Gap)：只有派駐期間內且真正為 WORKDAY 缺 Policy 才計為 configuration gap', () => {
+      // 派駐 2026-08-10 ~ 2026-08-20
+      // policy 只生效到 2026-08-14
+      // 8/10(一)~8/14(五) 有 policy
+      // 8/15(六), 8/16(日) 為週末（HOLIDAY），缺 policy 不算 gap！
+      // 8/17(一)~8/20(四) 為 WORKDAY，缺 policy -> 4 天 missing policy！
+      // 8/21 以後為非派駐期間，缺 policy 不算 gap！
+      const shortPolicy: WorkPolicy = {
+        ...standardPolicy,
+        effective_from: '2026-08-10',
+        effective_to: '2026-08-14',
+      }
+      const periodAssignment: WorkAssignment = {
+        ...baseAssignment,
+        effective_from: '2026-08-10',
+        effective_to: '2026-08-20',
+      }
+
+      const report = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: periodAssignment,
+        workPolicies: [shortPolicy],
+        attendanceRecords: [],
+      })
+
+      expect(report.hasConfigurationError).toBe(true)
+      // 8/17, 8/18, 8/19, 8/20 are WORKDAY gaps
+      expect(report.missingPolicyDates).toEqual([
+        '2026-08-17',
+        '2026-08-18',
+        '2026-08-19',
+        '2026-08-20',
+      ])
+      // 8/15 and 8/16 are weekend holidays, so NOT in missingPolicyDates
+      expect(report.missingPolicyDates).not.toContain('2026-08-15')
+      expect(report.missingPolicyDates).not.toContain('2026-08-16')
+      // 8/21 is outside assignment period, NOT in missingPolicyDates
+      expect(report.missingPolicyDates).not.toContain('2026-08-21')
+    })
+
+    it('案例 4 (完整 Coverage)：整月都在派駐且政策完整覆蓋，正常產出且無 gap', () => {
+      const fullMonthAssignment: WorkAssignment = {
+        ...baseAssignment,
+        effective_from: '2026-01-01',
+        effective_to: null,
+      }
+
+      const report = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: fullMonthAssignment,
+        workPolicies: [standardPolicy],
+        attendanceRecords: [],
+      })
+
+      expect(report.hasConfigurationError).toBe(false)
+      expect(report.missingPolicyDates).toHaveLength(0)
+      expect(report.rows).toHaveLength(31)
+      expect(report.rows.every((r) => r.in_assignment_period)).toBe(true)
+      // 21 workdays in 2026-08 * 480 = 10080
+      expect(report.summary.scheduled_minutes).toBe(10080)
+    })
+
+    it('Fail-loudly: 同一 Assignment 同一天有多筆適用 Policy 時拋出錯誤', () => {
+      const duplicatePolicy: WorkPolicy = {
+        ...standardPolicy,
+        id: 'pol-dup',
+        name: '重複的制度',
+      }
+
+      expect(() => {
+        buildMonthlyReport({
+          yearMonth: '2026-08',
+          assignment: baseAssignment,
+          workPolicies: [standardPolicy, duplicatePolicy],
+          attendanceRecords: [],
+        })
+      }).toThrowError(/multiple work policies/)
+    })
+
+    it('Canonical 欄位包含完整 staffing_employer/client_company/project，無 authoritative Context 時 legacy identifiers 為空且不猜值', () => {
+      const canonicalAssignment: WorkAssignment = {
+        id: 'assign-canon',
+        user_id: 'user-1',
+        staffing_employer: '派遣雇主 H',
+        client_company: '派駐客戶 C',
+        project: '專案 P',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+
+      const reportWithoutContext = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: canonicalAssignment,
+        workPolicies: [{ ...standardPolicy, assignment_id: 'assign-canon' }],
+        attendanceRecords: [],
+      })
+
+      expect(reportWithoutContext.context).toBeNull()
+      for (const row of reportWithoutContext.rows) {
+        expect(row.staffing_employer).toBe('派遣雇主 H')
+        expect(row.client_company).toBe('派駐客戶 C')
+        expect(row.project).toBe('專案 P')
+        // Must NOT guess assignment client_company or project into legacy identifiers
+        expect(row.company_identifier).toBe('')
+        expect(row.project_identifier).toBe('')
+      }
+    })
+
+    it('有 authoritative legacy Context 時，legacy identifiers 正確使用 Context 定義之識別碼', () => {
+      const canonicalAssignment: WorkAssignment = {
+        id: 'assign-canon',
+        user_id: 'user-1',
+        staffing_employer: '派遣雇主 H',
+        client_company: '派駐客戶 C',
+        project: '專案 P',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+
+      const authoritativeContext: WorkContext = {
+        id: 'ctx-auth-1',
+        user_id: 'user-1',
+        name: '舊版情境',
+        company_identifier: 'LEGACY_COMP_ID',
+        project_identifier: 'LEGACY_PROJ_ID',
+        active: true,
+        is_default: true,
+      }
+
+      const reportWithContext = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: canonicalAssignment,
+        context: authoritativeContext,
+        workPolicies: [{ ...standardPolicy, assignment_id: 'assign-canon' }],
+        attendanceRecords: [],
+      })
+
+      expect(reportWithContext.context).toBe(authoritativeContext)
+      for (const row of reportWithContext.rows) {
+        expect(row.company_identifier).toBe('LEGACY_COMP_ID')
+        expect(row.project_identifier).toBe('LEGACY_PROJ_ID')
+        expect(row.client_company).toBe('派駐客戶 C')
+        expect(row.project).toBe('專案 P')
+      }
+    })
   })
 })

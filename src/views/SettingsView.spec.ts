@@ -218,4 +218,47 @@ describe('SettingsView.vue with Work Assignments', () => {
     expect(staffingInput.element.disabled).toBe(false)
     expect(wrapper.text()).not.toContain('此工作派駐已有出勤紀錄')
   })
+
+  it('兩筆雇主/客戶/專案相同但期間不同的 ENDED Assignment，匯出範本 option 可清楚區分且切換時使用正確 assignment id', async () => {
+    const ended1: WorkAssignment = {
+      id: 'wa-ended-1',
+      user_id: userId,
+      staffing_employer: '相同雇主',
+      client_company: '相同客戶',
+      project: '相同專案',
+      effective_from: '2024-01-01',
+      effective_to: '2024-06-30',
+    }
+    const ended2: WorkAssignment = {
+      id: 'wa-ended-2',
+      user_id: userId,
+      staffing_employer: '相同雇主',
+      client_company: '相同客戶',
+      project: '相同專案',
+      effective_from: '2024-07-01',
+      effective_to: '2024-12-31',
+    }
+
+    vi.mocked(listWorkAssignments).mockResolvedValue([ended1, ended2])
+
+    const { wrapper } = await mountSettings()
+
+    const select = wrapper.find<HTMLSelectElement>('#template-assignment')
+    expect(select.exists()).toBe(true)
+
+    const options = select.findAll('option')
+    expect(options).toHaveLength(2)
+
+    expect(options[0].text()).toContain('相同雇主 · 相同客戶 · 相同專案 (2024-01-01 ~ 2024-06-30)')
+    expect(options[1].text()).toContain('相同雇主 · 相同客戶 · 相同專案 (2024-07-01 ~ 2024-12-31)')
+    expect(options[0].text()).not.toBe(options[1].text())
+
+    // Switch selection to wa-ended-2
+    await select.setValue('wa-ended-2')
+    await flushPromises()
+
+    const templateSection = wrapper.findComponent({ name: 'ExportTemplateSection' })
+    expect(templateSection.exists()).toBe(true)
+    expect(templateSection.props('assignmentId')).toBe('wa-ended-2')
+  })
 })

@@ -12,7 +12,8 @@ import type { PreviewCellStructureType } from '../domain/export-template/header-
 export interface ExportTemplate {
   id: string
   user_id: string
-  context_id: string
+  context_id?: string | null
+  assignment_id?: string | null
   name: string
   storage_path: string
   month_worksheet_mapping: Record<string, string>
@@ -45,14 +46,16 @@ export function validateXlsxFileInput(
 
 export async function getExportTemplate(
   userId: string,
-  contextId: string
+  targetId: string,
+  options?: { by?: 'assignment_id' | 'context_id' }
 ): Promise<ExportTemplate | null> {
   const supabase = getSupabaseClient()
+  const lookupField = options?.by ?? 'assignment_id'
   const { data, error } = await supabase
     .from('export_templates')
     .select('*')
     .eq('user_id', userId)
-    .eq('context_id', contextId)
+    .eq(lookupField, targetId)
     .maybeSingle()
 
   if (error) {
@@ -395,13 +398,15 @@ function columnNumberToLetter(columnNumber: number): string {
 
 export interface UploadExportTemplateParams {
   userId: string
-  contextId: string
+  assignmentId?: string
+  contextId?: string
   name: string
   file: File | Blob | Uint8Array | ArrayBuffer
 }
 
 export async function uploadExportTemplate({
   userId,
+  assignmentId,
   contextId,
   name,
   file,
@@ -413,7 +418,8 @@ export async function uploadExportTemplate({
   await getWorkbookWorksheetNames(file)
 
   const templateId = crypto.randomUUID()
-  const storagePath = `${userId}/${contextId}/${templateId}/source.xlsx`
+  const targetFolder = assignmentId || contextId || 'default'
+  const storagePath = `${userId}/${targetFolder}/${templateId}/source.xlsx`
 
   let uploadBody: Blob | Uint8Array | ArrayBuffer
   if (file instanceof Blob || file instanceof Uint8Array || file instanceof ArrayBuffer) {
@@ -444,7 +450,8 @@ export async function uploadExportTemplate({
     .insert({
       id: templateId,
       user_id: userId,
-      context_id: contextId,
+      assignment_id: assignmentId ?? null,
+      context_id: contextId ?? null,
       name: name.trim(),
       storage_path: storagePath,
       month_worksheet_mapping: {},
@@ -608,7 +615,8 @@ export async function replaceExportTemplate({
 
   // 4. Upload to new storage path
   const newTemplateFileId = crypto.randomUUID()
-  const newStoragePath = `${userId}/${currentTemplate.context_id}/${newTemplateFileId}/source.xlsx`
+  const targetFolder = currentTemplate.assignment_id || currentTemplate.context_id || 'default'
+  const newStoragePath = `${userId}/${targetFolder}/${newTemplateFileId}/source.xlsx`
 
   let uploadBody: Blob | Uint8Array | ArrayBuffer
   if (newFile instanceof Blob || newFile instanceof Uint8Array || newFile instanceof ArrayBuffer) {

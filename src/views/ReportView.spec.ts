@@ -4,42 +4,44 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, config } from '@vue/test-utils'
 import ReportView from './ReportView.vue'
 import * as settingsLib from '../lib/settings'
+import * as workAssignmentLib from '../lib/work-assignment'
+import type { WorkAssignment } from '../domain/work-assignment/work-assignment'
 import * as attendanceLib from '../lib/attendance'
 import * as dayStatusCalendarLib from '../lib/day-status-calendar'
 import * as dgpaCalendarLib from '../lib/dgpa-calendar'
 import * as exportTemplatesLib from '../lib/export-templates'
 import * as xlsxExportDomain from '../domain/export-template/xlsx-export'
-import ExcelJS from 'exceljs'
 
 config.global.stubs = {
   RouterLink: true,
 }
 
-const mockContexts: settingsLib.WorkContext[] = [
+const mockAssignments: WorkAssignment[] = [
   {
-    id: 'ctx-1',
+    id: 'assign-1',
     user_id: 'user-1',
-    name: '預設工作情境',
-    company_identifier: 'COMPANY_A',
-    project_identifier: 'PROJECT_X',
-    active: true,
-    is_default: true,
+    staffing_employer: '派遣公司 A',
+    client_company: 'COMPANY_A',
+    project: 'PROJECT_X',
+    effective_from: '2026-01-01',
+    effective_to: null,
   },
   {
-    id: 'ctx-2',
+    id: 'assign-2',
     user_id: 'user-1',
-    name: '第二工作情境',
-    company_identifier: 'COMPANY_B',
-    project_identifier: 'PROJECT_Y',
-    active: true,
-    is_default: false,
+    staffing_employer: '派遣公司 B',
+    client_company: 'COMPANY_B',
+    project: 'PROJECT_Y',
+    effective_from: '2025-01-01',
+    effective_to: '2025-12-31',
   },
 ]
 
-const mockPolicyCtx1: settingsLib.WorkPolicy = {
+const mockPolicyAssign1: settingsLib.WorkPolicy = {
   id: 'pol-1',
   user_id: 'user-1',
-  context_id: 'ctx-1',
+  assignment_id: 'assign-1',
+  context_id: null,
   name: '標準 8h',
   standard_start_time: '09:00:00',
   work_minutes: 480,
@@ -55,10 +57,11 @@ const mockPolicyCtx1: settingsLib.WorkPolicy = {
   timezone: 'Asia/Taipei',
 }
 
-const mockPolicyCtx2: settingsLib.WorkPolicy = {
+const mockPolicyAssign2: settingsLib.WorkPolicy = {
   id: 'pol-2',
   user_id: 'user-1',
-  context_id: 'ctx-2',
+  assignment_id: 'assign-2',
+  context_id: null,
   name: '工時 6h 制度',
   standard_start_time: '10:00:00',
   work_minutes: 360,
@@ -69,7 +72,7 @@ const mockPolicyCtx2: settingsLib.WorkPolicy = {
   clock_out_rounding_mode: 'NONE',
   clock_out_rounding_minutes: null,
   working_days: ['1', '2', '3', '4', '5'],
-  effective_from: '2026-01-01',
+  effective_from: '2025-01-01',
   effective_to: null,
   timezone: 'Asia/Taipei',
 }
@@ -79,9 +82,9 @@ describe('ReportView', () => {
     vi.restoreAllMocks()
 
     vi.spyOn(settingsLib, 'getCurrentUserId').mockResolvedValue('user-1')
-    vi.spyOn(settingsLib, 'listWorkContexts').mockResolvedValue(mockContexts)
-    vi.spyOn(settingsLib, 'listLegacyWorkPolicies').mockImplementation(async (_uid, ctxId) => {
-      return ctxId === 'ctx-2' ? [mockPolicyCtx2] : [mockPolicyCtx1]
+    vi.spyOn(workAssignmentLib, 'listWorkAssignments').mockResolvedValue(mockAssignments)
+    vi.spyOn(settingsLib, 'listWorkPolicies').mockImplementation(async (_uid, assignId) => {
+      return assignId === 'assign-2' ? [mockPolicyAssign2] : [mockPolicyAssign1]
     })
     vi.spyOn(attendanceLib, 'getMonthAttendanceRecords').mockResolvedValue([])
     vi.spyOn(dayStatusCalendarLib, 'getDayStatusesForMonth').mockResolvedValue([])
@@ -90,13 +93,13 @@ describe('ReportView', () => {
     vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(null)
   })
 
-  it('載入並呈現情境選擇、月份導覽與預設統計', async () => {
+  it('載入並呈現工作派駐選擇、月份導覽與預設統計', async () => {
     const wrapper = mount(ReportView)
     await flushPromises()
 
     expect(wrapper.text()).toContain('報表')
-    expect(wrapper.text()).toContain('預設工作情境')
-    expect(wrapper.find('[data-test="context-select"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('COMPANY_A')
+    expect(wrapper.find('[data-test="assignment-select"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="summary-regular"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="summary-leave"]').exists()).toBe(true)
@@ -129,7 +132,8 @@ describe('ReportView', () => {
         id: 'att-1',
         user_id: 'user-1',
         work_date: '2026-08-03',
-        context_id: 'ctx-1',
+        assignment_id: 'assign-1',
+        context_id: null,
         work_policy_id: 'pol-1',
         actual_clock_in_at: '2026-08-03T09:00:00+08:00',
         actual_clock_out_at: '2026-08-03T19:00:00+08:00',
@@ -152,7 +156,8 @@ describe('ReportView', () => {
         id: 'att-2',
         user_id: 'user-1',
         work_date: '2026-08-04',
-        context_id: 'ctx-1',
+        assignment_id: 'assign-1',
+        context_id: null,
         work_policy_id: 'pol-1',
         actual_clock_in_at: '2026-08-04T09:00:00+08:00',
         actual_clock_out_at: '2026-08-04T18:00:00+08:00',
@@ -175,7 +180,8 @@ describe('ReportView', () => {
         id: 'att-3',
         user_id: 'user-1',
         work_date: '2026-08-05',
-        context_id: 'ctx-1',
+        assignment_id: 'assign-1',
+        context_id: null,
         work_policy_id: 'pol-1',
         actual_clock_in_at: '2026-08-05T09:00:00+08:00',
         actual_clock_out_at: null,
@@ -213,18 +219,18 @@ describe('ReportView', () => {
     expect(wrapper.find('[data-test="summary-incomplete"]').text()).toContain('1 筆')
   })
 
-  it('切換 Work Context 時重新 query 並呈現新情境制度與資料', async () => {
-    const listPoliciesSpy = vi.spyOn(settingsLib, 'listLegacyWorkPolicies')
+  it('切換 Work Assignment 時重新 query 並呈現新派駐制度與資料', async () => {
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies')
     const wrapper = mount(ReportView)
-    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+    await wrapper.find('[data-test="month-input"]').setValue('2025-08')
     await flushPromises()
 
-    // Switch context to ctx-2
-    await wrapper.find('[data-test="context-select"]').setValue('ctx-2')
+    // Switch assignment to assign-2 (effective 2025-01-01 ~ 2025-12-31)
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-2')
     await flushPromises()
 
-    expect(listPoliciesSpy).toHaveBeenCalledWith('user-1', 'ctx-2')
-    // In ctx-2 (work_minutes = 360), 21 working days in 2026-08: scheduled = 21 * 360 = 7560 min = 126 hours
+    expect(listPoliciesSpy).toHaveBeenCalledWith('user-1', 'assign-2')
+    // In assign-2 (work_minutes = 360), 21 working days in 2025-08: scheduled = 21 * 360 = 7560 min = 126 hours
     expect(wrapper.find('[data-test="summary-scheduled"]').text()).toContain('126 小時')
   })
 
@@ -240,7 +246,7 @@ describe('ReportView', () => {
     expect(rows).toHaveLength(28)
   })
 
-  it('Async Scope Consistency: 切換 context 或 month 在 pending 期間立即呈現 loading，不顯示錯配舊資料', async () => {
+  it('Async Scope Consistency: 切換 assignment 或 month 在 pending 期間立即呈現 loading，不顯示錯配舊資料', async () => {
     let resolvePolicies!: (val: settingsLib.WorkPolicy[]) => void
     const pendingPromise = new Promise<settingsLib.WorkPolicy[]>((resolve) => {
       resolvePolicies = resolve
@@ -249,14 +255,14 @@ describe('ReportView', () => {
     const wrapper = mount(ReportView)
     await flushPromises()
 
-    // Currently showing ctx-1 data
+    // Currently showing assign-1 data
     expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(true)
 
-    // Make listLegacyWorkPolicies return a pending promise on next call
-    vi.spyOn(settingsLib, 'listLegacyWorkPolicies').mockReturnValue(pendingPromise)
+    // Make listWorkPolicies return a pending promise on next call
+    vi.spyOn(settingsLib, 'listWorkPolicies').mockReturnValue(pendingPromise)
 
-    // Trigger context switch to ctx-2
-    await wrapper.find('[data-test="context-select"]').setValue('ctx-2')
+    // Trigger assignment switch to assign-2
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-2')
 
     // While request is pending: loading indicator exists, summary cards and table rows are hidden
     expect(wrapper.find('[data-test="loading-indicator"]').exists()).toBe(true)
@@ -264,7 +270,7 @@ describe('ReportView', () => {
     expect(wrapper.findAll('[data-test="report-row"]')).toHaveLength(0)
 
     // Now resolve
-    resolvePolicies([mockPolicyCtx2])
+    resolvePolicies([mockPolicyAssign2])
     await flushPromises()
 
     // Loading indicator gone, new report displayed
@@ -281,7 +287,7 @@ describe('ReportView', () => {
     // Mock failure on next query
     vi.spyOn(attendanceLib, 'getMonthAttendanceRecords').mockRejectedValue(new Error('Network error'))
 
-    await wrapper.find('[data-test="context-select"]').setValue('ctx-2')
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-2')
     await flushPromises()
 
     expect(wrapper.find('[data-test="load-error-banner"]').exists()).toBe(true)
@@ -302,23 +308,23 @@ describe('ReportView', () => {
     const wrapper = mount(ReportView)
     await flushPromises()
 
-    const spy = vi.spyOn(settingsLib, 'listLegacyWorkPolicies')
+    const spy = vi.spyOn(settingsLib, 'listWorkPolicies')
     spy.mockReturnValueOnce(p1).mockReturnValueOnce(p2)
 
-    // Switch to ctx-2 (req 1)
-    await wrapper.find('[data-test="context-select"]').setValue('ctx-2')
-    // Immediately switch back to ctx-1 (req 2)
-    await wrapper.find('[data-test="context-select"]').setValue('ctx-1')
+    // Switch to assign-2 (req 1)
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-2')
+    // Immediately switch back to assign-1 (req 2)
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-1')
 
     // Req 1 finishes later
-    resolveReq1([mockPolicyCtx2])
+    resolveReq1([mockPolicyAssign2])
     await flushPromises()
 
-    // Still in loading or not showing ctx-2 because current selection is ctx-1
+    // Still in loading because current selection is assign-1
     expect(wrapper.find('[data-test="loading-indicator"]').exists()).toBe(true)
 
     // Req 2 finishes
-    resolveReq2([mockPolicyCtx1])
+    resolveReq2([mockPolicyAssign1])
     await flushPromises()
 
     expect(wrapper.find('[data-test="loading-indicator"]').exists()).toBe(false)
@@ -330,7 +336,8 @@ describe('ReportView', () => {
       id: 'att-1',
       user_id: 'user-1',
       work_date: '2026-08-03',
-      context_id: 'ctx-1',
+      assignment_id: 'assign-1',
+      context_id: null,
       work_policy_id: 'pol-1',
       actual_clock_in_at: '2026-08-03T09:00:00+08:00',
       actual_clock_out_at: null,
@@ -360,13 +367,14 @@ describe('ReportView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('未完成')
-    expect(wrapper.text()).toContain('LEAVE_WITH_ATTENDANCE')
+    expect(wrapper.text()).toContain('請假但出勤')
   })
 
   it('缺少適用 Work Policy 時顯示設定不完整提示並停用 CSV 下載', async () => {
-    vi.spyOn(settingsLib, 'listLegacyWorkPolicies').mockResolvedValue([])
+    vi.spyOn(settingsLib, 'listWorkPolicies').mockResolvedValue([])
 
     const wrapper = mount(ReportView)
+    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
     await flushPromises()
 
     expect(wrapper.find('[data-test="configuration-error-banner"]').exists()).toBe(true)
@@ -381,6 +389,7 @@ describe('ReportView', () => {
     window.URL.revokeObjectURL = revokeObjectUrlSpy
 
     const wrapper = mount(ReportView)
+    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
     await flushPromises()
 
     const downloadButton = wrapper.find('[data-test="download-csv-button"]')
@@ -395,9 +404,9 @@ describe('ReportView', () => {
     expect(clickSpy).toHaveBeenCalled()
   })
 
-  it('無任何 Work Context 時結束 loading 並顯示 empty state，不發出 month query 且 CSV 按鈕停用', async () => {
-    vi.spyOn(settingsLib, 'listWorkContexts').mockResolvedValue([])
-    const listPoliciesSpy = vi.spyOn(settingsLib, 'listLegacyWorkPolicies')
+  it('無任何 Work Assignment 時結束 loading 並顯示 empty state，不發出 month query 且 CSV 按鈕停用', async () => {
+    vi.spyOn(workAssignmentLib, 'listWorkAssignments').mockResolvedValue([])
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies')
 
     const wrapper = mount(ReportView)
     await flushPromises()
@@ -405,7 +414,8 @@ describe('ReportView', () => {
     // Loading indicator must be gone
     expect(wrapper.find('[data-test="loading-indicator"]').exists()).toBe(false)
     // Empty state text must be shown
-    expect(wrapper.text()).toContain('尚未設定任何工作情境')
+    expect(wrapper.text()).toContain('尚未建立任何工作派駐')
+    expect(wrapper.find('[data-test="empty-assignment-state"]').exists()).toBe(true)
     // Summary cards and table rows must not exist
     expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="report-row"]')).toHaveLength(0)
@@ -430,9 +440,9 @@ describe('ReportView', () => {
     const mockTpl: exportTemplatesLib.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'assign-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-09': '9月' }, // No 2026-08
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -456,9 +466,9 @@ describe('ReportView', () => {
     const mockTpl: exportTemplatesLib.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'assign-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -501,7 +511,7 @@ describe('ReportView', () => {
     await xlsxButton.trigger('click')
     await flushPromises()
 
-    expect(exportTemplatesLib.downloadExportTemplateFile).toHaveBeenCalledWith('user-1/ctx-1/tpl-1/source.xlsx')
+    expect(exportTemplatesLib.downloadExportTemplateFile).toHaveBeenCalledWith('user-1/assign-1/tpl-1/source.xlsx')
     expect(createObjectUrlSpy).toHaveBeenCalled()
     expect(clickSpy).toHaveBeenCalled()
   })
@@ -510,9 +520,9 @@ describe('ReportView', () => {
     const mockTpl: exportTemplatesLib.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'assign-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -549,5 +559,93 @@ describe('ReportView', () => {
 
     expect(wrapper.find('[data-test="load-error-banner"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="missing-template-cta"]').exists()).toBe(false)
+  })
+
+  it('月中起訖派駐：Assignment period 外標為非派駐期間，不計入工時，且不因非派駐期間阻擋匯出', async () => {
+    // assign-part: 2026-08-10 ~ 2026-08-20
+    const partialAssignment: WorkAssignment = {
+      id: 'assign-part',
+      user_id: 'user-1',
+      staffing_employer: '派遣公司 P',
+      client_company: 'COMPANY_PART',
+      project: 'PROJECT_PART',
+      effective_from: '2026-08-10',
+      effective_to: '2026-08-20',
+    }
+    const policyPart: settingsLib.WorkPolicy = {
+      ...mockPolicyAssign1,
+      assignment_id: 'assign-part',
+    }
+
+    vi.spyOn(workAssignmentLib, 'listWorkAssignments').mockResolvedValue([partialAssignment])
+    vi.spyOn(settingsLib, 'listWorkPolicies').mockResolvedValue([policyPart])
+
+    const wrapper = mount(ReportView)
+    await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+    await flushPromises()
+
+    // Aug 1 (Sat, outside period): na-badge
+    const rows = wrapper.findAll('[data-test="report-row"]')
+    expect(rows).toHaveLength(31)
+
+    // Row 1 (Aug 1): outside period
+    const row1 = rows[0]
+    expect(row1.find('[data-test="na-badge"]').exists()).toBe(true)
+    expect(row1.find('[data-test="na-badge"]').text()).toBe('非派駐期間')
+
+    // Row 10 (Aug 10): inside period, workday
+    const row10 = rows[9]
+    expect(row10.find('[data-test="na-badge"]').exists()).toBe(false)
+    expect(row10.text()).toContain('工作日')
+
+    // Configuration error banner should NOT exist even though 1~9 and 21~31 are outside policy/period
+    expect(wrapper.find('[data-test="configuration-error-banner"]').exists()).toBe(false)
+    const downloadButton = wrapper.find('[data-test="download-csv-button"]')
+    expect(downloadButton.attributes('disabled')).toBeUndefined()
+  })
+
+  it('兩筆雇主/客戶/專案相同但期間不同的 ENDED Assignment，option 可清楚區分且切換時使用正確 assignment id', async () => {
+    const endedAssignment1: WorkAssignment = {
+      id: 'assign-ended-1',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主 X',
+      client_company: '派駐客戶 Y',
+      project: '專案 Z',
+      effective_from: '2025-01-01',
+      effective_to: '2025-06-30',
+    }
+    const endedAssignment2: WorkAssignment = {
+      id: 'assign-ended-2',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主 X',
+      client_company: '派駐客戶 Y',
+      project: '專案 Z',
+      effective_from: '2025-07-01',
+      effective_to: '2025-12-31',
+    }
+
+    vi.spyOn(workAssignmentLib, 'listWorkAssignments').mockResolvedValue([
+      endedAssignment1,
+      endedAssignment2,
+    ])
+    const listPoliciesSpy = vi.spyOn(settingsLib, 'listWorkPolicies').mockResolvedValue([])
+
+    const wrapper = mount(ReportView)
+    await flushPromises()
+
+    const options = wrapper.findAll('[data-test="assignment-select"] option')
+    expect(options).toHaveLength(2)
+
+    // Option 1 has 2025-01-01 ~ 2025-06-30
+    expect(options[0].text()).toContain('派遣雇主 X / 派駐客戶 Y / 專案 Z (2025-01-01 ~ 2025-06-30) (已結束)')
+    // Option 2 has 2025-07-01 ~ 2025-12-31
+    expect(options[1].text()).toContain('派遣雇主 X / 派駐客戶 Y / 專案 Z (2025-07-01 ~ 2025-12-31) (已結束)')
+    expect(options[0].text()).not.toBe(options[1].text())
+
+    // Switch selection to endedAssignment2
+    await wrapper.find('[data-test="assignment-select"]').setValue('assign-ended-2')
+    await flushPromises()
+
+    expect(listPoliciesSpy).toHaveBeenCalledWith('user-1', 'assign-ended-2')
   })
 })

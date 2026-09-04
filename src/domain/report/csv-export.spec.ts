@@ -236,4 +236,201 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     expect(rowAug4[11]).toBe('450') // net_worked
     expect(rowAug4[19]).toBe('') // calculation_version blank
   })
+
+  it('N/A 日期輸出 blank semantics，不輸出 0、false 或 ABSENT 等偽造資料', () => {
+    const partialAssignment = {
+      id: 'assign-p',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 P',
+      effective_from: '2026-08-10',
+      effective_to: null,
+    }
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: partialAssignment,
+      workPolicies: [{ ...mockPolicy, assignment_id: partialAssignment.id }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(report)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+
+    // 8/1 is row index 1 (header is 0). 8/1 is outside period (effective_from is 2026-08-10)
+    const rowAug1 = lines[1].split(',')
+    expect(rowAug1[0]).toBe('2026-08-01') // date
+    expect(rowAug1[1]).toBe('6') // weekday Saturday
+    expect(rowAug1[2]).toBe('') // company_identifier blank
+    expect(rowAug1[3]).toBe('') // project_identifier blank
+    expect(rowAug1[4]).toBe('') // actual_clock_in_at blank
+    expect(rowAug1[5]).toBe('') // effective_clock_in_at blank
+    expect(rowAug1[6]).toBe('') // actual_clock_out_at blank
+    expect(rowAug1[7]).toBe('') // effective_clock_out_at blank
+    expect(rowAug1[8]).toBe('') // expected_clock_out_at blank
+    expect(rowAug1[9]).toBe('') // scheduled_minutes blank, NOT '0'
+    expect(rowAug1[10]).toBe('') // actual_elapsed_minutes blank
+    expect(rowAug1[11]).toBe('') // net_worked_minutes blank
+    expect(rowAug1[12]).toBe('') // regular_minutes blank
+    expect(rowAug1[13]).toBe('') // overtime_minutes blank
+    expect(rowAug1[14]).toBe('') // leave_minutes blank, NOT '0'
+    expect(rowAug1[15]).toBe('') // absence_minutes blank, NOT '0'
+    expect(rowAug1[16]).toBe('') // created_source blank
+    expect(rowAug1[17]).toBe('') // manually_adjusted blank, NOT 'false'
+    expect(rowAug1[18]).toBe('') // last_manual_edit_at blank
+    expect(rowAug1[19]).toBe('') // calculation_version blank
+    expect(rowAug1[20]).toBe('') // status blank, NOT 'ABSENT'
+    expect(rowAug1[21]).toBe('') // note blank
+    expect(rowAug1[22]).toBe('HOLIDAY') // calendar_day_type preserved
+    expect(rowAug1[23]).toBe('WEEKEND_FALLBACK') // calendar_source preserved
+    expect(rowAug1[24]).toBe('') // is_incomplete blank, NOT 'false'
+    expect(rowAug1[25]).toBe('') // exception_flags blank
+  })
+
+  it('月中結束 Assignment：期間內正常匯出，期間外輸出 blank semantics', () => {
+    const endAssignment = {
+      id: 'assign-end',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 E',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-15',
+    }
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: endAssignment,
+      workPolicies: [{ ...mockPolicy, assignment_id: endAssignment.id }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(report)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+
+    // 8/10 (in assignment) - row index 10
+    const rowAug10 = lines[10].split(',')
+    expect(rowAug10[0]).toBe('2026-08-10')
+    expect(rowAug10[2]).toBe('') // legacy company_identifier blank without authoritative context
+    expect(rowAug10[3]).toBe('') // legacy project_identifier blank without authoritative context
+    expect(rowAug10[9]).toBe('480') // scheduled_minutes
+
+    // 8/20 (outside assignment) - row index 20
+    const rowAug20 = lines[20].split(',')
+    expect(rowAug20[0]).toBe('2026-08-20')
+    expect(rowAug20[2]).toBe('') // company_identifier blank
+    expect(rowAug20[9]).toBe('') // scheduled_minutes blank
+  })
+
+  it('Policy gap（存在未配置制度之工作日）阻擋正式 CSV 匯出', () => {
+    const gapReport = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: {
+        id: 'assign-gap',
+        user_id: 'user-1',
+        staffing_employer: '派遣雇主',
+        client_company: '客戶公司',
+        project: '專案 G',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      },
+      workPolicies: [], // No policies -> missing policy on workdays
+      attendanceRecords: [],
+    })
+
+    expect(gapReport.hasConfigurationError).toBe(true)
+    expect(() => exportReportToCsv(gapReport)).toThrow('此月份報表存在設定缺漏')
+  })
+
+  it('完整 coverage 且無設定缺漏時正常匯出所有日期欄位', () => {
+    const fullAssignment = {
+      id: 'assign-full',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 F',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: fullAssignment,
+      workPolicies: [{ ...mockPolicy, assignment_id: fullAssignment.id }],
+      attendanceRecords: [],
+    })
+
+    expect(report.hasConfigurationError).toBe(false)
+    const csv = exportReportToCsv(report)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    expect(lines.length).toBe(32) // header + 31 days
+
+    // Check a workday
+    const rowAug3 = lines[3].split(',')
+    expect(rowAug3[0]).toBe('2026-08-03')
+    expect(rowAug3[2]).toBe('') // legacy company_identifier blank without authoritative context
+    expect(rowAug3[3]).toBe('') // legacy project_identifier blank without authoritative context
+    expect(rowAug3[9]).toBe('480')
+  })
+
+  it('Regression: CSV 不會在 legacy company_identifier / project_identifier 欄位輸出 Assignment 語意值', () => {
+    const reportWithoutContext = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: {
+        id: 'assign-reg',
+        user_id: 'user-1',
+        staffing_employer: '派遣公司 A',
+        client_company: '客戶企業 B',
+        project: '機密專案 C',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      },
+      workPolicies: [{ ...mockPolicy, assignment_id: 'assign-reg' }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(reportWithoutContext)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const rowAug3 = lines[3].split(',')
+
+    // CSV header index 2 is company_identifier, index 3 is project_identifier
+    expect(rowAug3[2]).not.toBe('客戶企業 B')
+    expect(rowAug3[2]).toBe('')
+    expect(rowAug3[3]).not.toBe('機密專案 C')
+    expect(rowAug3[3]).toBe('')
+  })
+
+  it('Regression: 若有 authoritative Context，CSV legacy 欄位正確輸出 Context 識別碼', () => {
+    const reportWithContext = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: {
+        id: 'assign-reg',
+        user_id: 'user-1',
+        staffing_employer: '派遣公司 A',
+        client_company: '客戶企業 B',
+        project: '機密專案 C',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      },
+      context: {
+        id: 'ctx-1',
+        user_id: 'user-1',
+        name: '舊版 Context',
+        company_identifier: 'AUTH_LEGACY_COMPANY',
+        project_identifier: 'AUTH_LEGACY_PROJECT',
+        active: true,
+        is_default: true,
+      },
+      workPolicies: [{ ...mockPolicy, assignment_id: 'assign-reg' }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(reportWithContext)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const rowAug3 = lines[3].split(',')
+
+    expect(rowAug3[2]).toBe('AUTH_LEGACY_COMPANY')
+    expect(rowAug3[3]).toBe('AUTH_LEGACY_PROJECT')
+  })
 })

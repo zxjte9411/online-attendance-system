@@ -102,12 +102,43 @@ describe('Lib: Export Templates Service', () => {
       select: selectMock,
     } as any)
 
-    const result = await getExportTemplate('user-1', 'ctx-1')
+    const result = await getExportTemplate('user-1', 'ctx-1', { by: 'context_id' })
     expect(result).toEqual(mockData)
     expect(mockSupabase.from).toHaveBeenCalledWith('export_templates')
     expect(selectMock).toHaveBeenCalledWith('*')
     expect(eqUserMock).toHaveBeenCalledWith('user_id', 'user-1')
     expect(eqContextMock).toHaveBeenCalledWith('context_id', 'ctx-1')
+  })
+
+  it('getExportTemplate queries database by user_id and assignment_id', async () => {
+    const mockData: ExportTemplate = {
+      id: 'tpl-1',
+      user_id: 'user-1',
+      assignment_id: 'asg-1',
+      name: '2026 範本',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+      month_worksheet_mapping: { '2026-08': '8月' },
+      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
+      static_cell_mapping: [],
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+
+    const maybeSingleMock = vi.fn().mockResolvedValue({ data: mockData, error: null })
+    const eqAssignmentMock = vi.fn().mockReturnValue({ maybeSingle: maybeSingleMock })
+    const eqUserMock = vi.fn().mockReturnValue({ eq: eqAssignmentMock })
+    const selectMock = vi.fn().mockReturnValue({ eq: eqUserMock })
+
+    mockSupabase.from.mockReturnValue({
+      select: selectMock,
+    } as any)
+
+    const result = await getExportTemplate('user-1', 'asg-1')
+    expect(result).toEqual(mockData)
+    expect(mockSupabase.from).toHaveBeenCalledWith('export_templates')
+    expect(selectMock).toHaveBeenCalledWith('*')
+    expect(eqUserMock).toHaveBeenCalledWith('user_id', 'user-1')
+    expect(eqAssignmentMock).toHaveBeenCalledWith('assignment_id', 'asg-1')
   })
 
   it('getWorkbookWorksheetNames extracts sheet names from buffer', async () => {

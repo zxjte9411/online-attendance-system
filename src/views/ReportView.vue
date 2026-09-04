@@ -7,11 +7,18 @@ import {
 import { exportReportToCsv } from '../domain/report/csv-export'
 import {
   getCurrentUserId,
-  listWorkContexts,
-  listLegacyWorkPolicies,
-  type WorkContext,
+  listWorkPolicies,
   type WorkPolicy,
 } from '../lib/settings'
+import {
+  listWorkAssignments,
+} from '../lib/work-assignment'
+import {
+  getWorkAssignmentStatus,
+  formatWorkAssignmentStatus,
+  formatWorkAssignmentPeriod,
+  type WorkAssignment,
+} from '../domain/work-assignment/work-assignment'
 import {
   getMonthAttendanceRecords,
   type AttendanceRecord,
@@ -35,8 +42,8 @@ import { exportReportToXlsx } from '../domain/export-template/xlsx-export'
 
 type LoadedScopeData = {
   month: string
-  contextId: string
-  context: WorkContext
+  assignmentId: string
+  assignment: WorkAssignment
   policies: WorkPolicy[]
   records: AttendanceRecord[]
   statuses: DayStatus[]
@@ -45,8 +52,8 @@ type LoadedScopeData = {
 }
 
 const currentMonth = ref(getTaipeiToday().slice(0, 7))
-const contexts = ref<WorkContext[]>([])
-const selectedContextId = ref<string>('')
+const assignments = ref<WorkAssignment[]>([])
+const selectedAssignmentId = ref<string>('')
 const loadedScope = ref<LoadedScopeData | null>(null)
 
 const isLoading = ref(true)
@@ -61,26 +68,18 @@ const report = computed<MonthlyReport | null>(() => {
   if (!loadedScope.value) return null
   if (
     loadedScope.value.month !== currentMonth.value ||
-    loadedScope.value.contextId !== selectedContextId.value
+    loadedScope.value.assignmentId !== selectedAssignmentId.value
   ) {
     return null
   }
 
-  const { month, context, policies, records, statuses, overrides, dgpas } = loadedScope.value
-  const contextRecords = records.filter((r) => r.context_id === context.id)
-  const otherContextDates = new Set<string>()
-  for (const r of records) {
-    if (r.context_id !== context.id && r.work_date) {
-      otherContextDates.add(r.work_date)
-    }
-  }
+  const { month, assignment, policies, records, statuses, overrides, dgpas } = loadedScope.value
 
   return buildMonthlyReport({
     yearMonth: month,
-    context,
+    assignment,
     workPolicies: policies,
-    attendanceRecords: contextRecords,
-    otherContextAttendanceDates: otherContextDates,
+    attendanceRecords: records,
     dayStatuses: statuses,
     calendarOverrides: overrides,
     dgpaRows: dgpas,
@@ -99,31 +98,32 @@ const hasWorksheetMapping = computed(() => {
 })
 
 onMounted(async () => {
-  await initContexts()
+  await initAssignments()
 })
 
-watch([currentMonth, selectedContextId], async () => {
-  if (selectedContextId.value) {
+watch([currentMonth, selectedAssignmentId], async () => {
+  if (selectedAssignmentId.value) {
     await loadMonthData()
   }
 })
 
-async function initContexts() {
+async function initAssignments() {
   isLoading.value = true
   loadError.value = ''
   try {
     const userId = await getCurrentUserId()
-    const list = await listWorkContexts(userId)
-    contexts.value = list
+    const list = await listWorkAssignments(userId)
+    assignments.value = list
     if (list.length > 0) {
-      const defaultCtx = list.find((c) => c.active && c.is_default) ?? list[0]
-      selectedContextId.value = defaultCtx.id
+      const currentAssign = list.find((a) => getWorkAssignmentStatus(a) === 'CURRENT') ?? list[0]
+      selectedAssignmentId.value = currentAssign.id
     } else {
+      selectedAssignmentId.value = ''
       loadedScope.value = null
       isLoading.value = false
     }
   } catch (err) {
-    loadError.value = presentErrorMessage(err, '載入工作情境失敗，請稍後再試。')
+    loadError.value = presentErrorMessage(err, '載入工作派駐失敗，請稍後再試。')
     isLoading.value = false
   }
 }
@@ -131,7 +131,7 @@ async function initContexts() {
 async function loadMonthData() {
   const requestId = ++currentRequestId
   const requestedMonth = currentMonth.value
-  const requestedContextId = selectedContextId.value
+  const requestedAssignmentId = selectedAssignmentId.value
 
   isLoading.value = true
   loadError.value = ''
@@ -141,24 +141,24 @@ async function loadMonthData() {
   try {
     const userId = await getCurrentUserId()
     const [policies, records, statuses, overrides, dgpas, template] = await Promise.all([
-      listLegacyWorkPolicies(userId, requestedContextId),
+      listWorkPolicies(userId, requestedAssignmentId),
       getMonthAttendanceRecords(requestedMonth),
       getDayStatusesForMonth(requestedMonth),
       getCalendarOverridesForMonth(requestedMonth),
       getDgpaCalendarForMonth(requestedMonth),
-      getExportTemplate(userId, requestedContextId),
+      getExportTemplate(userId, requestedAssignmentId),
     ])
 
     if (requestId !== currentRequestId) return
 
-    const matchedContext = contexts.value.find((c) => c.id === requestedContextId)
-    if (!matchedContext) return
+    const matchedAssignment = assignments.value.find((a) => a.id === requestedAssignmentId)
+    if (!matchedAssignment) return
 
     exportTemplate.value = template
     loadedScope.value = {
       month: requestedMonth,
-      contextId: requestedContextId,
-      context: matchedContext,
+      assignmentId: requestedAssignmentId,
+      assignment: matchedAssignment,
       policies,
       records,
       statuses,
@@ -196,7 +196,8 @@ function handleDownloadCsv() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `attendance-report-${report.value.context.company_identifier || 'export'}-${currentMonth.value}.csv`
+  const company = report.value.assignment?.client_company || report.value.context?.company_identifier || 'export'
+  a.download = `attendance-report-${company}-${currentMonth.value}.csv`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -238,7 +239,8 @@ async function handleDownloadXlsx() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `attendance-report-${report.value.context.company_identifier || 'export'}-${currentMonth.value}.xlsx`
+    const company = report.value.assignment?.client_company || report.value.context?.company_identifier || 'export'
+    a.download = `attendance-report-${company}-${currentMonth.value}.xlsx`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -277,7 +279,7 @@ function formatExceptionFlagLabel(flag: string): string {
     case 'LEAVE_WITH_ATTENDANCE':
       return '請假但出勤'
     case 'OTHER_CONTEXT_ATTENDANCE':
-      return '其他情境出勤'
+      return '其他派駐出勤'
     default:
       return flag
   }
@@ -299,19 +301,19 @@ function formatExceptionFlagLabel(flag: string): string {
       </p>
     </section>
 
-    <!-- Context & Month Navigation Controls -->
+    <!-- Assignment & Month Navigation Controls -->
     <section class="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow)] sm:p-6" aria-label="報表控制項">
       <div class="flex flex-wrap items-center gap-4">
         <div class="grid gap-1">
-          <label for="context-select" class="text-xs font-bold text-muted">工作情境</label>
+          <label for="assignment-select" class="text-xs font-bold text-muted">工作派駐</label>
           <select
-            id="context-select"
-            v-model="selectedContextId"
-            data-test="context-select"
+            id="assignment-select"
+            v-model="selectedAssignmentId"
+            data-test="assignment-select"
             class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent"
           >
-            <option v-for="ctx in contexts" :key="ctx.id" :value="ctx.id">
-              {{ ctx.name }} ({{ ctx.company_identifier }} / {{ ctx.project_identifier }})
+            <option v-for="assign in assignments" :key="assign.id" :value="assign.id">
+              {{ assign.staffing_employer }} / {{ assign.client_company }} / {{ assign.project }} ({{ formatWorkAssignmentPeriod(assign) }}) ({{ formatWorkAssignmentStatus(getWorkAssignmentStatus(assign)) }})
             </option>
           </select>
         </div>
@@ -393,11 +395,11 @@ function formatExceptionFlagLabel(flag: string): string {
     </div>
 
     <div
-      v-if="!isLoading && !loadError && !hasTemplate && contexts.length > 0"
+      v-if="!isLoading && !loadError && !hasTemplate && assignments.length > 0"
       data-test="missing-template-cta"
       class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border border-line bg-surface-soft p-4 text-sm"
     >
-      <span class="text-muted">此工作情境尚未設定 XLSX 匯出範本。</span>
+      <span class="text-muted">此工作派駐尚未設定 XLSX 匯出範本。</span>
       <RouterLink
         to="/settings#export-templates"
         class="font-semibold text-accent hover:underline"
@@ -428,7 +430,7 @@ function formatExceptionFlagLabel(flag: string): string {
     >
       <strong class="font-bold">制度設定不完整：</strong>
       <span>
-        目前工作情境在此月份部分工作日缺少適用的 Work Policy（缺少日期：{{ report.missingPolicyDates.slice(0, 5).join(', ') }}{{ report.missingPolicyDates.length > 5 ? ' 等' : '' }}）。已暫停匯出，請至設定頁面補齊工作制度。
+        目前工作派駐在此月份部分工作日缺少適用的 Work Policy（缺少日期：{{ report.missingPolicyDates.slice(0, 5).join(', ') }}{{ report.missingPolicyDates.length > 5 ? ' 等' : '' }}）。已暫停匯出，請至設定頁面補齊工作制度。
       </span>
     </div>
 
@@ -505,47 +507,62 @@ function formatExceptionFlagLabel(flag: string): string {
               </td>
               <td class="py-3 px-4 whitespace-nowrap">
                 <span
-                  class="inline-block rounded px-2 py-0.5 text-xs font-bold me-1.5"
-                  :class="row.calendar_day_type === 'WORKDAY' ? 'bg-surface-soft text-ink' : 'bg-line/40 text-muted'"
+                  v-if="!row.in_assignment_period"
+                  class="inline-block rounded px-2 py-0.5 text-xs font-bold bg-line/50 text-muted"
+                  data-test="na-badge"
                 >
-                  {{ row.calendar_day_type === 'WORKDAY' ? '工作日' : '假日' }}
+                  非派駐期間
                 </span>
-                <span
-                  v-if="row.status"
-                  class="inline-block rounded px-2 py-0.5 text-xs font-bold"
-                  :class="{
-                    'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200': row.status === 'LEAVE',
-                    'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200': row.status === 'REMOTE',
-                    'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-200': row.status === 'BUSINESS_TRIP',
-                    'bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200': row.status === 'ABSENT',
-                  }"
-                >
-                  {{ row.status === 'LEAVE' ? '請假' : row.status === 'REMOTE' ? '遠端' : row.status === 'BUSINESS_TRIP' ? '出差' : '缺勤' }}
-                </span>
+                <template v-else>
+                  <span
+                    class="inline-block rounded px-2 py-0.5 text-xs font-bold me-1.5"
+                    :class="row.calendar_day_type === 'WORKDAY' ? 'bg-surface-soft text-ink' : 'bg-line/40 text-muted'"
+                  >
+                    {{ row.calendar_day_type === 'WORKDAY' ? '工作日' : '假日' }}
+                  </span>
+                  <span
+                    v-if="row.status"
+                    class="inline-block rounded px-2 py-0.5 text-xs font-bold"
+                    :class="{
+                      'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200': row.status === 'LEAVE',
+                      'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200': row.status === 'REMOTE',
+                      'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-200': row.status === 'BUSINESS_TRIP',
+                      'bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200': row.status === 'ABSENT',
+                    }"
+                  >
+                    {{ row.status === 'LEAVE' ? '請假' : row.status === 'REMOTE' ? '遠端' : row.status === 'BUSINESS_TRIP' ? '出差' : '缺勤' }}
+                  </span>
+                </template>
               </td>
               <td class="py-3 px-4 whitespace-nowrap font-mono text-xs">
-                {{ formatTime(row.actual_clock_in_at) }} / {{ formatTime(row.actual_clock_out_at) }}
+                <template v-if="row.in_assignment_period">
+                  {{ formatTime(row.actual_clock_in_at) }} / {{ formatTime(row.actual_clock_out_at) }}
+                </template>
+                <template v-else>—</template>
               </td>
               <td class="py-3 px-4 whitespace-nowrap font-mono text-xs">
-                {{ formatTime(row.effective_clock_in_at) }} / {{ formatTime(row.effective_clock_out_at) }}
+                <template v-if="row.in_assignment_period">
+                  {{ formatTime(row.effective_clock_in_at) }} / {{ formatTime(row.effective_clock_out_at) }}
+                </template>
+                <template v-else>—</template>
               </td>
               <td class="py-3 px-4 whitespace-nowrap text-right font-mono tabular-nums">
-                {{ formatMinutes(row.scheduled_minutes) }}
+                {{ row.in_assignment_period ? formatMinutes(row.scheduled_minutes) : '—' }}
               </td>
               <td class="py-3 px-4 whitespace-nowrap text-right font-mono tabular-nums font-semibold">
-                {{ formatMinutes(row.regular_minutes) }}
+                {{ row.in_assignment_period ? formatMinutes(row.regular_minutes) : '—' }}
               </td>
               <td class="py-3 px-4 whitespace-nowrap text-right font-mono tabular-nums text-accent font-semibold">
-                {{ formatMinutes(row.overtime_minutes) }}
+                {{ row.in_assignment_period ? formatMinutes(row.overtime_minutes) : '—' }}
               </td>
               <td class="py-3 px-4 whitespace-nowrap text-right font-mono tabular-nums text-amber-700 dark:text-amber-300">
-                {{ formatMinutes(row.leave_minutes) }}
+                {{ row.in_assignment_period ? formatMinutes(row.leave_minutes) : '—' }}
               </td>
               <td class="py-3 px-4 whitespace-nowrap text-right font-mono tabular-nums text-rose-700 dark:text-rose-300">
-                {{ formatMinutes(row.absence_minutes) }}
+                {{ row.in_assignment_period ? formatMinutes(row.absence_minutes) : '—' }}
               </td>
               <td class="py-3 px-4 text-xs">
-                <div class="flex flex-wrap items-center gap-1.5">
+                <div v-if="row.in_assignment_period" class="flex flex-wrap items-center gap-1.5">
                   <span
                     v-if="row.is_incomplete"
                     class="rounded bg-rose-100 dark:bg-rose-950 px-1.5 py-0.5 font-bold text-rose-700 dark:text-rose-300"
@@ -571,13 +588,20 @@ function formatExceptionFlagLabel(flag: string): string {
       </div>
     </section>
 
-    <!-- Empty Context State -->
+    <!-- Empty Assignment State -->
     <div
-      v-else-if="!isLoading && contexts.length === 0"
+      v-else-if="!isLoading && assignments.length === 0"
+      data-test="empty-assignment-state"
       class="mt-8 rounded-2xl border border-line bg-surface p-8 text-center"
     >
-      <p class="font-display text-lg font-bold text-ink">尚未設定任何工作情境</p>
-      <p class="mt-1 text-sm text-muted">請先至設定頁面建立您的第一個工作情境與工作制度。</p>
+      <p class="font-display text-lg font-bold text-ink">尚未建立任何工作派駐</p>
+      <p class="mt-1 text-sm text-muted">目前帳號尚未建立任何工作派駐。請先至設定頁面建立派駐與工作制度後，即可檢視月出勤統計與匯出報表。</p>
+      <RouterLink
+        to="/settings#work-assignments"
+        class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent hover:underline"
+      >
+        前往派駐設定 →
+      </RouterLink>
     </div>
   </div>
 </template>

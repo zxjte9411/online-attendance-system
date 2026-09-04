@@ -18,6 +18,7 @@ export type ExportErrorCode =
   | 'WORKBOOK_UNSUPPORTED'
   | 'FORMULA_CELL_OVERWRITE'
   | 'CELL_COLLISION'
+  | 'CONFIGURATION_ERROR'
 
 export class ExportError extends Error {
   code: ExportErrorCode
@@ -129,6 +130,13 @@ export async function exportReportToXlsx({
   config,
   targetMonth,
 }: ExportReportToXlsxParams): Promise<Uint8Array> {
+  if (report.hasConfigurationError) {
+    throw new ExportError(
+      'CONFIGURATION_ERROR',
+      '此月份報表存在設定缺漏（如缺少出勤制度），無法匯出。'
+    )
+  }
+
   if (!templateBytes || (templateBytes instanceof Uint8Array && templateBytes.length === 0)) {
     throw new ExportError('TEMPLATE_NOT_FOUND', '找不到 XLSX 範本內容。')
   }
@@ -209,6 +217,9 @@ export async function exportReportToXlsx({
   // 1. Collect all Daily row target addresses
   const dailyTargetAddresses = new Set<string>()
   for (const reportRow of report.rows) {
+    if (reportRow.in_assignment_period === false) {
+      continue
+    }
     const rowNum = dateRowMap.get(reportRow.date)!
     for (const rowEntry of config.rowMapping) {
       const col = rowEntry.targetColumn.trim().toUpperCase()
@@ -254,9 +265,9 @@ export async function exportReportToXlsx({
     if (staticEntry.sourceField === 'year_month') {
       rawValue = targetMonth
     } else if (staticEntry.sourceField === 'company_identifier') {
-      rawValue = report.context.company_identifier
+      rawValue = report.context?.company_identifier ?? null
     } else if (staticEntry.sourceField === 'project_identifier') {
-      rawValue = report.context.project_identifier
+      rawValue = report.context?.project_identifier ?? null
     }
 
     try {
@@ -277,6 +288,9 @@ export async function exportReportToXlsx({
 
   // 4. Write Daily Row Mappings (Literal values)
   for (const reportRow of report.rows) {
+    if (reportRow.in_assignment_period === false) {
+      continue
+    }
     const rowNum = dateRowMap.get(reportRow.date)!
 
     for (const rowEntry of config.rowMapping) {

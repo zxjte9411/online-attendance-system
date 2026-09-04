@@ -2,13 +2,16 @@ import {
   type CalendarDayType,
   type CalendarResolutionSource,
   type DgpaCalendarRow,
+  findApplicableWorkPolicy,
+  resolveCalendarDay,
 } from '../dgpa-calendar/resolver'
 import {
-  resolveMonthDays,
+  formatWeekdayLabel,
   type CalendarOverride,
   type DayStatus,
   type DayStatusType,
 } from '../calendar-status/overview'
+import type { WorkAssignment } from '../work-assignment/work-assignment'
 import type { WorkContext, WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
 
@@ -23,6 +26,10 @@ export type DailyReportRow = {
   date: string // YYYY-MM-DD
   weekday: number // 0 (Sun) - 6 (Sat)
   weekdayLabel: string // 週日..週六
+  in_assignment_period: boolean
+  staffing_employer: string
+  client_company: string
+  project: string
   company_identifier: string
   project_identifier: string
   actual_clock_in_at: string | null
@@ -50,6 +57,7 @@ export type DailyReportRow = {
   exception_flags: ReportExceptionFlag[]
   attendance_id: string | null
   attendance_context_id: string | null
+  attendance_assignment_id?: string | null
 }
 
 export type MonthlyReportSummary = {
@@ -66,7 +74,8 @@ export type MonthlyReportSummary = {
 
 export type MonthlyReport = {
   yearMonth: string
-  context: WorkContext
+  assignment: WorkAssignment
+  context?: WorkContext | null
   rows: DailyReportRow[]
   summary: MonthlyReportSummary
   hasConfigurationError: boolean
@@ -75,7 +84,8 @@ export type MonthlyReport = {
 
 export type BuildMonthlyReportParams = {
   yearMonth: string // YYYY-MM
-  context: WorkContext
+  assignment?: WorkAssignment
+  context?: WorkContext
   workPolicies: WorkPolicy[]
   attendanceRecords: AttendanceRecord[]
   otherContextAttendanceDates?: Set<string>
@@ -87,41 +97,134 @@ export type BuildMonthlyReportParams = {
 export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyReport {
   const {
     yearMonth,
-    context,
     workPolicies,
     attendanceRecords,
-    otherContextAttendanceDates = new Set<string>(),
     dayStatuses = [],
     calendarOverrides = [],
     dgpaRows = [],
   } = params
 
+  const assignment: WorkAssignment = params.assignment ?? {
+    id: params.context?.id ?? '',
+    user_id: params.context?.user_id ?? '',
+    staffing_employer: '',
+    client_company: '',
+    project: '',
+    effective_from: '1970-01-01',
+    effective_to: null,
+    created_at: params.context?.created_at ?? '',
+    updated_at: params.context?.updated_at ?? '',
+  }
+
   const attendanceMap = new Map<string, AttendanceRecord>()
   for (const rec of attendanceRecords) {
-    if (rec.context_id === context.id) {
+    if (rec.assignment_id) {
+      if (rec.assignment_id === assignment.id) {
+        attendanceMap.set(rec.work_date, rec)
+      }
+    } else if (params.context && rec.context_id === params.context.id) {
       attendanceMap.set(rec.work_date, rec)
     }
   }
 
-  const monthDays = resolveMonthDays({
-    yearMonth,
-    dayStatuses,
-    calendarOverrides,
-    dgpaRows,
-    workPolicies,
-  })
+  const [yearStr, monthStr] = yearMonth.split('-')
+  const year = Number(yearStr)
+  const month = Number(monthStr)
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+
+  const dayStatusMap = new Map<string, DayStatus>()
+  for (const ds of dayStatuses) {
+    dayStatusMap.set(ds.work_date, ds)
+  }
+
+  const calendarOverrideMap = new Map<string, CalendarOverride>()
+  for (const co of calendarOverrides) {
+    calendarOverrideMap.set(co.calendar_date, co)
+  }
+
+  const dgpaMap = new Map<string, DgpaCalendarRow>()
+  for (const row of dgpaRows) {
+    dgpaMap.set(row.calendar_date, row)
+  }
 
   const rows: DailyReportRow[] = []
   const missingPolicyDates: string[] = []
 
-  for (const day of monthDays) {
-    const { date, dayOfWeek: weekday, dayOfWeekLabel: weekdayLabel, dayStatus, applicableWorkPolicy, resolved } = day
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dayStr = String(d).padStart(2, '0')
+    const date = `${yearMonth}-${dayStr}`
+    const dateObj = new Date(Date.UTC(year, month - 1, d, 12, 0, 0))
+    const weekday = dateObj.getUTCDay()
+    const weekdayLabel = formatWeekdayLabel(weekday)
+
+    const manualOverride = calendarOverrideMap.get(date) ?? null
+    const dgpaRow = dgpaMap.get(date) ?? null
+    const dayStatus = dayStatusMap.get(date) ?? null
+
+    const in_assignment_period =
+      date >= assignment.effective_from &&
+      (assignment.effective_to === null || date <= assignment.effective_to)
+
+    if (!in_assignment_period) {
+      const resolved = resolveCalendarDay({
+        date,
+        manualOverride,
+        dgpaRow,
+        applicableWorkPolicy: null,
+      })
+
+      rows.push({
+        date,
+        weekday,
+        weekdayLabel,
+        in_assignment_period: false,
+        staffing_employer: assignment.staffing_employer,
+        client_company: assignment.client_company,
+        project: assignment.project,
+        company_identifier: params.context?.company_identifier ?? '',
+        project_identifier: params.context?.project_identifier ?? '',
+        actual_clock_in_at: null,
+        actual_clock_out_at: null,
+        effective_clock_in_at: null,
+        effective_clock_out_at: null,
+        expected_clock_out_at: null,
+        scheduled_minutes: 0,
+        actual_elapsed_minutes: null,
+        net_worked_minutes: null,
+        regular_minutes: null,
+        overtime_minutes: null,
+        leave_minutes: 0,
+        absence_minutes: 0,
+        created_source: null,
+        manually_adjusted: false,
+        last_manual_edit_at: null,
+        calculation_version: null,
+        status: null,
+        note: null,
+        calendar_day_type: resolved.dayType,
+        calendar_source: resolved.source,
+        calendar_name: resolved.name,
+        is_incomplete: false,
+        exception_flags: [],
+        attendance_id: null,
+        attendance_context_id: null,
+        attendance_assignment_id: null,
+      })
+      continue
+    }
+
+    const applicableWorkPolicy = findApplicableWorkPolicy(date, workPolicies, assignment.id)
+
+    const resolved = resolveCalendarDay({
+      date,
+      manualOverride,
+      dgpaRow,
+      applicableWorkPolicy,
+    })
+
     const calendar_day_type = resolved.dayType
     const calendar_source = resolved.source
     const calendar_name = resolved.name
-
-    const attendance = attendanceMap.get(date) ?? null
-    const hasOtherContextAttendance = otherContextAttendanceDates.has(date)
 
     let scheduled_minutes = 0
     let isMissingPolicy = false
@@ -138,15 +241,13 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       scheduled_minutes = 0
     }
 
+    const attendance = attendanceMap.get(date) ?? null
     const is_incomplete = Boolean(attendance && attendance.actual_clock_in_at && !attendance.actual_clock_out_at)
 
     let leave_minutes = 0
     let absence_minutes = 0
 
-    if (calendar_day_type === 'HOLIDAY') {
-      leave_minutes = 0
-      absence_minutes = 0
-    } else if (isMissingPolicy) {
+    if (calendar_day_type === 'HOLIDAY' || isMissingPolicy) {
       leave_minutes = 0
       absence_minutes = 0
     } else if (attendance) {
@@ -174,12 +275,12 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
     if (dayStatus?.status === 'LEAVE' && attendance) {
       exception_flags.push('LEAVE_WITH_ATTENDANCE')
     }
-    if (hasOtherContextAttendance) {
+    if (params.otherContextAttendanceDates?.has(date)) {
       exception_flags.push('OTHER_CONTEXT_ATTENDANCE')
     }
 
-    let company_identifier = context.company_identifier
-    let project_identifier = context.project_identifier
+    let company_identifier = params.context?.company_identifier ?? ''
+    let project_identifier = params.context?.project_identifier ?? ''
     if (attendance?.context_snapshot) {
       const snap = attendance.context_snapshot
       if (typeof snap.company_identifier === 'string') {
@@ -205,6 +306,10 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       date,
       weekday,
       weekdayLabel,
+      in_assignment_period: true,
+      staffing_employer: assignment.staffing_employer,
+      client_company: assignment.client_company,
+      project: assignment.project,
       company_identifier,
       project_identifier,
       actual_clock_in_at: attendance?.actual_clock_in_at ?? null,
@@ -232,6 +337,7 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       exception_flags,
       attendance_id: attendance?.id ?? null,
       attendance_context_id: attendance?.context_id ?? null,
+      attendance_assignment_id: attendance?.assignment_id ?? null,
     })
   }
 
@@ -249,7 +355,8 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
 
   return {
     yearMonth,
-    context,
+    assignment,
+    context: params.context ?? null,
     rows,
     summary,
     hasConfigurationError: missingPolicyDates.length > 0,

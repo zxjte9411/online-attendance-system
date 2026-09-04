@@ -45,9 +45,14 @@ import {
 
 const props = defineProps<{
   userId: string
-  contextId: string
-  contextName: string
+  assignmentId?: string
+  assignmentName?: string
+  contextId?: string
+  contextName?: string
 }>()
+
+const effectiveTargetId = computed(() => props.assignmentId || props.contextId || '')
+const effectiveTargetName = computed(() => props.assignmentName || props.contextName || '')
 
 const FIELD_LABELS: Record<ReportModelSourceField, string> = {
   date: '日期（定位欄位）',
@@ -534,7 +539,7 @@ onUnmounted(() => {
 })
 
 watch(
-  () => [props.userId, props.contextId],
+  () => [props.userId, effectiveTargetId.value],
   () => {
     cancelCandidatePreview()
     uploadFile.value = null
@@ -653,7 +658,7 @@ async function loadTemplate() {
   showHiddenWorksheets.value = false
   showHiddenPreviewRowsAndColumns.value = false
 
-  if (!props.userId || !props.contextId) {
+  if (!props.userId || !effectiveTargetId.value) {
     template.value = null
     uploadFile.value = null
     replaceFile.value = null
@@ -673,7 +678,9 @@ async function loadTemplate() {
 
   try {
     const previousTemplateId = template.value?.id || null
-    const loaded = await getExportTemplate(props.userId, props.contextId)
+    const loaded = await getExportTemplate(props.userId, effectiveTargetId.value, {
+      by: props.assignmentId ? 'assignment_id' : 'context_id',
+    })
     if (previousTemplateId !== (loaded?.id || null)) {
       resetPreviewSelection()
     }
@@ -684,7 +691,6 @@ async function loadTemplate() {
       monthMappings.value = Object.entries(loaded.month_worksheet_mapping || {}).map(
         ([month, worksheet]) => ({ month, worksheet })
       )
-
       rowMappings.value = (loaded.row_mapping || []).map((m) => {
         const vmInfo = parseValueMapOptions(m.transforms)
         return {
@@ -711,7 +717,7 @@ async function loadTemplate() {
 
       await loadTemplatePreview(loaded)
     } else {
-      uploadName.value = `${props.contextName} 出勤範本`
+      uploadName.value = `${effectiveTargetName.value} 出勤範本`
       uploadFile.value = null
       replaceFile.value = null
       showReplaceForm.value = false
@@ -823,6 +829,7 @@ async function handleUpload() {
   try {
     const created = await uploadExportTemplate({
       userId: props.userId,
+      assignmentId: props.assignmentId,
       contextId: props.contextId,
       name: uploadName.value.trim(),
       file: uploadFile.value,
