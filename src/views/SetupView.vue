@@ -96,16 +96,23 @@ function continueSetup() {
 }
 
 async function loadPolicies() {
-  if (!userId.value || !selectedAssignmentId.value) {
+  const requestAssignmentId = selectedAssignmentId.value
+  if (!userId.value || !requestAssignmentId) {
     policies.value = []
     return
   }
 
+  policies.value = []
   isLoadingPolicies.value = true
   try {
-    policies.value = await listWorkPolicies(userId.value, selectedAssignmentId.value) as AssignmentPolicy[]
+    const loadedPolicies = await listWorkPolicies(userId.value, requestAssignmentId) as AssignmentPolicy[]
+    if (requestAssignmentId === selectedAssignmentId.value) {
+      policies.value = loadedPolicies
+    }
   } finally {
-    isLoadingPolicies.value = false
+    if (requestAssignmentId === selectedAssignmentId.value) {
+      isLoadingPolicies.value = false
+    }
   }
 }
 
@@ -225,7 +232,7 @@ function handlePolicySaved(savedPolicy: AssignmentPolicy) {
           </div>
           <div v-if="assignments.length" class="grid gap-3 rounded-[0.625rem] border border-accent-soft bg-accent-soft px-4 py-4">
             <label class="font-semibold" for="setup-assignment">選擇工作派駐</label>
-            <select id="setup-assignment" v-model="selectedAssignmentId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="assignment_id">
+            <select id="setup-assignment" v-model="selectedAssignmentId" class="min-h-12 rounded-[0.625rem] border border-line bg-canvas px-3.5 text-base text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" name="assignment_id" @change="policies = []">
               <option v-for="assignment in assignments" :key="assignment.id" :value="assignment.id">{{ assignment.staffing_employer }} · {{ assignment.client_company }} · {{ assignment.project }}</option>
             </select>
             <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="selectAssignment(selectedAssignmentId)">使用這個工作派駐</button>
