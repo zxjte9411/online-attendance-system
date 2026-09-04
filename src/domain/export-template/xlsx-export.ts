@@ -18,6 +18,7 @@ export type ExportErrorCode =
   | 'WORKBOOK_UNSUPPORTED'
   | 'FORMULA_CELL_OVERWRITE'
   | 'CELL_COLLISION'
+  | 'CONFIGURATION_ERROR'
 
 export class ExportError extends Error {
   code: ExportErrorCode
@@ -129,6 +130,13 @@ export async function exportReportToXlsx({
   config,
   targetMonth,
 }: ExportReportToXlsxParams): Promise<Uint8Array> {
+  if (report.hasConfigurationError) {
+    throw new ExportError(
+      'CONFIGURATION_ERROR',
+      '此月份報表存在設定缺漏（如缺少出勤制度），無法匯出。'
+    )
+  }
+
   if (!templateBytes || (templateBytes instanceof Uint8Array && templateBytes.length === 0)) {
     throw new ExportError('TEMPLATE_NOT_FOUND', '找不到 XLSX 範本內容。')
   }
@@ -259,7 +267,7 @@ export async function exportReportToXlsx({
     } else if (staticEntry.sourceField === 'company_identifier') {
       rawValue = report.assignment?.client_company ?? report.context?.company_identifier ?? null
     } else if (staticEntry.sourceField === 'project_identifier') {
-      rawValue = report.context?.project_identifier ?? null
+      rawValue = report.assignment?.project ?? report.context?.project_identifier ?? null
     }
 
     try {

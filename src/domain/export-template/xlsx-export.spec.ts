@@ -695,5 +695,166 @@ describe('Domain: XLSX Export Engine', () => {
       // Row 7 (active date) written
       expect(exportedWs.getCell('E7').value).toBe('ATTENDANCE_NOTE')
     })
+
+    it('月中結束 Assignment：期間內寫入對應儲存格，期間外保留範本儲存格內容', async () => {
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('8月')
+      ws.getCell('B6').value = '2026-08-10' // in assignment
+      ws.getCell('E6').value = null
+      ws.getCell('B7').value = '2026-08-25' // outside assignment
+      ws.getCell('E7').value = 'RETAIN_THIS_VALUE'
+
+      const customBytes = new Uint8Array(await wb.xlsx.writeBuffer())
+
+      const endReport = {
+        yearMonth: '2026-08',
+        assignment: {
+          id: 'assign-end',
+          user_id: 'user-1',
+          staffing_employer: '派遣雇主',
+          client_company: '客戶公司',
+          project: '專案 E',
+          effective_from: '2026-08-01',
+          effective_to: '2026-08-15',
+        },
+        rows: [
+          {
+            date: '2026-08-10',
+            weekday: 1,
+            calendar_day_type: 'WORKDAY',
+            calendar_source: 'DGPA',
+            in_assignment_period: true,
+            note: 'IN_PERIOD_NOTE',
+          },
+          {
+            date: '2026-08-25',
+            weekday: 2,
+            calendar_day_type: 'WORKDAY',
+            calendar_source: 'DGPA',
+            in_assignment_period: false,
+            note: 'OUT_OF_PERIOD_NOTE',
+          },
+        ],
+        missingPolicyDates: [],
+        hasConfigurationError: false,
+      }
+
+      const customConfig: ExportTemplateConfig = {
+        name: '測試範本',
+        monthWorksheetMapping: { '2026-08': '8月' },
+        rowMapping: [
+          { sourceField: 'date', targetColumn: 'B' },
+          { sourceField: 'note', targetColumn: 'E' },
+        ],
+        staticCellMapping: [],
+      }
+
+      const exportedBytes = await exportReportToXlsx({
+        templateBytes: customBytes,
+        report: endReport as any,
+        config: customConfig,
+        targetMonth: '2026-08',
+      })
+
+      const exportedWb = new ExcelJS.Workbook()
+      await exportedWb.xlsx.load(exportedBytes.slice().buffer as ArrayBuffer)
+      const exportedWs = exportedWb.getWorksheet('8月')!
+
+      expect(exportedWs.getCell('E6').value).toBe('IN_PERIOD_NOTE')
+      expect(exportedWs.getCell('E7').value).toBe('RETAIN_THIS_VALUE')
+    })
+
+    it('Policy gap（存在未配置制度之工作日）阻擋正式 XLSX 匯出', async () => {
+      const customBytes = await createSyntheticTemplateWorkbook()
+      const gapReport = {
+        yearMonth: '2026-08',
+        assignment: {
+          id: 'assign-gap',
+          user_id: 'user-1',
+          staffing_employer: '派遣雇主',
+          client_company: '客戶公司',
+          project: '專案 G',
+          effective_from: '2026-08-01',
+          effective_to: '2026-08-31',
+        },
+        rows: [],
+        missingPolicyDates: ['2026-08-03'],
+        hasConfigurationError: true,
+      }
+
+      const customConfig: ExportTemplateConfig = {
+        name: '測試範本',
+        monthWorksheetMapping: { '2026-08': '8月' },
+        rowMapping: [{ sourceField: 'date', targetColumn: 'B' }],
+        staticCellMapping: [],
+      }
+
+      await expect(
+        exportReportToXlsx({
+          templateBytes: customBytes,
+          report: gapReport as any,
+          config: customConfig,
+          targetMonth: '2026-08',
+        })
+      ).rejects.toThrowError(
+        expect.objectContaining({ code: 'CONFIGURATION_ERROR' })
+      )
+    })
+
+    it('完整 coverage 且使用 assignment static mapping 正常匯出公司與專案名稱', async () => {
+      const customBytes = await createSyntheticTemplateWorkbook()
+      const fullReport = {
+        yearMonth: '2026-08',
+        assignment: {
+          id: 'assign-full',
+          user_id: 'user-1',
+          staffing_employer: '派遣雇主',
+          client_company: '派駐客戶科技公司',
+          project: '核心差勤系統開發',
+          effective_from: '2026-08-01',
+          effective_to: '2026-08-31',
+        },
+        rows: [
+          {
+            date: '2026-08-01',
+            weekday: 6,
+            calendar_day_type: 'HOLIDAY',
+            calendar_source: 'WEEKEND_FALLBACK',
+            in_assignment_period: true,
+            note: 'FULL_COVERAGE_OK',
+          },
+        ],
+        missingPolicyDates: [],
+        hasConfigurationError: false,
+      }
+
+      const staticConfig: ExportTemplateConfig = {
+        name: '派駐靜態欄位範本',
+        monthWorksheetMapping: { '2026-08': '8月' },
+        rowMapping: [
+          { sourceField: 'date', targetColumn: 'B' },
+          { sourceField: 'note', targetColumn: 'E' },
+        ],
+        staticCellMapping: [
+          { sourceField: 'company_identifier', targetCell: 'B2' },
+          { sourceField: 'project_identifier', targetCell: 'B3' },
+        ],
+      }
+
+      const exportedBytes = await exportReportToXlsx({
+        templateBytes: customBytes,
+        report: fullReport as any,
+        config: staticConfig,
+        targetMonth: '2026-08',
+      })
+
+      const exportedWb = new ExcelJS.Workbook()
+      await exportedWb.xlsx.load(exportedBytes.slice().buffer as ArrayBuffer)
+      const exportedWs = exportedWb.getWorksheet('8月')!
+
+      expect(exportedWs.getCell('B2').value).toBe('派駐客戶科技公司')
+      expect(exportedWs.getCell('B3').value).toBe('核心差勤系統開發')
+      expect(exportedWs.getCell('E6').value).toBe('FULL_COVERAGE_OK')
+    })
   })
 })

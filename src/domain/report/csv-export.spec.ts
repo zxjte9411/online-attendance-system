@@ -251,7 +251,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
       assignment: partialAssignment,
-      workPolicies: [mockPolicy],
+      workPolicies: [{ ...mockPolicy, assignment_id: partialAssignment.id }],
       attendanceRecords: [],
     })
 
@@ -286,5 +286,89 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     expect(rowAug1[23]).toBe('WEEKEND_FALLBACK') // calendar_source preserved
     expect(rowAug1[24]).toBe('') // is_incomplete blank, NOT 'false'
     expect(rowAug1[25]).toBe('') // exception_flags blank
+  })
+
+  it('月中結束 Assignment：期間內正常匯出，期間外輸出 blank semantics', () => {
+    const endAssignment = {
+      id: 'assign-end',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 E',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-15',
+    }
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: endAssignment,
+      workPolicies: [{ ...mockPolicy, assignment_id: endAssignment.id }],
+      attendanceRecords: [],
+    })
+
+    const csv = exportReportToCsv(report)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+
+    // 8/10 (in assignment) - row index 10
+    const rowAug10 = lines[10].split(',')
+    expect(rowAug10[0]).toBe('2026-08-10')
+    expect(rowAug10[2]).toBe('客戶公司')
+    expect(rowAug10[9]).toBe('480') // scheduled_minutes
+
+    // 8/20 (outside assignment) - row index 20
+    const rowAug20 = lines[20].split(',')
+    expect(rowAug20[0]).toBe('2026-08-20')
+    expect(rowAug20[2]).toBe('') // company_identifier blank
+    expect(rowAug20[9]).toBe('') // scheduled_minutes blank
+  })
+
+  it('Policy gap（存在未配置制度之工作日）阻擋正式 CSV 匯出', () => {
+    const gapReport = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: {
+        id: 'assign-gap',
+        user_id: 'user-1',
+        staffing_employer: '派遣雇主',
+        client_company: '客戶公司',
+        project: '專案 G',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      },
+      workPolicies: [], // No policies -> missing policy on workdays
+      attendanceRecords: [],
+    })
+
+    expect(gapReport.hasConfigurationError).toBe(true)
+    expect(() => exportReportToCsv(gapReport)).toThrow('此月份報表存在設定缺漏')
+  })
+
+  it('完整 coverage 且無設定缺漏時正常匯出所有日期欄位', () => {
+    const fullAssignment = {
+      id: 'assign-full',
+      user_id: 'user-1',
+      staffing_employer: '派遣雇主',
+      client_company: '客戶公司',
+      project: '專案 F',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+
+    const report = buildMonthlyReport({
+      yearMonth: '2026-08',
+      assignment: fullAssignment,
+      workPolicies: [{ ...mockPolicy, assignment_id: fullAssignment.id }],
+      attendanceRecords: [],
+    })
+
+    expect(report.hasConfigurationError).toBe(false)
+    const csv = exportReportToCsv(report)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    expect(lines.length).toBe(32) // header + 31 days
+
+    // Check a workday
+    const rowAug3 = lines[3].split(',')
+    expect(rowAug3[0]).toBe('2026-08-03')
+    expect(rowAug3[2]).toBe('客戶公司')
+    expect(rowAug3[9]).toBe('480')
   })
 })

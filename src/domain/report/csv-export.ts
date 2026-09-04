@@ -73,38 +73,28 @@ export function escapeCsvField(value: unknown): string {
 }
 
 export function exportReportToCsv(report: MonthlyReport): string {
+  if (report.hasConfigurationError) {
+    throw new Error('此月份報表存在設定缺漏（如缺少出勤制度），無法匯出。')
+  }
+
   const headerLine = CSV_HEADERS.map((h) => escapeCsvField(h)).join(',')
 
   const rowLines = report.rows.map((row: DailyReportRow) => {
     if (row.in_assignment_period === false) {
-      const fields: unknown[] = [
-        row.date,
-        row.weekday,
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        row.calendar_day_type,
-        row.calendar_source,
-        '',
-        '',
-      ]
+      const fields = CSV_HEADERS.map((h) => {
+        switch (h) {
+          case 'date':
+            return row.date
+          case 'weekday':
+            return row.weekday
+          case 'calendar_day_type':
+            return row.calendar_day_type
+          case 'calendar_source':
+            return row.calendar_source
+          default:
+            return ''
+        }
+      })
       return fields.map((f) => escapeCsvField(f)).join(',')
     }
 

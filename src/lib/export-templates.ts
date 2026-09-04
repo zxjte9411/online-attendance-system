@@ -46,16 +46,16 @@ export function validateXlsxFileInput(
 
 export async function getExportTemplate(
   userId: string,
-  assignmentIdOrContextId: string,
+  targetId: string,
   options?: { by?: 'assignment_id' | 'context_id' }
 ): Promise<ExportTemplate | null> {
   const supabase = getSupabaseClient()
-  const lookupField = options?.by ?? (assignmentIdOrContextId.startsWith('ctx-') ? 'context_id' : 'assignment_id')
+  const lookupField = options?.by ?? 'assignment_id'
   const { data, error } = await supabase
     .from('export_templates')
     .select('*')
     .eq('user_id', userId)
-    .eq(lookupField, assignmentIdOrContextId)
+    .eq(lookupField, targetId)
     .maybeSingle()
 
   if (error) {

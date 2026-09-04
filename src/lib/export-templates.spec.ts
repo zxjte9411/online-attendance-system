@@ -102,7 +102,7 @@ describe('Lib: Export Templates Service', () => {
       select: selectMock,
     } as any)
 
-    const result = await getExportTemplate('user-1', 'ctx-1')
+    const result = await getExportTemplate('user-1', 'ctx-1', { by: 'context_id' })
     expect(result).toEqual(mockData)
     expect(mockSupabase.from).toHaveBeenCalledWith('export_templates')
     expect(selectMock).toHaveBeenCalledWith('*')

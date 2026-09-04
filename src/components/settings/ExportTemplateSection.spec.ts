@@ -153,6 +153,25 @@ describe('Component: ExportTemplateSection', () => {
     expect(wrapper.find('[data-test="upload-template-button"]').exists()).toBe(true)
   })
 
+  it('loads template using assignmentId when assignmentId is provided', async () => {
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(null)
+
+    const wrapper = mount(ExportTemplateSection, {
+      props: {
+        userId: 'user-1',
+        assignmentId: 'asg-test-1',
+        assignmentName: '測試派駐專案',
+      },
+    })
+
+    await flushPromises()
+
+    expect(exportTemplatesApi.getExportTemplate).toHaveBeenCalledWith('user-1', 'asg-test-1', {
+      by: 'assignment_id',
+    })
+    expect(wrapper.text()).toContain('尚未上傳 XLSX 匯出範本')
+  })
+
   it('renders template details and mapping configurations when template exists', async () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
