@@ -1,5 +1,6 @@
 import type { CalendarOverride } from '../calendar-status/overview'
 import type { WorkPolicy } from '../../lib/settings'
+import type { WorkAssignment } from '../work-assignment/work-assignment'
 
 export type CalendarDayType = 'WORKDAY' | 'HOLIDAY'
 
@@ -30,8 +31,32 @@ export type ResolvedCalendarDay = {
   dgpaBaseline: DgpaBaseline | null
 }
 
-export function findApplicableWorkPolicy(date: string, policies: WorkPolicy[]): WorkPolicy | null {
+export function findApplicableWorkAssignment(
+  date: string,
+  assignments: WorkAssignment[],
+): WorkAssignment | null {
+  const matching = assignments.filter((assignment) => {
+    if (date < assignment.effective_from) return false
+    if (assignment.effective_to && date > assignment.effective_to) return false
+    return true
+  })
+
+  if (matching.length === 0) return null
+
+  if (matching.length > 1) {
+    throw new Error('multiple work assignments resolve for target date')
+  }
+
+  return matching[0]
+}
+
+export function findApplicableWorkPolicy(
+  date: string,
+  policies: WorkPolicy[],
+  assignmentId?: string | null,
+): WorkPolicy | null {
   const matching = policies.filter((policy) => {
+    if (assignmentId !== undefined && policy.assignment_id !== assignmentId) return false
     if (date < policy.effective_from) return false
     if (policy.effective_to && date > policy.effective_to) return false
     return true
@@ -39,8 +64,29 @@ export function findApplicableWorkPolicy(date: string, policies: WorkPolicy[]): 
 
   if (matching.length === 0) return null
 
-  // If multiple policies match, prioritize the most recently effective policy
-  return matching.sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0]
+  if (matching.length > 1) {
+    throw new Error('multiple work policies resolve for assignment and target date')
+  }
+
+  return matching[0]
+}
+
+export function resolveApplicableWorkPolicy(params: {
+  date: string
+  workAssignments?: WorkAssignment[]
+  workPolicies?: WorkPolicy[]
+}): WorkPolicy | null {
+  const { date, workAssignments, workPolicies = [] } = params
+
+  if (workAssignments !== undefined) {
+    const assignment = findApplicableWorkAssignment(date, workAssignments)
+    if (!assignment) {
+      return null
+    }
+    return findApplicableWorkPolicy(date, workPolicies, assignment.id)
+  }
+
+  return findApplicableWorkPolicy(date, workPolicies)
 }
 
 export function resolveCalendarDay(params: {
