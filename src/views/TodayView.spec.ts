@@ -154,7 +154,7 @@ describe('TodayView', () => {
     wrapper.unmount()
   })
 
-  it('有今日 Assignment 但缺少 Work Policy 時顯示日期特定不可打卡狀態與帶 context 的 CTA', async () => {
+  it('有今日 Assignment 但缺少工作制度時顯示日期特定不可打卡狀態與帶 context 的 CTA', async () => {
     mockedReadiness.mockResolvedValueOnce({
       resolution: 'MISSING_POLICY',
       assignmentId: 'assignment-resolved',
@@ -164,7 +164,7 @@ describe('TodayView', () => {
     const wrapper = mount(TodayView, { attachTo: document.body })
     await flushPromises()
 
-    expect(wrapper.get('[data-state="unavailable-missing-policy"]').text()).toContain('今天沒有適用的 Work Policy')
+    expect(wrapper.get('[data-state="unavailable-missing-policy"]').text()).toContain('今天沒有適用的工作制度')
     expect(wrapper.get('[data-action="settings"]').attributes('href')).toBe('/settings?assignment_id=assignment-resolved#policies')
     expect(wrapper.find('[data-action="clock-in"]').exists()).toBe(false)
     wrapper.unmount()

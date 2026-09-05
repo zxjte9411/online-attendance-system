@@ -226,7 +226,7 @@ function policySummaryFromPolicy(source: WorkPolicy): PolicySummary {
 
 function policySummaryFromSnapshot(snapshot: Record<string, unknown>): PolicySummary {
   return {
-    name: typeof snapshot.name === 'string' && snapshot.name.trim() ? snapshot.name : '歷史 Work Policy',
+    name: typeof snapshot.name === 'string' && snapshot.name.trim() ? snapshot.name : '歷史工作制度',
     standard_start_time: typeof snapshot.standard_start_time === 'string' ? snapshot.standard_start_time : null,
     work_minutes: typeof snapshot.work_minutes === 'number' && Number.isFinite(snapshot.work_minutes)
       ? snapshot.work_minutes
@@ -314,10 +314,10 @@ function formatStartTime(value: string | null | undefined) {
     <section v-else-if="readiness?.resolution === 'MISSING_POLICY'" class="mt-6 grid gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="today-missing-policy-title" data-state="unavailable-missing-policy">
       <div class="grid gap-2">
         <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">今日不可打卡</span>
-        <h2 id="today-missing-policy-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">今天沒有適用的 Work Policy。</h2>
-        <p class="text-sm leading-relaxed text-muted">今天的工作派駐已解析，但沒有涵蓋今天日期的制度。請補上適用的 Work Policy。</p>
+        <h2 id="today-missing-policy-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">今天沒有適用的工作制度。</h2>
+        <p class="text-sm leading-relaxed text-muted">今天的工作派駐已解析，但沒有涵蓋今天日期的制度。請補上適用的工作制度。</p>
       </div>
-      <a data-action="settings" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" :href="settingsHref">前往 Work Policy 設定</a>
+      <a data-action="settings" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" :href="settingsHref">前往工作制度設定</a>
     </section>
 
     <div v-else-if="record || (readiness?.resolution === 'RESOLVED' && policy)" class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.75fr)]">
@@ -402,7 +402,7 @@ function formatStartTime(value: string | null | undefined) {
 
       <aside class="grid content-start gap-4 rounded-2xl border border-line bg-surface-soft p-5 sm:p-6 forced-colors:border-[CanvasText] forced-colors:bg-[Canvas]" aria-labelledby="policy-title">
         <div class="grid gap-1">
-          <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">WORK POLICY</span>
+          <span class="text-[0.6875rem] font-bold tracking-[0.16em] text-accent">工作制度</span>
           <h2 id="policy-title" class="font-display text-xl font-semibold tracking-[-0.035em]">今天套用的制度</h2>
         </div>
         <div class="grid gap-1 border-t border-line pt-4">
