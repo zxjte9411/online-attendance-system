@@ -104,6 +104,8 @@ export interface WorkbookWorksheetPreview {
   readonly isHidden: boolean
   readonly isProtected: boolean
   readonly hasImages: boolean
+  readonly rowCount?: number
+  readonly columnCount?: number
   readonly columns: readonly WorkbookPreviewColumn[]
   readonly rows: readonly WorkbookPreviewRow[]
 }
@@ -199,6 +201,8 @@ export async function getWorkbookPreview(
         ),
         hasImages:
           worksheet.getImages().length > 0 || worksheet.getBackgroundImageId() !== undefined,
+        rowCount: worksheet.rowCount,
+        columnCount: Math.max(worksheet.columnCount, rightmostValueColumn),
         columns: Array.from({ length: visibleColumnCount }, (_, index) => {
           const columnNumber = index + 1
           return {

@@ -534,12 +534,22 @@ const exportPreflight = computed<PreflightResult>(() => {
     rowMapping: rowMappings.value.map((r) => ({
       sourceField: r.sourceField,
       targetColumn: r.targetColumn,
-      transforms: r.transforms,
+      transforms: buildTransformsForEntry(
+        r.transformType,
+        r.transforms,
+        r.valueMapText,
+        r.valueMapFallback
+      ),
     })),
     staticCellMapping: staticMappings.value.map((s) => ({
       sourceField: s.sourceField,
       targetCell: s.targetCell,
-      transforms: s.transforms,
+      transforms: buildTransformsForEntry(
+        s.transformType,
+        s.transforms,
+        s.valueMapText,
+        s.valueMapFallback
+      ),
     })),
     worksheetPreviews: activePreviewWorksheets.value,
   })
@@ -745,24 +755,34 @@ async function loadTemplate() {
         ([month, worksheet]) => ({ month, worksheet })
       )
       rowMappings.value = (loaded.row_mapping || []).map((m) => {
-        const vmInfo = parseValueMapOptions(m.transforms)
+        const available = getAvailableTransformsForField(m.sourceField)
+        const primaryTransform = m.transforms?.[0]?.type || ''
+        const isValid = primaryTransform ? available.includes(primaryTransform as TransformType) : true
+        const transformType = isValid ? primaryTransform : ''
+        const transforms = isValid && m.transforms ? [...m.transforms] : []
+        const vmInfo = parseValueMapOptions(transforms)
         return {
           sourceField: m.sourceField,
           targetColumn: m.targetColumn,
-          transformType: m.transforms?.[0]?.type || '',
-          transforms: m.transforms ? [...m.transforms] : [],
+          transformType,
+          transforms,
           valueMapText: vmInfo.text,
           valueMapFallback: vmInfo.fallback,
         }
       })
 
       staticMappings.value = (loaded.static_cell_mapping || []).map((m) => {
-        const vmInfo = parseValueMapOptions(m.transforms)
+        const available = getAvailableTransformsForField(m.sourceField)
+        const primaryTransform = m.transforms?.[0]?.type || ''
+        const isValid = primaryTransform ? available.includes(primaryTransform as TransformType) : true
+        const transformType = isValid ? primaryTransform : ''
+        const transforms = isValid && m.transforms ? [...m.transforms] : []
+        const vmInfo = parseValueMapOptions(transforms)
         return {
           sourceField: m.sourceField,
           targetCell: m.targetCell,
-          transformType: m.transforms?.[0]?.type || '',
-          transforms: m.transforms ? [...m.transforms] : [],
+          transformType,
+          transforms,
           valueMapText: vmInfo.text,
           valueMapFallback: vmInfo.fallback,
         }
@@ -1112,6 +1132,66 @@ function buildTransformsForEntry(
   }
 
   return [firstStage]
+}
+
+function onRowSourceFieldChange(item: RowMappingUiItem) {
+  const available = getAvailableTransformsForField(item.sourceField)
+  if (item.transformType && !available.includes(item.transformType as TransformType)) {
+    item.transformType = ''
+    item.transforms = []
+    item.valueMapText = ''
+    item.valueMapFallback = 'keep'
+  } else if (!item.transformType) {
+    item.transforms = []
+    item.valueMapText = ''
+    item.valueMapFallback = 'keep'
+  }
+}
+
+function onRowTransformChange(item: RowMappingUiItem) {
+  if (!item.transformType) {
+    item.transforms = []
+    item.valueMapText = ''
+    item.valueMapFallback = 'keep'
+  } else {
+    item.transforms =
+      buildTransformsForEntry(
+        item.transformType,
+        item.transforms,
+        item.valueMapText,
+        item.valueMapFallback
+      ) || []
+  }
+}
+
+function onStaticSourceFieldChange(item: StaticMappingUiItem) {
+  const available = getAvailableTransformsForField(item.sourceField)
+  if (item.transformType && !available.includes(item.transformType as TransformType)) {
+    item.transformType = ''
+    item.transforms = []
+    item.valueMapText = ''
+    item.valueMapFallback = 'keep'
+  } else if (!item.transformType) {
+    item.transforms = []
+    item.valueMapText = ''
+    item.valueMapFallback = 'keep'
+  }
+}
+
+function onStaticTransformChange(item: StaticMappingUiItem) {
+  if (!item.transformType) {
+    item.transforms = []
+    item.valueMapText = ''
+    item.valueMapFallback = 'keep'
+  } else {
+    item.transforms =
+      buildTransformsForEntry(
+        item.transformType,
+        item.transforms,
+        item.valueMapText,
+        item.valueMapFallback
+      ) || []
+  }
 }
 
 async function handleSaveMapping() {
@@ -1804,6 +1884,7 @@ async function handleSaveMapping() {
                     :id="`row-source-${idx}`"
                     v-model="item.sourceField"
                     class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                    @change="onRowSourceFieldChange(item)"
                     @focus="focusedRowIndex = idx"
                   >
                     <option v-for="f in REPORT_MODEL_SOURCE_FIELDS" :key="f" :value="f">
@@ -1867,6 +1948,7 @@ async function handleSaveMapping() {
                     :id="`row-transform-${idx}`"
                     v-model="item.transformType"
                     class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                    @change="onRowTransformChange(item)"
                   >
                     <option value="">無 (原值寫入)</option>
                     <option
@@ -1990,6 +2072,7 @@ async function handleSaveMapping() {
                     :id="`static-source-${idx}`"
                     v-model="item.sourceField"
                     class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                    @change="onStaticSourceFieldChange(item)"
                     @focus="focusedStaticIndex = idx; focusedRowIndex = null"
                   >
                     <option v-for="f in STATIC_SOURCE_FIELDS" :key="f" :value="f">
@@ -2035,6 +2118,7 @@ async function handleSaveMapping() {
                     :id="`static-transform-${idx}`"
                     v-model="item.transformType"
                     class="min-h-10 rounded-[0.5rem] border border-line bg-canvas px-2.5 text-xs text-ink"
+                    @change="onStaticTransformChange(item)"
                   >
                     <option value="">無 (原值寫入)</option>
                     <option

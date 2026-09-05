@@ -527,5 +527,290 @@ describe('Domain: Export Preflight & Formula Guidance (Issue #46)', () => {
       expect(dateRowItem?.status).toBe('error')
       expect(dateRowItem?.message).toContain('找不到日期「2026-08-02」對應的列')
     })
+
+    describe('Blocker 1: Bounded Preview Evidence Observability', () => {
+      it('does NOT emit DATE_ROW_MISSING error when preview is row-truncated; returns not_verified', () => {
+        // Create 200 rows where date 2026-08-31 is missing from preview due to 200 row limit
+        const truncatedRows = Array.from({ length: 200 }, (_, i) => ({
+          rowNumber: i + 1,
+          isHidden: false,
+          cells: [
+            {
+              column: 'A',
+              rowNumber: i + 1,
+              text: i < 30 ? `2026-08-${String(i + 1).padStart(2, '0')}` : 'other',
+              structureType: 'ordinary' as const,
+            },
+          ],
+        }))
+
+        const truncatedWs: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          rowCount: 250, // Real sheet has 250 rows
+          columns: [{ column: 'A', isHidden: false }],
+          rows: truncatedRows,
+        }
+
+        const mockReport: any = {
+          yearMonth: '2026-08',
+          rows: [
+            { date: '2026-08-01', in_assignment_period: true },
+            { date: '2026-08-31', in_assignment_period: true }, // in row 210 in real sheet
+          ],
+        }
+
+        const result = runExportPreflight({
+          targetMonth: '2026-08',
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [{ sourceField: 'date', targetColumn: 'A' }],
+          worksheetPreviews: [truncatedWs],
+          report: mockReport,
+        })
+
+        // Must NOT falsely claim DATE_ROW_MISSING error
+        expect(result.canExport).toBe(true)
+        expect(result.hasErrors).toBe(false)
+        expect(result.isFullyVerified).toBe(false)
+
+        const dateItem = result.items.find((i) => i.category === 'date_row_locator')
+        expect(dateItem?.status).toBe('not_verified')
+        expect(dateItem?.message).toContain('預覽範圍已達上限')
+      })
+
+      it('does NOT claim formula-safe when Row Mapping target column is outside preview columns', () => {
+        const ws: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          columns: [
+            { column: 'A', isHidden: false },
+            { column: 'B', isHidden: false },
+          ],
+          rows: [
+            {
+              rowNumber: 4,
+              isHidden: false,
+              cells: [
+                { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+              ],
+            },
+          ],
+        }
+
+        const result = runExportPreflight({
+          targetMonth: '2026-08',
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'note', targetColumn: 'BA' }, // Column BA is beyond 50-col preview limit
+          ],
+          worksheetPreviews: [ws],
+        })
+
+        expect(result.canExport).toBe(true)
+        expect(result.isFullyVerified).toBe(false)
+
+        const formulaItem = result.items.find((i) => i.category === 'formula_target')
+        expect(formulaItem?.status).toBe('not_verified')
+        expect(formulaItem?.message).toContain('預覽範圍外')
+      })
+
+      it('does NOT claim formula-safe when Static Mapping target cell is outside preview row/column range', () => {
+        const ws: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          columns: [{ column: 'A', isHidden: false }],
+          rows: [
+            {
+              rowNumber: 4,
+              isHidden: false,
+              cells: [{ column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' }],
+            },
+          ],
+        }
+
+        const result = runExportPreflight({
+          targetMonth: '2026-08',
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [{ sourceField: 'date', targetColumn: 'A' }],
+          staticCellMapping: [
+            { sourceField: 'year_month', targetCell: 'A250' }, // Row 250 is outside preview rows
+          ],
+          worksheetPreviews: [ws],
+        })
+
+        expect(result.canExport).toBe(true)
+        expect(result.isFullyVerified).toBe(false)
+
+        const formulaItem = result.items.find((i) => i.category === 'formula_target')
+        expect(formulaItem?.status).toBe('not_verified')
+        expect(formulaItem?.message).toContain('預覽範圍外')
+      })
+
+      it('does NOT claim collision-pass when static cell or daily row is outside preview observability', () => {
+        const truncatedRows = Array.from({ length: 200 }, (_, i) => ({
+          rowNumber: i + 1,
+          isHidden: false,
+          cells: [
+            {
+              column: 'A',
+              rowNumber: i + 1,
+              text: i < 30 ? `2026-08-${String(i + 1).padStart(2, '0')}` : '',
+              structureType: 'ordinary' as const,
+            },
+          ],
+        }))
+
+        const truncatedWs: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          rowCount: 250,
+          columns: [
+            { column: 'A', isHidden: false },
+            { column: 'C', isHidden: false },
+          ],
+          rows: truncatedRows,
+        }
+
+        const mockReport: any = {
+          yearMonth: '2026-08',
+          rows: [
+            { date: '2026-08-01', in_assignment_period: true },
+            { date: '2026-08-31', in_assignment_period: true }, // unobserved row
+          ],
+        }
+
+        const result = runExportPreflight({
+          targetMonth: '2026-08',
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+          ],
+          staticCellMapping: [
+            { sourceField: 'year_month', targetCell: 'C250' },
+          ],
+          worksheetPreviews: [truncatedWs],
+          report: mockReport,
+        })
+
+        const collisionItem = result.items.find((i) => i.category === 'collision')
+        expect(collisionItem?.status).toBe('not_verified')
+        expect(collisionItem?.message).toContain('預覽範圍外')
+      })
+    })
+
+    describe('Blocker 2: in_assignment_period === false Row Mapping formula check alignment', () => {
+      it('blocks when in-assignment-period daily row contains formula on mapped target', () => {
+        const ws: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          columns: [
+            { column: 'A', isHidden: false },
+            { column: 'C', isHidden: false },
+          ],
+          rows: [
+            {
+              rowNumber: 4,
+              isHidden: false,
+              cells: [
+                { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+                { column: 'C', rowNumber: 4, text: '=IF(...)', structureType: 'formula' }, // Formula on active row 4
+              ],
+            },
+          ],
+        }
+
+        const mockReport: any = {
+          yearMonth: '2026-08',
+          rows: [
+            { date: '2026-08-01', in_assignment_period: true },
+          ],
+        }
+
+        const result = runExportPreflight({
+          targetMonth: '2026-08',
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+          ],
+          worksheetPreviews: [ws],
+          report: mockReport,
+        })
+
+        expect(result.canExport).toBe(false)
+        expect(result.hasErrors).toBe(true)
+        const formulaItem = result.items.find((i) => i.category === 'formula_target')
+        expect(formulaItem?.status).toBe('error')
+        expect(formulaItem?.message).toContain('C4')
+      })
+
+      it('does NOT block when out-of-assignment-period daily row (in_assignment_period === false) contains formula', () => {
+        const ws: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          columns: [
+            { column: 'A', isHidden: false },
+            { column: 'C', isHidden: false },
+          ],
+          rows: [
+            {
+              rowNumber: 4,
+              isHidden: false,
+              cells: [
+                { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+                { column: 'C', rowNumber: 4, text: '=IF(...)', structureType: 'formula' }, // Formula on row 4 (out of period)
+              ],
+            },
+            {
+              rowNumber: 5,
+              isHidden: false,
+              cells: [
+                { column: 'A', rowNumber: 5, text: '2026-08-02', structureType: 'ordinary' },
+                { column: 'C', rowNumber: 5, text: '09:00', structureType: 'ordinary' }, // Ordinary on active row 5
+              ],
+            },
+          ],
+        }
+
+        const mockReport: any = {
+          yearMonth: '2026-08',
+          rows: [
+            { date: '2026-08-01', in_assignment_period: false }, // out of period! Exporter will skip writing here
+            { date: '2026-08-02', in_assignment_period: true },
+          ],
+        }
+
+        const result = runExportPreflight({
+          targetMonth: '2026-08',
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+          ],
+          worksheetPreviews: [ws],
+          report: mockReport,
+        })
+
+        // Exporter would NOT write row 4, so formula on row 4 must NOT block export
+        expect(result.canExport).toBe(true)
+        expect(result.hasErrors).toBe(false)
+        const formulaItem = result.items.find((i) => i.category === 'formula_target')
+        expect(formulaItem?.status).toBe('pass')
+      })
+    })
   })
 })

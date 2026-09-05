@@ -44,6 +44,35 @@ export interface FormulaTargetWarning {
   message: string
 }
 
+export function isWorksheetRowObservable(
+  ws: WorkbookWorksheetPreview,
+  rowNumber: number
+): boolean {
+  return ws.rows.some((r) => r.rowNumber === rowNumber)
+}
+
+export function isWorksheetColumnObservable(
+  ws: WorkbookWorksheetPreview,
+  column: string
+): boolean {
+  return ws.columns.some((c) => c.column === column.trim().toUpperCase())
+}
+
+export function isWorksheetCellObservable(
+  ws: WorkbookWorksheetPreview,
+  column: string,
+  rowNumber: number
+): boolean {
+  return (
+    isWorksheetColumnObservable(ws, column) && isWorksheetRowObservable(ws, rowNumber)
+  )
+}
+
+export function isWorksheetRowTruncated(ws: WorkbookWorksheetPreview): boolean {
+  const maxRow = ws.rows.length > 0 ? Math.max(...ws.rows.map((r) => r.rowNumber)) : 0
+  return (ws.rowCount !== undefined && ws.rowCount > maxRow) || ws.rows.length >= 200
+}
+
 function normalizeMonthMap(
   mapping: Record<string, string> | Array<{ month?: string; worksheet?: string }> | undefined
 ): Record<string, string> {
@@ -125,9 +154,9 @@ export function checkFormulaTargetWarnings(params: {
     const ws = worksheetPreviews.find((w) => w.name === sheetName)
     if (!ws) continue
 
-    // Collect daily date rows where date matches applicable months (or active report dates)
+    // Collect daily date rows where date matches applicable months (or active report dates in assignment period)
     const activeDates = report && targetMonth && months.includes(targetMonth)
-      ? new Set(report.rows.map((r) => r.date))
+      ? new Set(report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date))
       : null
 
     const dailyDateRowNumbers = new Set<number>()
@@ -361,52 +390,78 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
       const ws = worksheetPreviews.find((w) => w.name === sheetName)
       if (ws && dateLocator?.targetColumn) {
         const dateCol = dateLocator.targetColumn.trim().toUpperCase()
-        const activeDates = report
-          ? report.rows.map((r) => r.date)
-          : null
+        if (!isWorksheetColumnObservable(ws, dateCol)) {
+          items.push({
+            id: 'date-row-locator-unverified',
+            category: 'date_row_locator',
+            status: 'not_verified',
+            message: `工作表「${sheetName}」之日期定位欄位 ${dateCol} 超出預覽範圍，無法預先驗證日期列定位（將於匯出時進行最終檢查）。`,
+          })
+        } else {
+          const activeDates = report
+            ? report.rows.map((r) => r.date)
+            : null
 
-        const foundDates = new Set<string>()
-        for (const row of ws.rows) {
-          const cell = row.cells.find((c) => c.column === dateCol)
-          if (cell) {
-            const parsed = parseDateCellValue(cell.text, targetMonth)
-            if (parsed && parsed.startsWith(targetMonth)) {
-              foundDates.add(parsed)
+          const foundDates = new Set<string>()
+          for (const row of ws.rows) {
+            const cell = row.cells.find((c) => c.column === dateCol)
+            if (cell) {
+              const parsed = parseDateCellValue(cell.text, targetMonth)
+              if (parsed && parsed.startsWith(targetMonth)) {
+                foundDates.add(parsed)
+              }
             }
           }
-        }
 
-        if (activeDates && activeDates.length > 0) {
-          const missingDate = activeDates.find((d) => !foundDates.has(d))
-          if (missingDate) {
-            items.push({
-              id: `date-row-missing-${missingDate}`,
-              category: 'date_row_locator',
-              status: 'error',
-              message: `在工作表「${sheetName}」欄位 ${dateCol} 找不到日期「${missingDate}」對應的列。`,
-            })
-          } else {
+          const isRowTruncated = isWorksheetRowTruncated(ws)
+          const maxRow = ws.rows.length > 0 ? Math.max(...ws.rows.map((r) => r.rowNumber)) : 0
+
+          if (activeDates && activeDates.length > 0) {
+            const missingDates = activeDates.filter((d) => !foundDates.has(d))
+            if (missingDates.length === 0) {
+              items.push({
+                id: 'date-row-locator-pass',
+                category: 'date_row_locator',
+                status: 'pass',
+                message: `日期列定位已驗證：已於「${sheetName}」找到 ${activeDates.length} 個出勤日期的對應列`,
+              })
+            } else if (isRowTruncated) {
+              items.push({
+                id: 'date-row-locator-unverified',
+                category: 'date_row_locator',
+                status: 'not_verified',
+                message: `預覽範圍已達上限（${maxRow} 列），部分出勤日期（如 ${missingDates[0]}）位於預覽範圍外，無法預先確認是否缺少日期列（將於匯出時進行最終檢查）。`,
+              })
+            } else {
+              items.push({
+                id: `date-row-missing-${missingDates[0]}`,
+                category: 'date_row_locator',
+                status: 'error',
+                message: `在工作表「${sheetName}」欄位 ${dateCol} 找不到日期「${missingDates[0]}」對應的列。`,
+              })
+            }
+          } else if (foundDates.size > 0) {
             items.push({
               id: 'date-row-locator-pass',
               category: 'date_row_locator',
               status: 'pass',
-              message: `日期列定位已驗證：已於「${sheetName}」找到 ${activeDates.length} 個出勤日期的對應列`,
+              message: `日期列定位已驗證：已於「${sheetName}」找到 ${foundDates.size} 個 ${targetMonth} 日期列`,
+            })
+          } else if (isRowTruncated) {
+            items.push({
+              id: 'date-row-locator-unverified',
+              category: 'date_row_locator',
+              status: 'not_verified',
+              message: `預覽範圍已達上限（${maxRow} 列），尚未於預覽範圍內找到月份「${targetMonth}」的日期列（將於匯出時進行最終檢查）。`,
+            })
+          } else {
+            items.push({
+              id: 'date-row-none-found',
+              category: 'date_row_locator',
+              status: 'error',
+              message: `在工作表「${sheetName}」欄位 ${dateCol} 找不到屬於月份「${targetMonth}」的日期列。`,
             })
           }
-        } else if (foundDates.size > 0) {
-          items.push({
-            id: 'date-row-locator-pass',
-            category: 'date_row_locator',
-            status: 'pass',
-            message: `日期列定位已驗證：已於「${sheetName}」找到 ${foundDates.size} 個 ${targetMonth} 日期列`,
-          })
-        } else {
-          items.push({
-            id: 'date-row-none-found',
-            category: 'date_row_locator',
-            status: 'error',
-            message: `在工作表「${sheetName}」欄位 ${dateCol} 找不到屬於月份「${targetMonth}」的日期列。`,
-          })
         }
       }
     } else {
@@ -440,12 +495,80 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
         })
       }
     } else {
-      items.push({
-        id: 'formula-target-pass',
-        category: 'formula_target',
-        status: 'pass',
-        message: '公式覆寫檢查通過：目標寫入欄位與儲存格未包含公式',
-      })
+      const sheetsToCheck: string[] = targetMonth
+        ? (monthMapObj[targetMonth] ? [monthMapObj[targetMonth]] : [])
+        : Object.keys(monthMapObj).length > 0
+          ? Array.from(new Set(Object.values(monthMapObj).filter(Boolean)))
+          : worksheetPreviews.map((w) => w.name)
+
+      let allTargetsObservable = true
+
+      for (const sheetName of sheetsToCheck) {
+        const ws = worksheetPreviews.find((w) => w.name === sheetName)
+        if (!ws) {
+          allTargetsObservable = false
+          continue
+        }
+
+        // Check Row Mapping target columns observability
+        for (const r of rowMapping) {
+          const col = (r.targetColumn || '').trim().toUpperCase()
+          if (col && !isWorksheetColumnObservable(ws, col)) {
+            allTargetsObservable = false
+          }
+        }
+
+        // Check date locator and active dates if report is present
+        if (report && targetMonth && monthMapObj[targetMonth] === sheetName) {
+          const dateCol = dateLocator?.targetColumn?.trim().toUpperCase()
+          if (!dateCol || !isWorksheetColumnObservable(ws, dateCol)) {
+            allTargetsObservable = false
+          } else {
+            const activeDates = report.rows
+              .filter((r) => r.in_assignment_period !== false)
+              .map((r) => r.date)
+            const foundDates = new Set<string>()
+            for (const row of ws.rows) {
+              const cell = row.cells.find((c) => c.column === dateCol)
+              if (cell) {
+                const parsed = parseDateCellValue(cell.text, targetMonth)
+                if (parsed && parsed.startsWith(targetMonth)) {
+                  foundDates.add(parsed)
+                }
+              }
+            }
+            if (activeDates.some((d) => !foundDates.has(d))) {
+              allTargetsObservable = false
+            }
+          }
+        }
+
+        // Check Static Mapping target cells observability
+        for (const s of staticCellMapping) {
+          const parsed = parseA1Address(s.targetCell || '')
+          if (parsed) {
+            if (!isWorksheetCellObservable(ws, parsed.column, parsed.rowNumber)) {
+              allTargetsObservable = false
+            }
+          }
+        }
+      }
+
+      if (allTargetsObservable && sheetsToCheck.length > 0) {
+        items.push({
+          id: 'formula-target-pass',
+          category: 'formula_target',
+          status: 'pass',
+          message: '公式覆寫檢查通過：目標寫入欄位與儲存格未包含公式',
+        })
+      } else {
+        items.push({
+          id: 'formula-target-unverified',
+          category: 'formula_target',
+          status: 'not_verified',
+          message: '部分目標欄位或儲存格位於預覽範圍外，無法預先完整確認是否包含公式（將於匯出時進行最終保護檢查）。',
+        })
+      }
     }
   } else {
     items.push({
@@ -469,6 +592,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
 
     const checkedWorksheets = new Set<string>()
     let collisionFound = false
+    let collisionObservable = true
 
     for (const m of monthsToCheck) {
       const sheetName = monthMapObj[m]
@@ -476,18 +600,27 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
       checkedWorksheets.add(sheetName)
 
       const ws = worksheetPreviews.find((w) => w.name === sheetName)
-      if (!ws) continue
+      if (!ws) {
+        collisionObservable = false
+        continue
+      }
+
+      if (!isWorksheetColumnObservable(ws, dateCol)) {
+        collisionObservable = false
+      }
 
       const activeDates = report && targetMonth === m
         ? new Set(report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date))
         : null
 
       const dateRowNumbers = new Set<number>()
+      const foundDates = new Set<string>()
       for (const row of ws.rows) {
         const cell = row.cells.find((c) => c.column === dateCol)
         if (cell) {
           const parsedDate = parseDateCellValue(cell.text, m)
           if (parsedDate && parsedDate.startsWith(m)) {
+            foundDates.add(parsedDate)
             if (activeDates === null || activeDates.has(parsedDate)) {
               dateRowNumbers.add(row.rowNumber)
             }
@@ -495,30 +628,53 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
         }
       }
 
+      if (activeDates) {
+        const missingDates = Array.from(activeDates).filter((d) => !foundDates.has(d))
+        if (missingDates.length > 0 && isWorksheetRowTruncated(ws)) {
+          collisionObservable = false
+        }
+      }
+
       for (const s of staticCellMapping) {
         const parsed = parseA1Address(s.targetCell)
-        if (parsed && rowTargetCols.has(parsed.column) && dateRowNumbers.has(parsed.rowNumber)) {
-          collisionFound = true
-          const collisionId = `collision-${sheetName}-${s.targetCell.toUpperCase()}`
-          if (!items.some((i) => i.id === collisionId)) {
-            items.push({
-              id: collisionId,
-              category: 'collision',
-              status: 'error',
-              message: `靜態儲存格「${s.targetCell.toUpperCase()}」在工作表「${sheetName}」與每日列目標位置衝突。`,
-            })
+        if (parsed && rowTargetCols.has(parsed.column)) {
+          if (dateRowNumbers.has(parsed.rowNumber)) {
+            collisionFound = true
+            const collisionId = `collision-${sheetName}-${s.targetCell.toUpperCase()}`
+            if (!items.some((i) => i.id === collisionId)) {
+              items.push({
+                id: collisionId,
+                category: 'collision',
+                status: 'error',
+                message: `靜態儲存格「${s.targetCell.toUpperCase()}」在工作表「${sheetName}」與每日列目標位置衝突。`,
+              })
+            }
+          } else if (
+            !isWorksheetRowObservable(ws, parsed.rowNumber) ||
+            (activeDates && Array.from(activeDates).some((d) => !foundDates.has(d)))
+          ) {
+            collisionObservable = false
           }
         }
       }
     }
 
     if (!collisionFound) {
-      items.push({
-        id: 'collision-pass',
-        category: 'collision',
-        status: 'pass',
-        message: '儲存格位置檢查通過：未發現每日列與靜態儲存格位置衝突',
-      })
+      if (collisionObservable && checkedWorksheets.size > 0) {
+        items.push({
+          id: 'collision-pass',
+          category: 'collision',
+          status: 'pass',
+          message: '儲存格位置檢查通過：未發現每日列與靜態儲存格位置衝突',
+        })
+      } else {
+        items.push({
+          id: 'collision-unverified',
+          category: 'collision',
+          status: 'not_verified',
+          message: '部分日期列或儲存格位於預覽範圍外，無法預先完整確認儲存格位置衝突（將於匯出時進行最終檢查）。',
+        })
+      }
     }
   } else if (worksheetPreviews.length === 0) {
     items.push({

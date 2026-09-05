@@ -2575,5 +2575,241 @@ describe('Component: ExportTemplateSection', () => {
       const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
       expect(preflightBadge.text()).toBe('設定基本檢查通過（未完整驗證）')
     })
+
+    describe('Blocker 3: Mapping UI Transform Synchronization & Stale Transform Elimination', () => {
+      it('clears incompatible transform when switching sourceField from DATETIME (actual_clock_in_at + TIME_HH_MM) to STRING (note)', async () => {
+        const mockTemplate: exportTemplatesApi.ExportTemplate = {
+          id: 'tpl-1',
+          user_id: 'user-1',
+          assignment_id: 'asg-1',
+          name: '出勤範本',
+          storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+          month_worksheet_mapping: { '2026-08': '8月' },
+          row_mapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C', transforms: [{ type: 'TIME_HH_MM' }] },
+          ],
+          static_cell_mapping: [],
+          created_at: '2026-08-01T00:00:00Z',
+          updated_at: '2026-08-01T00:00:00Z',
+        }
+        const preview: WorkbookPreview = {
+          worksheets: [
+            {
+              name: '8月',
+              isHidden: false,
+              isProtected: false,
+              hasImages: false,
+              columns: [{ column: 'A', isHidden: false }, { column: 'C', isHidden: false }],
+              rows: [{ rowNumber: 4, isHidden: false, cells: [{ column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' }] }],
+            },
+          ],
+        }
+        vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+        vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+        vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+        vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(preview)
+        vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+        const wrapper = mount(ExportTemplateSection, {
+          props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+        })
+        await flushPromises()
+
+        // Switch row 1 sourceField to 'note'
+        const rowSourceSelect = wrapper.find('#row-source-1')
+        await rowSourceSelect.setValue('note')
+        await flushPromises()
+
+        // Preflight panel must NOT contain "無法套用轉換『TIME_HH_MM』" error
+        const preflightErrors = wrapper.findAll('[data-test="preflight-item-mapping_config"]')
+        expect(preflightErrors.some((el) => el.text().includes('TIME_HH_MM'))).toBe(false)
+        expect(wrapper.find('[data-test="preflight-badge"]').text()).not.toBe('存在需修正項目')
+
+        // Save mapping
+        await wrapper.find('button[type="submit"]').trigger('submit')
+        await flushPromises()
+
+        // Verify payload sent to saveExportTemplateMapping has no TIME_HH_MM on 'note'
+        expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+          expect.objectContaining({
+            rowMapping: expect.arrayContaining([
+              expect.objectContaining({
+                sourceField: 'note',
+                targetColumn: 'C',
+                transforms: undefined,
+              }),
+            ]),
+          })
+        )
+      })
+
+      it('clears transforms when user explicitly selects "無 (原值寫入)" from transform dropdown', async () => {
+        const mockTemplate: exportTemplatesApi.ExportTemplate = {
+          id: 'tpl-1',
+          user_id: 'user-1',
+          assignment_id: 'asg-1',
+          name: '出勤範本',
+          storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+          month_worksheet_mapping: { '2026-08': '8月' },
+          row_mapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C', transforms: [{ type: 'TIME_HH_MM' }] },
+          ],
+          static_cell_mapping: [],
+          created_at: '2026-08-01T00:00:00Z',
+          updated_at: '2026-08-01T00:00:00Z',
+        }
+        const preview: WorkbookPreview = {
+          worksheets: [
+            {
+              name: '8月',
+              isHidden: false,
+              isProtected: false,
+              hasImages: false,
+              columns: [{ column: 'A', isHidden: false }, { column: 'C', isHidden: false }],
+              rows: [{ rowNumber: 4, isHidden: false, cells: [{ column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' }] }],
+            },
+          ],
+        }
+        vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+        vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+        vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+        vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(preview)
+        vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+        const wrapper = mount(ExportTemplateSection, {
+          props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+        })
+        await flushPromises()
+
+        // Change transform dropdown to "" (無)
+        const transformSelect = wrapper.find('#row-transform-1')
+        await transformSelect.setValue('')
+        await flushPromises()
+
+        // Submit form
+        await wrapper.find('button[type="submit"]').trigger('submit')
+        await flushPromises()
+
+        expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+          expect.objectContaining({
+            rowMapping: expect.arrayContaining([
+              expect.objectContaining({
+                sourceField: 'actual_clock_in_at',
+                targetColumn: 'C',
+                transforms: undefined,
+              }),
+            ]),
+          })
+        )
+      })
+
+      it('normalizes incompatible transform on load so UI and model/preflight match', async () => {
+        const mockTemplate: exportTemplatesApi.ExportTemplate = {
+          id: 'tpl-1',
+          user_id: 'user-1',
+          assignment_id: 'asg-1',
+          name: '出勤範本',
+          storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+          month_worksheet_mapping: { '2026-08': '8月' },
+          row_mapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'note', targetColumn: 'C', transforms: [{ type: 'TIME_HH_MM' }] as any }, // Corrupted: note with TIME_HH_MM
+          ],
+          static_cell_mapping: [],
+          created_at: '2026-08-01T00:00:00Z',
+          updated_at: '2026-08-01T00:00:00Z',
+        }
+        const preview: WorkbookPreview = {
+          worksheets: [
+            {
+              name: '8月',
+              isHidden: false,
+              isProtected: false,
+              hasImages: false,
+              columns: [{ column: 'A', isHidden: false }, { column: 'C', isHidden: false }],
+              rows: [{ rowNumber: 4, isHidden: false, cells: [{ column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' }] }],
+            },
+          ],
+        }
+        vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+        vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+        vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+        vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(preview)
+
+        const wrapper = mount(ExportTemplateSection, {
+          props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+        })
+        await flushPromises()
+
+        // UI transform dropdown must be empty ("")
+        const transformSelect = wrapper.find<HTMLSelectElement>('#row-transform-1')
+        expect(transformSelect.element.value).toBe('')
+
+        // Preflight must NOT contain phantom error
+        const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
+        expect(preflightBadge.text()).not.toBe('存在需修正項目')
+      })
+
+      it('preserves valid DATETIME + TIME_HH_MM mapping without unintended clearing', async () => {
+        const mockTemplate: exportTemplatesApi.ExportTemplate = {
+          id: 'tpl-1',
+          user_id: 'user-1',
+          assignment_id: 'asg-1',
+          name: '出勤範本',
+          storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+          month_worksheet_mapping: { '2026-08': '8月' },
+          row_mapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C', transforms: [{ type: 'TIME_HH_MM' }] },
+          ],
+          static_cell_mapping: [],
+          created_at: '2026-08-01T00:00:00Z',
+          updated_at: '2026-08-01T00:00:00Z',
+        }
+        const preview: WorkbookPreview = {
+          worksheets: [
+            {
+              name: '8月',
+              isHidden: false,
+              isProtected: false,
+              hasImages: false,
+              columns: [{ column: 'A', isHidden: false }, { column: 'C', isHidden: false }],
+              rows: [{ rowNumber: 4, isHidden: false, cells: [{ column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' }] }],
+            },
+          ],
+        }
+        vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+        vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+        vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+        vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(preview)
+        vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
+
+        const wrapper = mount(ExportTemplateSection, {
+          props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+        })
+        await flushPromises()
+
+        const transformSelect = wrapper.find<HTMLSelectElement>('#row-transform-1')
+        expect(transformSelect.element.value).toBe('TIME_HH_MM')
+
+        // Submit form without touching transform
+        await wrapper.find('button[type="submit"]').trigger('submit')
+        await flushPromises()
+
+        expect(exportTemplatesApi.saveExportTemplateMapping).toHaveBeenCalledWith(
+          expect.objectContaining({
+            rowMapping: expect.arrayContaining([
+              expect.objectContaining({
+                sourceField: 'actual_clock_in_at',
+                targetColumn: 'C',
+                transforms: [{ type: 'TIME_HH_MM' }],
+              }),
+            ]),
+          })
+        )
+      })
+    })
   })
 })
