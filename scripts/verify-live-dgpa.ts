@@ -28,21 +28,27 @@ export const BASELINE_METADATA: DgpaDatasetMetadata = {
   },
 }
 
-export function loadBaselineFixtureCsv(): string {
+export function loadBaselineFixtureBuffer(): Buffer {
   const __filename = fileURLToPath(import.meta.url)
   const __dirname = path.dirname(__filename)
   const fixturePath = path.resolve(__dirname, '../tests/fixtures/dgpa/calendar-2026-utf8.csv')
-  return fs.readFileSync(fixturePath, 'utf-8')
+  return fs.readFileSync(fixturePath)
+}
+
+export function loadBaselineFixtureCsv(): string {
+  return loadBaselineFixtureBuffer().toString('utf-8')
 }
 
 export function verifyApplicationBaseline(dependencies?: {
   selectResourceFn?: typeof selectDgpaResource
   parseCsvFn?: typeof parseDgpaCalendarCsv
+  decodeBufferFn?: typeof decodeDgpaBuffer
 }): void {
   const selectFn = dependencies?.selectResourceFn ?? selectDgpaResource
   const parseFn = dependencies?.parseCsvFn ?? parseDgpaCalendarCsv
+  const decodeFn = dependencies?.decodeBufferFn ?? decodeDgpaBuffer
   const metadata = BASELINE_METADATA
-  const csvText = loadBaselineFixtureCsv()
+  const rawBuffer = loadBaselineFixtureBuffer()
 
   // 1. Verify resource selection on known baseline metadata
   const candidate = selectFn(metadata, 2026)
@@ -50,12 +56,21 @@ export function verifyApplicationBaseline(dependencies?: {
     throw new Error('Baseline resource selection returned invalid candidate')
   }
 
-  // 2. Verify CSV parsing and calendar validation on known baseline CSV
+  // 2. Verify buffer decoding
+  const encoding = candidate.resourceCharacterEncoding || 'utf-8'
+  const csvText = decodeFn(new Uint8Array(rawBuffer), encoding)
+
+  // 3. Verify CSV parsing and calendar validation on known baseline CSV
   const rows = parseFn(csvText, 2026)
   if (rows.length !== 365) {
     throw new Error(`Baseline parser returned ${rows.length} rows; expected 365`)
   }
 }
+
+export const EXIT_SUCCESS = 0
+export const EXIT_APPLICATION_REGRESSION = 1
+export const EXIT_AVAILABILITY_DRIFT = 2
+export const EXIT_CONTRACT_DRIFT = 3
 
 export type VerificationDiagnosis =
   | 'UPSTREAM AVAILABILITY DRIFT'
@@ -92,7 +107,7 @@ function classifyContractOrRegressionError(
       errorDetails: `Application baseline failed: ${baselineErr.message}. Live error: ${err.message}`,
       rootCause: `Application logic failed verification against known-good baseline: ${baselineErr.message}`,
       verdict: 'APPLICATION REGRESSION.',
-      exitCode: 1,
+      exitCode: EXIT_APPLICATION_REGRESSION,
       logs,
     }
   }
@@ -104,7 +119,7 @@ function classifyContractOrRegressionError(
     errorDetails: err.message,
     rootCause: upstreamRootCause,
     verdict: 'Upstream contract drift.',
-    exitCode: 3,
+    exitCode: EXIT_CONTRACT_DRIFT,
     logs,
   }
 }
@@ -114,6 +129,7 @@ export interface EvaluateOptions {
   fetchFn?: typeof fetch
   selectResourceFn?: typeof selectDgpaResource
   parseCsvFn?: typeof parseDgpaCalendarCsv
+  decodeBufferFn?: typeof decodeDgpaBuffer
   verifyBaselineFn?: () => void
 }
 
@@ -122,12 +138,14 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   const fetchFn = options?.fetchFn ?? fetch
   const selectFn = options?.selectResourceFn ?? selectDgpaResource
   const parseFn = options?.parseCsvFn ?? parseDgpaCalendarCsv
+  const decodeFn = options?.decodeBufferFn ?? decodeDgpaBuffer
   const verifyBaseline =
     options?.verifyBaselineFn ??
     (() =>
       verifyApplicationBaseline({
         selectResourceFn: selectFn,
         parseCsvFn: parseFn,
+        decodeBufferFn: decodeFn,
       }))
 
   const logs: string[] = []
@@ -163,7 +181,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
       errorDetails: err.message,
       rootCause: 'Official government open data platform is unreachable or timing out.',
       verdict: 'NOT an application code regression.',
-      exitCode: 2,
+      exitCode: EXIT_AVAILABILITY_DRIFT,
       logs,
     }
   }
@@ -213,7 +231,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
       errorDetails: err.message,
       rootCause: 'Official DGPA file server unreachable or file missing.',
       verdict: 'NOT an application code regression.',
-      exitCode: 2,
+      exitCode: EXIT_AVAILABILITY_DRIFT,
       logs,
     }
   }
@@ -221,7 +239,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   // Step 4: Decode and parse CSV according to metadata encoding
   try {
     const encoding = candidate.resourceCharacterEncoding || 'utf-8'
-    const csvText = decodeDgpaBuffer(new Uint8Array(csvBuffer), encoding)
+    const csvText = decodeFn(new Uint8Array(csvBuffer), encoding)
     const rows = parseFn(csvText, targetYear)
 
     logs.push(`✓ [4/4] Full-year parsed & validated: ${rows.length} calendar days`)
@@ -246,7 +264,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
 
   return {
     success: true,
-    exitCode: 0,
+    exitCode: EXIT_SUCCESS,
     logs,
   }
 }

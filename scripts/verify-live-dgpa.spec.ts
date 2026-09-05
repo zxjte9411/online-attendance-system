@@ -3,6 +3,10 @@ import {
   evaluateLiveDgpa,
   verifyApplicationBaseline,
   BASELINE_METADATA,
+  EXIT_SUCCESS,
+  EXIT_APPLICATION_REGRESSION,
+  EXIT_AVAILABILITY_DRIFT,
+  EXIT_CONTRACT_DRIFT,
 } from './verify-live-dgpa'
 
 describe('Live DGPA Verification Root-Cause Diagnosis (verify-live-dgpa.ts)', () => {
@@ -186,7 +190,25 @@ describe('Live DGPA Verification Root-Cause Diagnosis (verify-live-dgpa.ts)', ()
 
     expect(result.success).toBe(false)
     expect(result.diagnosis).toBe('APPLICATION REGRESSION')
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(EXIT_APPLICATION_REGRESSION)
+    expect(result.verdict).toBe('APPLICATION REGRESSION.')
+  })
+
+  it('reliably diagnoses APPLICATION REGRESSION (exitCode 1) when application decode logic breaks', async () => {
+    // Simulating a regression where decodeBufferFn is buggy and throws even on baseline
+    const buggyDecodeFn = () => {
+      throw new Error('Bug in decodeDgpaBuffer implementation')
+    }
+
+    const result = await evaluateLiveDgpa({
+      targetYear: 2026,
+      fetchFn: mockFetchSuccess,
+      decodeBufferFn: buggyDecodeFn as any,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.diagnosis).toBe('APPLICATION REGRESSION')
+    expect(result.exitCode).toBe(EXIT_APPLICATION_REGRESSION)
     expect(result.verdict).toBe('APPLICATION REGRESSION.')
   })
 })
