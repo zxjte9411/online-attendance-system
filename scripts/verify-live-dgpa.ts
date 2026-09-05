@@ -1,43 +1,109 @@
 #!/usr/bin/env bun
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   selectDgpaResource,
   parseDgpaCalendarCsv,
   decodeDgpaBuffer,
   type DgpaDatasetMetadata,
+  type DgpaResource,
 } from '../supabase/functions/_shared/dgpa-calendar/parser.ts'
 
-const OFFICIAL_METADATA_URL = 'https://data.gov.tw/api/v2/rest/dataset/14718'
+export const OFFICIAL_METADATA_URL = 'https://data.gov.tw/api/v2/rest/dataset/14718'
 
-function reportFailure(
-  diagnosis: 'UPSTREAM AVAILABILITY DRIFT' | 'UPSTREAM CONTRACT DRIFT' | 'APPLICATION REGRESSION',
-  failureSeam: string,
-  details: string,
-  rootCause: string,
-  verdict: string,
-  exitCode: number,
-  extra?: { label: string; value: string }
-): never {
-  console.error('\n' + '='.repeat(70))
-  console.error(`[DIAGNOSIS: ${diagnosis}]`)
-  console.error(`Failure Seam: ${failureSeam}`)
-  if (extra) {
-    console.error(`${extra.label}: ${extra.value}`)
-  }
-  console.error(`Error details: ${details}`)
-  console.error(`Root cause: ${rootCause}`)
-  console.error(`Verdict: ${verdict}`)
-  console.error('='.repeat(70) + '\n')
-  process.exit(exitCode)
+export const BASELINE_METADATA: DgpaDatasetMetadata = {
+  result: {
+    distribution: [
+      {
+        resourceDescription: '115年中華民國政府行政機關辦公日曆表',
+        resourceDownloadUrl: 'https://example.com/fixture.csv',
+        resourceCharacterEncoding: 'utf-8',
+        resourceFormat: 'CSV',
+        resourceQualityCheckTime: '2026-07-15 11:30:22',
+        resourceField: ['西元日期', '星期', '是否放假', '備註'],
+      },
+    ],
+  },
 }
 
-async function runLiveVerification() {
-  const args = process.argv.slice(2)
-  const yearArg = args.find((a) => /^\d{4}$/.test(a))
-  const targetYear = yearArg ? Number(yearArg) : 2026
+export function loadBaselineFixtureCsv(): string {
+  const __filename = fileURLToPath(import.meta.url)
+  const __dirname = path.dirname(__filename)
+  const fixturePath = path.resolve(__dirname, '../tests/fixtures/dgpa/calendar-2026-utf8.csv')
+  return fs.readFileSync(fixturePath, 'utf-8')
+}
 
-  console.log(`=== DGPA Official Upstream Live Verification (Year: ${targetYear}) ===`)
-  console.log(`[Non-blocking / Out-of-band Verification Seam]`)
-  console.log(`Connecting to official data.gov.tw endpoint: ${OFFICIAL_METADATA_URL}...\n`)
+export function verifyApplicationBaseline(dependencies?: {
+  selectResourceFn?: typeof selectDgpaResource
+  parseCsvFn?: typeof parseDgpaCalendarCsv
+  baselineMetadata?: DgpaDatasetMetadata
+  baselineCsvText?: string
+}): void {
+  const selectFn = dependencies?.selectResourceFn ?? selectDgpaResource
+  const parseFn = dependencies?.parseCsvFn ?? parseDgpaCalendarCsv
+  const metadata = dependencies?.baselineMetadata ?? BASELINE_METADATA
+  const csvText = dependencies?.baselineCsvText ?? loadBaselineFixtureCsv()
+
+  // 1. Verify resource selection on known baseline metadata
+  const candidate = selectFn(metadata, 2026)
+  if (!candidate || candidate.resourceCharacterEncoding !== 'utf-8') {
+    throw new Error('Baseline resource selection returned invalid candidate')
+  }
+
+  // 2. Verify CSV parsing and calendar validation on known baseline CSV
+  const rows = parseFn(csvText, 2026)
+  if (rows.length !== 365) {
+    throw new Error(`Baseline parser returned ${rows.length} rows; expected 365`)
+  }
+}
+
+export type VerificationDiagnosis =
+  | 'UPSTREAM AVAILABILITY DRIFT'
+  | 'UPSTREAM CONTRACT DRIFT'
+  | 'APPLICATION REGRESSION'
+
+export interface VerificationResult {
+  success: boolean
+  diagnosis?: VerificationDiagnosis
+  failureSeam?: string
+  exitCode: number
+  errorDetails?: string
+  rootCause?: string
+  verdict?: string
+  logs: string[]
+  extra?: { label: string; value: string }
+}
+
+export interface EvaluateOptions {
+  targetYear?: number
+  fetchFn?: typeof fetch
+  selectResourceFn?: typeof selectDgpaResource
+  parseCsvFn?: typeof parseDgpaCalendarCsv
+  decodeBufferFn?: typeof decodeDgpaBuffer
+  verifyBaselineFn?: () => void
+  metadataUrl?: string
+}
+
+export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<VerificationResult> {
+  const targetYear = options?.targetYear ?? 2026
+  const fetchFn = options?.fetchFn ?? fetch
+  const selectFn = options?.selectResourceFn ?? selectDgpaResource
+  const parseFn = options?.parseCsvFn ?? parseDgpaCalendarCsv
+  const decodeBufferFn = options?.decodeBufferFn ?? decodeDgpaBuffer
+  const metadataUrl = options?.metadataUrl ?? OFFICIAL_METADATA_URL
+  const verifyBaseline =
+    options?.verifyBaselineFn ??
+    (() =>
+      verifyApplicationBaseline({
+        selectResourceFn: selectFn,
+        parseCsvFn: parseFn,
+      }))
+
+  const logs: string[] = []
+  logs.push(`=== DGPA Official Upstream Live Verification (Year: ${targetYear}) ===`)
+  logs.push(`[Non-blocking / Out-of-band Verification Seam]`)
+  logs.push(`Connecting to official data.gov.tw endpoint: ${metadataUrl}...\n`)
 
   // Step 1: Probe metadata endpoint
   let metadata: DgpaDatasetMetadata
@@ -46,7 +112,7 @@ async function runLiveVerification() {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-    const res = await fetch(OFFICIAL_METADATA_URL, {
+    const res = await fetchFn(metadataUrl, {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     })
@@ -57,37 +123,57 @@ async function runLiveVerification() {
     }
     metadata = await res.json()
     const elapsed = Date.now() - fetchStartTime
-    console.log(`✓ [1/4] Upstream metadata reachable (${elapsed}ms)`)
+    logs.push(`✓ [1/4] Upstream metadata reachable (${elapsed}ms)`)
   } catch (err: any) {
-    reportFailure(
-      'UPSTREAM AVAILABILITY DRIFT',
-      'data.gov.tw metadata discovery endpoint',
-      err.message,
-      'Official government open data platform is unreachable or timing out.',
-      'NOT an application code regression.',
-      2,
-      { label: 'Endpoint', value: OFFICIAL_METADATA_URL }
-    )
+    return {
+      success: false,
+      diagnosis: 'UPSTREAM AVAILABILITY DRIFT',
+      failureSeam: 'data.gov.tw metadata discovery endpoint',
+      extra: { label: 'Endpoint', value: metadataUrl },
+      errorDetails: err.message,
+      rootCause: 'Official government open data platform is unreachable or timing out.',
+      verdict: 'NOT an application code regression.',
+      exitCode: 2,
+      logs,
+    }
   }
 
   // Step 2: Validate metadata schema and candidate selection
-  let candidate
+  let candidate: DgpaResource
   try {
-    candidate = selectDgpaResource(metadata, targetYear)
-    console.log(`✓ [2/4] Valid candidate resource found for ${targetYear}:`)
-    console.log(`        Description: ${candidate.resourceDescription}`)
-    console.log(`        Encoding:    ${candidate.resourceCharacterEncoding}`)
-    console.log(`        QualityTime: ${candidate.resourceQualityCheckTime}`)
-    console.log(`        URL:         ${candidate.resourceDownloadUrl}`)
+    candidate = selectFn(metadata, targetYear)
+    logs.push(`✓ [2/4] Valid candidate resource found for ${targetYear}:`)
+    logs.push(`        Description: ${candidate.resourceDescription}`)
+    logs.push(`        Encoding:    ${candidate.resourceCharacterEncoding}`)
+    logs.push(`        QualityTime: ${candidate.resourceQualityCheckTime}`)
+    logs.push(`        URL:         ${candidate.resourceDownloadUrl}`)
   } catch (err: any) {
-    reportFailure(
-      'UPSTREAM CONTRACT DRIFT',
-      'DGPA dataset metadata schema validation',
-      err.message,
-      'Upstream dataset structure changed, fields missing, or target year resource not published.',
-      'Upstream contract drift.',
-      3
-    )
+    // Check application baseline to distinguish regression from upstream contract drift
+    try {
+      verifyBaseline()
+    } catch (baselineErr: any) {
+      return {
+        success: false,
+        diagnosis: 'APPLICATION REGRESSION',
+        failureSeam: 'Application resource selection logic (selectDgpaResource)',
+        errorDetails: `Application baseline failed: ${baselineErr.message}. Live error: ${err.message}`,
+        rootCause: 'Application resource selection logic is broken against known-good baseline metadata.',
+        verdict: 'APPLICATION REGRESSION.',
+        exitCode: 1,
+        logs,
+      }
+    }
+
+    return {
+      success: false,
+      diagnosis: 'UPSTREAM CONTRACT DRIFT',
+      failureSeam: 'DGPA dataset metadata schema validation',
+      errorDetails: err.message,
+      rootCause: 'Upstream dataset structure changed, fields missing, or target year resource not published.',
+      verdict: 'Upstream contract drift.',
+      exitCode: 3,
+      logs,
+    }
   }
 
   // Step 3: Download CSV resource from DGPA file server
@@ -97,7 +183,7 @@ async function runLiveVerification() {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-    const res = await fetch(candidate.resourceDownloadUrl, { signal: controller.signal })
+    const res = await fetchFn(candidate.resourceDownloadUrl, { signal: controller.signal })
     clearTimeout(timeoutId)
 
     if (!res.ok) {
@@ -105,53 +191,112 @@ async function runLiveVerification() {
     }
     csvBuffer = await res.arrayBuffer()
     const elapsed = Date.now() - downloadStartTime
-    console.log(`✓ [3/4] Candidate CSV downloaded (${csvBuffer.byteLength} bytes in ${elapsed}ms)`)
+    logs.push(`✓ [3/4] Candidate CSV downloaded (${csvBuffer.byteLength} bytes in ${elapsed}ms)`)
   } catch (err: any) {
-    reportFailure(
-      'UPSTREAM AVAILABILITY DRIFT',
-      'DGPA official CSV file download',
-      err.message,
-      'Official DGPA file server unreachable or file missing.',
-      'NOT an application code regression.',
-      2,
-      { label: 'URL', value: candidate.resourceDownloadUrl }
-    )
+    return {
+      success: false,
+      diagnosis: 'UPSTREAM AVAILABILITY DRIFT',
+      failureSeam: 'DGPA official CSV file download',
+      extra: { label: 'URL', value: candidate.resourceDownloadUrl },
+      errorDetails: err.message,
+      rootCause: 'Official DGPA file server unreachable or file missing.',
+      verdict: 'NOT an application code regression.',
+      exitCode: 2,
+      logs,
+    }
   }
 
   // Step 4: Decode and parse CSV according to metadata encoding
   try {
     const encoding = candidate.resourceCharacterEncoding || 'utf-8'
-    const csvText = decodeDgpaBuffer(new Uint8Array(csvBuffer), encoding)
-    const rows = parseDgpaCalendarCsv(csvText, targetYear)
+    const csvText = decodeBufferFn(new Uint8Array(csvBuffer), encoding)
+    const rows = parseFn(csvText, targetYear)
 
-    console.log(`✓ [4/4] Full-year parsed & validated: ${rows.length} calendar days`)
-    console.log(`        Date range:  ${rows[0].calendar_date} to ${rows[rows.length - 1].calendar_date}`)
+    logs.push(`✓ [4/4] Full-year parsed & validated: ${rows.length} calendar days`)
+    logs.push(`        Date range:  ${rows[0].calendar_date} to ${rows[rows.length - 1].calendar_date}`)
     const holidays = rows.filter((r) => r.day_type === 'HOLIDAY')
-    console.log(`        Holidays:    ${holidays.length} days`)
+    logs.push(`        Holidays:    ${holidays.length} days`)
   } catch (err: any) {
-    reportFailure(
-      'UPSTREAM CONTRACT DRIFT',
-      'DGPA CSV parsing and calendar validation',
-      err.message,
-      'Official CSV content format, header fields, holiday codes, or date continuity changed.',
-      'Upstream contract drift.',
-      3
-    )
+    // Check application baseline to distinguish regression from upstream contract drift
+    try {
+      verifyBaseline()
+    } catch (baselineErr: any) {
+      return {
+        success: false,
+        diagnosis: 'APPLICATION REGRESSION',
+        failureSeam: 'Application CSV parsing / decoding logic (parseDgpaCalendarCsv)',
+        errorDetails: `Application baseline failed: ${baselineErr.message}. Live error: ${err.message}`,
+        rootCause: 'Application CSV parser failed verification against known-good baseline fixture.',
+        verdict: 'APPLICATION REGRESSION.',
+        exitCode: 1,
+        logs,
+      }
+    }
+
+    return {
+      success: false,
+      diagnosis: 'UPSTREAM CONTRACT DRIFT',
+      failureSeam: 'DGPA CSV parsing and calendar validation',
+      errorDetails: err.message,
+      rootCause: 'Official CSV content format, header fields, holiday codes, or date continuity changed.',
+      verdict: 'Upstream contract drift.',
+      exitCode: 3,
+      logs,
+    }
   }
 
-  console.log('\n' + '='.repeat(70))
-  console.log(`✓ Upstream DGPA live contract verified successfully for year ${targetYear}.`)
-  console.log('  All metadata, network endpoints, encoding, and calendar data are fully compatible.')
-  console.log('='.repeat(70))
+  logs.push('\n' + '='.repeat(70))
+  logs.push(`✓ Upstream DGPA live contract verified successfully for year ${targetYear}.`)
+  logs.push('  All metadata, network endpoints, encoding, and calendar data are fully compatible.')
+  logs.push('='.repeat(70))
+
+  return {
+    success: true,
+    exitCode: 0,
+    logs,
+  }
 }
 
-runLiveVerification().catch((err) => {
-  reportFailure(
-    'APPLICATION REGRESSION',
-    'Live verification runner entrypoint',
-    err.message || String(err),
-    'Unexpected exception occurred in live verification runner.',
-    'APPLICATION REGRESSION.',
-    1
-  )
-})
+function printReport(result: VerificationResult): void {
+  for (const log of result.logs) {
+    console.log(log)
+  }
+
+  if (!result.success && result.diagnosis) {
+    console.error('\n' + '='.repeat(70))
+    console.error(`[DIAGNOSIS: ${result.diagnosis}]`)
+    console.error(`Failure Seam: ${result.failureSeam}`)
+    if (result.extra) {
+      console.error(`${result.extra.label}: ${result.extra.value}`)
+    }
+    console.error(`Error details: ${result.errorDetails}`)
+    console.error(`Root cause: ${result.rootCause}`)
+    console.error(`Verdict: ${result.verdict}`)
+    console.error('='.repeat(70) + '\n')
+  }
+}
+
+async function runCli(): Promise<void> {
+  const args = process.argv.slice(2)
+  const yearArg = args.find((a) => /^\d{4}$/.test(a))
+  const targetYear = yearArg ? Number(yearArg) : 2026
+
+  try {
+    const result = await evaluateLiveDgpa({ targetYear })
+    printReport(result)
+    process.exit(result.exitCode)
+  } catch (err: any) {
+    console.error('\n' + '='.repeat(70))
+    console.error('[DIAGNOSIS: APPLICATION REGRESSION]')
+    console.error('Failure Seam: Live verification CLI runner')
+    console.error(`Error details: ${err.message || String(err)}`)
+    console.error('Root cause: Unexpected uncaught exception in verification runner.')
+    console.error('Verdict: APPLICATION REGRESSION.')
+    console.error('='.repeat(70) + '\n')
+    process.exit(1)
+  }
+}
+
+if (import.meta.main || process.argv[1]?.endsWith('verify-live-dgpa.ts')) {
+  runCli()
+}
