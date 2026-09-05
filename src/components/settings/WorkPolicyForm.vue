@@ -241,7 +241,7 @@ async function submit() {
     <p v-if="errorMessage" id="policy-error" ref="errorRegion" class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">{{ errorMessage }}</p>
     <p v-if="successMessage" class="rounded-[0.625rem] border border-accent-soft bg-accent-soft px-3.5 py-3 text-sm text-ink" role="status" aria-live="polite">{{ successMessage }}</p>
     <button class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="submit" :disabled="isSaving" :aria-busy="isSaving">
-      {{ isSaving ? '儲存中…' : (policy ? '儲存工作制度' : (onboarding ? '儲存並完成設定' : '新增工作制度')) }}
+      {{ isSaving ? '儲存中…' : (policy || onboarding ? '儲存工作制度' : '新增工作制度') }}
     </button>
   </form>
 </template>

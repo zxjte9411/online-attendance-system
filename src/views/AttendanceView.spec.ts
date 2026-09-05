@@ -442,7 +442,7 @@ describe('AttendanceView', () => {
       message: errorMessage,
       code: 'P0001',
       details: `RPC resolution: ${resolution}`,
-      hint: '請先完成工作派駐與政策設定。',
+      hint: '請先完成工作派駐與工作制度設定。',
       status: 400,
     })
 
