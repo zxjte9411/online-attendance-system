@@ -1,8 +1,11 @@
 # 線上出勤時數表 Exploration / Design Notes
 
-> **文件定位**：本文件是 Exploration / Design Notes（探索／設計筆記），用來保留設計脈絡、例子與替代方案，不是需求規格的唯一真相。實作、範圍、驗收與名詞以 [`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md) 為準；若兩者衝突，以 PRD 為準。
+> [!WARNING]
+> **文件狀態：Historical / Superseded（歷史保留文件）**
 >
-> `clock-out rounding`、假日的 paid/reported hours，以及 Excel template 的 monthly strategy 尚未在本文件定案，請改以主 PRD 的 **Open Decisions** 為準。本文件中的相關內容均是待決問題、候選方案或示意例子。
+> 本文件是早期 Exploration / Design Notes（探索／設計筆記），用來保留設計脈絡、歷史例子與替代方案。本文件提及之「Work Context」、「active / default context」等模型已被淘汰。
+>
+> 目前 repository 的 canonical domain vocabulary、生命週期規格與現行合約以根目錄 [`CONTEXT.md`](../CONTEXT.md) 與 **[Issue #48](https://github.com/zxjte9411/online-attendance-system/issues/48)** 為唯一權威依據。本文件僅保留作為歷史脈絡參考，不得宣稱為現行實作或規格依據。
 
 ## 1. 專案目標
 
@@ -419,8 +422,8 @@ note
 
 # 11. 補打卡
 
-探索時曾將補打卡視為重要候選功能；是否納入及其範圍，以主 PRD 為唯一
-規格依據。
+探索時曾將補打卡視為重要候選功能；是否納入及其範圍，以歷史主 PRD 為
+規格參考（現行規格以 CONTEXT.md 與 #48 為準）。
 
 因為實際使用時很可能發生：
 
@@ -899,16 +902,16 @@ TaiwanHolidayProvider
 
 自動取得台灣政府公開假日資料。
 
-原本的考量是避免一次擴大 scope；是否採用以主 PRD 為唯一規格依據。
+原本的考量是避免一次擴大 scope；是否採用以歷史主 PRD 為規格參考。
 
 ---
 
 # 19. 歷史探索：功能分組候選
 
 原探索稿曾以版本編號描述可能的功能分組；以下只保留當時的設計脈絡，
-不構成版本承諾、產品路線或規格。實作範圍與優先序以主 PRD
+不構成版本承諾、產品路線或規格。實作範圍與優先序以歷史主 PRD
 （[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md)）
-為唯一規格依據。
+為參考（現行規格由 CONTEXT.md 與 #48 取代）。
 
 ## 19.1 日常出勤候選
 
@@ -972,18 +975,18 @@ mapping（需要 Export Template 時）
 CSV / XLSX
 ```
 
-這只是設計脈絡，不是實作順序或強制架構；資料流與匯出規格以主 PRD
+這只是設計脈絡，不是實作順序或強制架構；資料流與匯出規格以歷史主 PRD
 （[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md)）
-為唯一依據。
+為參考（現行規格由 CONTEXT.md 與 #48 取代）。
 
 ---
 
 # 21. 歷史探索中的架構取向
 
 原探索稿曾將以下兩項列為重要架構取向。它們是設計脈絡與候選方案，
-不是本文件另行制定的架構決策；實作時以
-[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md) 為唯一
-規格依據。
+不是本文件另行制定的架構決策；實作時以歷史主 PRD
+（[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md)）
+為參考（現行規格由 CONTEXT.md 與 #48 取代）。
 
 ## 21.1 將 Work Policy 抽為設定資料
 
@@ -1038,8 +1041,8 @@ effective_clock_in_at
 # 22. 歷史探索中的延伸想法（非產品路線）
 
 原探索稿曾列出以下延伸想法；它們只是候選題材，不代表後續承諾或
-開發順序。是否納入產品以主 PRD（[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md)）
-為唯一規格依據：
+開發順序。是否納入產品以歷史主 PRD（[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md)）
+為參考（現行規格由 CONTEXT.md 與 #48 取代）：
 
 - PWA / 手機桌面捷徑
 - 上班提醒
@@ -1062,9 +1065,9 @@ effective_clock_in_at
 
 原探索稿曾以「先降低每日打卡成本，再降低月底整理與甲方 Excel 回填
 成本」描述價值假設。這不是實作順序、版本路線或規格；產品仍維持個人
-出勤工具邊界，不擴張為 HR／SaaS 產品，實作以主 PRD
+出勤工具邊界，不擴張為 HR／SaaS 產品，實作以歷史主 PRD
 （[`online-attendance-system-PRD.md`](./online-attendance-system-PRD.md)）
-為唯一依據。
+為參考（現行規格由 CONTEXT.md 與 #48 取代）。
 
 當時的說明示意如下：
 

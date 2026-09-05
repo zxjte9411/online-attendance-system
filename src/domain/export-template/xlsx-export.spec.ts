@@ -559,9 +559,12 @@ describe('Domain: XLSX Export Engine', () => {
 
       const customBytes = new Uint8Array(await wb.xlsx.writeBuffer())
 
-      const naReport = {
+      const baseReport = createMockReport('2026-08')
+      const naReport: MonthlyReport = {
+        ...baseReport,
         yearMonth: '2026-08',
         assignment: {
+          ...baseReport.assignment,
           id: 'assign-1',
           user_id: 'user-1',
           staffing_employer: '派遣雇主',
@@ -569,15 +572,6 @@ describe('Domain: XLSX Export Engine', () => {
           project: '專案 P',
           effective_from: '2026-08-03', // Aug 1 is outside assignment period
           effective_to: null,
-        },
-        context: {
-          id: 'ctx-1',
-          user_id: 'user-1',
-          name: '預設情境',
-          company_identifier: 'COMPANY_A',
-          project_identifier: 'PROJECT_X',
-          active: true,
-          is_default: true,
         },
         summary: {
           scheduled_minutes: 480,
@@ -592,12 +586,13 @@ describe('Domain: XLSX Export Engine', () => {
         },
         rows: [
           {
+            ...baseReport.rows[0],
             date: '2026-08-01',
             weekday: 6,
             weekdayLabel: '週六',
             in_assignment_period: false, // N/A date
             calendar_day_type: 'HOLIDAY',
-            calendar_source: 'DEFAULT_WEEKEND',
+            calendar_source: 'WEEKEND_FALLBACK',
             calendar_name: null,
             status: null,
             scheduled_minutes: 0,
@@ -625,6 +620,7 @@ describe('Domain: XLSX Export Engine', () => {
             attendance_context_id: null,
           },
           {
+            ...baseReport.rows[0],
             date: '2026-08-03',
             weekday: 1,
             weekdayLabel: '週一',
@@ -655,7 +651,7 @@ describe('Domain: XLSX Export Engine', () => {
             project_identifier: 'PROJECT_X',
             exception_flags: [],
             attendance_id: 'att-1',
-            attendance_context_id: 'ctx-1',
+            attendance_context_id: null,
           },
         ],
         missingPolicyDates: [],
@@ -676,7 +672,7 @@ describe('Domain: XLSX Export Engine', () => {
       // Should succeed without throwing FORMULA_CELL_OVERWRITE for D6
       const exportedBytes = await exportReportToXlsx({
         templateBytes: customBytes,
-        report: naReport as any,
+        report: naReport,
         config: customConfig,
         targetMonth: '2026-08',
       })
@@ -704,9 +700,11 @@ describe('Domain: XLSX Export Engine', () => {
 
       const customBytes = new Uint8Array(await wb.xlsx.writeBuffer())
 
-      const endReport = {
-        yearMonth: '2026-08',
+      const baseReport = createMockReport('2026-08')
+      const endReport: MonthlyReport = {
+        ...baseReport,
         assignment: {
+          ...baseReport.assignment,
           id: 'assign-end',
           user_id: 'user-1',
           staffing_employer: '派遣雇主',
@@ -717,6 +715,7 @@ describe('Domain: XLSX Export Engine', () => {
         },
         rows: [
           {
+            ...baseReport.rows[0],
             date: '2026-08-10',
             weekday: 1,
             calendar_day_type: 'WORKDAY',
@@ -725,6 +724,7 @@ describe('Domain: XLSX Export Engine', () => {
             note: 'IN_PERIOD_NOTE',
           },
           {
+            ...baseReport.rows[0],
             date: '2026-08-25',
             weekday: 2,
             calendar_day_type: 'WORKDAY',
@@ -749,7 +749,7 @@ describe('Domain: XLSX Export Engine', () => {
 
       const exportedBytes = await exportReportToXlsx({
         templateBytes: customBytes,
-        report: endReport as any,
+        report: endReport,
         config: customConfig,
         targetMonth: '2026-08',
       })
@@ -764,9 +764,11 @@ describe('Domain: XLSX Export Engine', () => {
 
     it('Policy gap（存在未配置制度之工作日）阻擋正式 XLSX 匯出', async () => {
       const customBytes = await createSyntheticTemplateWorkbook()
-      const gapReport = {
-        yearMonth: '2026-08',
+      const baseReport = createMockReport('2026-08')
+      const gapReport: MonthlyReport = {
+        ...baseReport,
         assignment: {
+          ...baseReport.assignment,
           id: 'assign-gap',
           user_id: 'user-1',
           staffing_employer: '派遣雇主',
@@ -790,7 +792,7 @@ describe('Domain: XLSX Export Engine', () => {
       await expect(
         exportReportToXlsx({
           templateBytes: customBytes,
-          report: gapReport as any,
+          report: gapReport,
           config: customConfig,
           targetMonth: '2026-08',
         })
@@ -801,9 +803,11 @@ describe('Domain: XLSX Export Engine', () => {
 
     it('完整 coverage 且使用 assignment static mapping 正常匯出公司與專案名稱', async () => {
       const customBytes = await createSyntheticTemplateWorkbook()
-      const fullReport = {
-        yearMonth: '2026-08',
+      const baseReport = createMockReport('2026-08')
+      const fullReport: MonthlyReport = {
+        ...baseReport,
         assignment: {
+          ...baseReport.assignment,
           id: 'assign-full',
           user_id: 'user-1',
           staffing_employer: '派遣雇主',
@@ -814,6 +818,7 @@ describe('Domain: XLSX Export Engine', () => {
         },
         rows: [
           {
+            ...baseReport.rows[0],
             date: '2026-08-01',
             weekday: 6,
             calendar_day_type: 'HOLIDAY',
@@ -841,7 +846,7 @@ describe('Domain: XLSX Export Engine', () => {
 
       const exportedBytes = await exportReportToXlsx({
         templateBytes: customBytes,
-        report: fullReport as any,
+        report: fullReport,
         config: staticConfig,
         targetMonth: '2026-08',
       })
