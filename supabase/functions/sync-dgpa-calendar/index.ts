@@ -90,10 +90,7 @@ Deno.serve(async (req: Request) => {
       }
       metadata = await metaRes.json()
     } catch (err: any) {
-      return new Response(JSON.stringify({
-        error: `無法取得 DGPA dataset metadata: ${err.message}`,
-        error_type: 'UPSTREAM_METADATA_FETCH_FAILED',
-      }), {
+      return new Response(JSON.stringify({ error: `無法取得 DGPA dataset metadata: ${err.message}` }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -104,10 +101,7 @@ Deno.serve(async (req: Request) => {
     try {
       candidate = selectDgpaResource(metadata, year)
     } catch (err: any) {
-      return new Response(JSON.stringify({
-        error: err.message,
-        error_type: 'UPSTREAM_RESOURCE_SELECTION_FAILED',
-      }), {
+      return new Response(JSON.stringify({ error: err.message }), {
         status: 422,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -122,10 +116,7 @@ Deno.serve(async (req: Request) => {
       }
       csvBuffer = await csvRes.arrayBuffer()
     } catch (err: any) {
-      return new Response(JSON.stringify({
-        error: `無法下載 DGPA CSV 資源: ${err.message}`,
-        error_type: 'UPSTREAM_CSV_DOWNLOAD_FAILED',
-      }), {
+      return new Response(JSON.stringify({ error: `無法下載 DGPA CSV 資源: ${err.message}` }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -140,10 +131,7 @@ Deno.serve(async (req: Request) => {
     try {
       rows = parseDgpaCalendarCsv(csvText, year)
     } catch (err: any) {
-      return new Response(JSON.stringify({
-        error: `DGPA CSV 格式或驗證失敗: ${err.message}`,
-        error_type: 'UPSTREAM_CSV_PARSE_FAILED',
-      }), {
+      return new Response(JSON.stringify({ error: `DGPA CSV 格式或驗證失敗: ${err.message}` }), {
         status: 422,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -163,10 +151,7 @@ Deno.serve(async (req: Request) => {
     })
 
     if (rpcError) {
-      return new Response(JSON.stringify({
-        error: `資料庫寫入失敗: ${rpcError.message}`,
-        error_type: 'DATABASE_WRITE_FAILED',
-      }), {
+      return new Response(JSON.stringify({ error: `資料庫寫入失敗: ${rpcError.message}` }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -186,10 +171,7 @@ Deno.serve(async (req: Request) => {
       }
     )
   } catch (err: any) {
-    return new Response(JSON.stringify({
-      error: `伺服器錯誤: ${err.message || '未知錯誤'}`,
-      error_type: 'INTERNAL_SERVER_ERROR',
-    }), {
+    return new Response(JSON.stringify({ error: `伺服器錯誤: ${err.message || '未知錯誤'}` }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
