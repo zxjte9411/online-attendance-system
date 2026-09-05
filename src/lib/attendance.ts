@@ -85,7 +85,7 @@ export async function getTodayAttendanceReadiness(): Promise<TodayAttendanceRead
     assignment_id: string | null
     policy_id: string | null
   } | null
-  if (!resolutionRow) throw new Error('找不到今日 Work Policy 解析結果。')
+  if (!resolutionRow) throw new Error('找不到今日工作制度解析結果。')
 
   if (resolutionRow.resolution !== 'RESOLVED') {
     return {
@@ -94,7 +94,7 @@ export async function getTodayAttendanceReadiness(): Promise<TodayAttendanceRead
       policy: null,
     }
   }
-  if (!resolutionRow.policy_id) throw new Error('今日 Work Policy 解析結果無效。')
+  if (!resolutionRow.policy_id) throw new Error('今日工作制度解析結果無效。')
 
   const { data: policyData, error: policyError } = await client
     .from('work_policies')
@@ -103,7 +103,7 @@ export async function getTodayAttendanceReadiness(): Promise<TodayAttendanceRead
     .maybeSingle()
 
   if (policyError) throw policyError
-  if (!policyData) throw new Error('找不到今日 Work Policy。')
+  if (!policyData) throw new Error('找不到今日工作制度。')
 
   return {
     resolution: resolutionRow.resolution,
