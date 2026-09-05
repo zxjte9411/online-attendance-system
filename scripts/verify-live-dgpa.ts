@@ -9,8 +9,9 @@ import {
   type DgpaDatasetMetadata,
   type DgpaResource,
 } from '../supabase/functions/_shared/dgpa-calendar/parser.ts'
+import { DEFAULT_DGPA_METADATA_URL } from '../supabase/functions/_shared/dgpa-calendar/config.ts'
 
-export const OFFICIAL_METADATA_URL = 'https://data.gov.tw/api/v2/rest/dataset/14718'
+export const OFFICIAL_METADATA_URL = DEFAULT_DGPA_METADATA_URL
 
 export const BASELINE_METADATA: DgpaDatasetMetadata = {
   result: {
@@ -37,13 +38,11 @@ export function loadBaselineFixtureCsv(): string {
 export function verifyApplicationBaseline(dependencies?: {
   selectResourceFn?: typeof selectDgpaResource
   parseCsvFn?: typeof parseDgpaCalendarCsv
-  baselineMetadata?: DgpaDatasetMetadata
-  baselineCsvText?: string
 }): void {
   const selectFn = dependencies?.selectResourceFn ?? selectDgpaResource
   const parseFn = dependencies?.parseCsvFn ?? parseDgpaCalendarCsv
-  const metadata = dependencies?.baselineMetadata ?? BASELINE_METADATA
-  const csvText = dependencies?.baselineCsvText ?? loadBaselineFixtureCsv()
+  const metadata = BASELINE_METADATA
+  const csvText = loadBaselineFixtureCsv()
 
   // 1. Verify resource selection on known baseline metadata
   const candidate = selectFn(metadata, 2026)
@@ -115,9 +114,7 @@ export interface EvaluateOptions {
   fetchFn?: typeof fetch
   selectResourceFn?: typeof selectDgpaResource
   parseCsvFn?: typeof parseDgpaCalendarCsv
-  decodeBufferFn?: typeof decodeDgpaBuffer
   verifyBaselineFn?: () => void
-  metadataUrl?: string
 }
 
 export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<VerificationResult> {
@@ -125,8 +122,6 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   const fetchFn = options?.fetchFn ?? fetch
   const selectFn = options?.selectResourceFn ?? selectDgpaResource
   const parseFn = options?.parseCsvFn ?? parseDgpaCalendarCsv
-  const decodeBufferFn = options?.decodeBufferFn ?? decodeDgpaBuffer
-  const metadataUrl = options?.metadataUrl ?? OFFICIAL_METADATA_URL
   const verifyBaseline =
     options?.verifyBaselineFn ??
     (() =>
@@ -138,7 +133,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   const logs: string[] = []
   logs.push(`=== DGPA Official Upstream Live Verification (Year: ${targetYear}) ===`)
   logs.push(`[Non-blocking / Out-of-band Verification Seam]`)
-  logs.push(`Connecting to official data.gov.tw endpoint: ${metadataUrl}...\n`)
+  logs.push(`Connecting to official data.gov.tw endpoint: ${OFFICIAL_METADATA_URL}...\n`)
 
   // Step 1: Probe metadata endpoint
   let metadata: DgpaDatasetMetadata
@@ -147,7 +142,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-    const res = await fetchFn(metadataUrl, {
+    const res = await fetchFn(OFFICIAL_METADATA_URL, {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     })
@@ -164,7 +159,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
       success: false,
       diagnosis: 'UPSTREAM AVAILABILITY DRIFT',
       failureSeam: 'data.gov.tw metadata discovery endpoint',
-      extra: { label: 'Endpoint', value: metadataUrl },
+      extra: { label: 'Endpoint', value: OFFICIAL_METADATA_URL },
       errorDetails: err.message,
       rootCause: 'Official government open data platform is unreachable or timing out.',
       verdict: 'NOT an application code regression.',
@@ -226,7 +221,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   // Step 4: Decode and parse CSV according to metadata encoding
   try {
     const encoding = candidate.resourceCharacterEncoding || 'utf-8'
-    const csvText = decodeBufferFn(new Uint8Array(csvBuffer), encoding)
+    const csvText = decodeDgpaBuffer(new Uint8Array(csvBuffer), encoding)
     const rows = parseFn(csvText, targetYear)
 
     logs.push(`✓ [4/4] Full-year parsed & validated: ${rows.length} calendar days`)

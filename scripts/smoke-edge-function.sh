@@ -83,7 +83,7 @@ echo "✓ Edge Runtime upstream isolation verified (DGPA_METADATA_URL is set)"
 # Wait for Edge Function gateway to become responsive
 for i in $(seq 1 15); do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${BASE_URL}/functions/v1/sync-dgpa-calendar" -H "apikey: ${ANON_KEY}" || true)
-  if [ "${STATUS}" != "000" ] && [ "${STATUS}" != "502" ] && [ "${STATUS}" != "503" ]; then
+  if [ "${STATUS}" != "000" ] && [ "${STATUS}" != "502" ] && [ "${STATUS}" != "503" ] && [ "${STATUS}" != "504" ]; then
     break
   fi
   sleep 1
