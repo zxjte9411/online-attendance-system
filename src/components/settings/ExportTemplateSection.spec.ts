@@ -2540,12 +2540,40 @@ describe('Component: ExportTemplateSection', () => {
 
       // Preflight badge is green
       const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
-      expect(preflightBadge.text()).toBe('設定可正常匯出')
+      expect(preflightBadge.text()).toBe('設定已完整驗證')
 
       // Unmapped preservation item is shown in preflight panel
       const preservationItem = wrapper.find('[data-test="preflight-item-unmapped_preservation"]')
       expect(preservationItem.exists()).toBe(true)
       expect(preservationItem.text()).toContain('未 Mapping 的公式與原始內容會保留')
+    })
+
+    it('shows unverified badge when template preview is absent', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'asg-1',
+        name: '出勤範本',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.spyOn(exportTemplatesApi, 'getExportTemplate').mockResolvedValue(mockTemplate)
+      vi.spyOn(exportTemplatesApi, 'downloadExportTemplateFile').mockRejectedValue(new Error('Preview load fail'))
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+      })
+      await flushPromises()
+
+      const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
+      expect(preflightBadge.text()).toBe('設定基本檢查通過（未完整驗證）')
     })
   })
 })

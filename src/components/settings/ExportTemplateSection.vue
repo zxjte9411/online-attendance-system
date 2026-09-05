@@ -1626,10 +1626,20 @@ async function handleSaveMapping() {
                 data-test="preflight-badge"
                 :class="[
                   'rounded-full px-2 py-0.5 text-[0.6875rem] font-bold',
-                  exportPreflight.canExport ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                  !exportPreflight.canExport
+                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                    : exportPreflight.isFullyVerified
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                 ]"
               >
-                {{ exportPreflight.canExport ? '設定可正常匯出' : '存在需修正項目' }}
+                {{
+                  !exportPreflight.canExport
+                    ? '存在需修正項目'
+                    : exportPreflight.isFullyVerified
+                      ? '設定已完整驗證'
+                      : '設定基本檢查通過（未完整驗證）'
+                }}
               </span>
             </h4>
             <span class="text-xs text-muted">儲存前可預先確認是否符合匯出條件</span>

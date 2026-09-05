@@ -44,8 +44,28 @@ export interface FormulaTargetWarning {
   message: string
 }
 
+function normalizeMonthMap(
+  mapping: Record<string, string> | Array<{ month?: string; worksheet?: string }> | undefined
+): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (Array.isArray(mapping)) {
+    for (const item of mapping) {
+      if (item.month?.trim() && item.worksheet?.trim()) {
+        result[item.month.trim()] = item.worksheet.trim()
+      }
+    }
+  } else if (mapping && typeof mapping === 'object') {
+    for (const [k, v] of Object.entries(mapping)) {
+      if (k.trim() && v?.trim()) {
+        result[k.trim()] = v.trim()
+      }
+    }
+  }
+  return result
+}
+
 export function checkFormulaTargetWarnings(params: {
-  monthWorksheetMapping?: Record<string, string> | Array<{ month: string; worksheet: string }>
+  monthWorksheetMapping?: Record<string, string> | Array<{ month?: string; worksheet?: string }>
   rowMappings?: Array<{ sourceField: ReportModelSourceField; targetColumn: string }>
   staticMappings?: Array<{ sourceField: StaticSourceField; targetCell: string }>
   worksheetPreviews?: readonly WorkbookWorksheetPreview[]
@@ -66,20 +86,7 @@ export function checkFormulaTargetWarnings(params: {
   if (!worksheetPreviews.length) return []
 
   // Normalize monthWorksheetMapping
-  const monthMapObj: Record<string, string> = {}
-  if (Array.isArray(monthWorksheetMapping)) {
-    for (const item of monthWorksheetMapping) {
-      if (item.month?.trim() && item.worksheet?.trim()) {
-        monthMapObj[item.month.trim()] = item.worksheet.trim()
-      }
-    }
-  } else if (monthWorksheetMapping && typeof monthWorksheetMapping === 'object') {
-    for (const [k, v] of Object.entries(monthWorksheetMapping)) {
-      if (k.trim() && v?.trim()) {
-        monthMapObj[k.trim()] = v.trim()
-      }
-    }
-  }
+  const monthMapObj = normalizeMonthMap(monthWorksheetMapping)
 
   // Determine target worksheet inspections with associated applicable months
   const targets: Array<{ sheetName: string; months: string[] }> = []
@@ -120,7 +127,7 @@ export function checkFormulaTargetWarnings(params: {
 
     // Collect daily date rows where date matches applicable months (or active report dates)
     const activeDates = report && targetMonth && months.includes(targetMonth)
-      ? new Set(report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date))
+      ? new Set(report.rows.map((r) => r.date))
       : null
 
     const dailyDateRowNumbers = new Set<number>()
@@ -250,20 +257,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
   const items: PreflightCheckItem[] = []
 
   // Convert monthWorksheetMapping to normalized Record
-  const monthMapObj: Record<string, string> = {}
-  if (Array.isArray(monthWorksheetMapping)) {
-    for (const item of monthWorksheetMapping) {
-      if (item.month?.trim() && item.worksheet?.trim()) {
-        monthMapObj[item.month.trim()] = item.worksheet.trim()
-      }
-    }
-  } else if (monthWorksheetMapping && typeof monthWorksheetMapping === 'object') {
-    for (const [k, v] of Object.entries(monthWorksheetMapping)) {
-      if (k.trim() && v?.trim()) {
-        monthMapObj[k.trim()] = v.trim()
-      }
-    }
-  }
+  const monthMapObj = normalizeMonthMap(monthWorksheetMapping)
 
   // 1. Check Date Locator in configuration
   const dateLocator = rowMapping.find((e) => e.sourceField === 'date')
@@ -368,7 +362,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
       if (ws && dateLocator?.targetColumn) {
         const dateCol = dateLocator.targetColumn.trim().toUpperCase()
         const activeDates = report
-          ? report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date)
+          ? report.rows.map((r) => r.date)
           : null
 
         const foundDates = new Set<string>()
