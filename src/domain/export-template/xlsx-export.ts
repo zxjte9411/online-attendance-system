@@ -265,9 +265,9 @@ export async function exportReportToXlsx({
     if (staticEntry.sourceField === 'year_month') {
       rawValue = targetMonth
     } else if (staticEntry.sourceField === 'company_identifier') {
-      rawValue = report.context?.company_identifier ?? null
+      rawValue = null
     } else if (staticEntry.sourceField === 'project_identifier') {
-      rawValue = report.context?.project_identifier ?? null
+      rawValue = null
     }
 
     try {
