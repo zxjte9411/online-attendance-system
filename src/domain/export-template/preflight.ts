@@ -216,7 +216,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
     })
   }
 
-  // 2. Check Target Month Worksheet Mapping
+  // 2. Check Target Month Worksheet Mapping / Worksheet existence
   if (targetMonth) {
     const mappedSheetName = monthMapObj[targetMonth]
     if (!mappedSheetName) {
@@ -231,7 +231,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
         const wsExists = worksheetPreviews.some((w) => w.name === mappedSheetName)
         if (!wsExists) {
           items.push({
-            id: 'worksheet-not-found',
+            id: `worksheet-not-found-${mappedSheetName}`,
             category: 'worksheet_mapping',
             status: 'error',
             message: `範本中找不到名為「${mappedSheetName}」的工作表。`,
@@ -250,6 +250,19 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
           category: 'worksheet_mapping',
           status: 'pass',
           message: `工作表對應：${targetMonth} → ${mappedSheetName}`,
+        })
+      }
+    }
+  } else if (worksheetPreviews.length > 0 && Object.keys(monthMapObj).length > 0) {
+    // Setting page overview: verify all mapped worksheet names exist in workbook preview
+    const availableNames = new Set(worksheetPreviews.map((w) => w.name))
+    for (const [m, sheetName] of Object.entries(monthMapObj)) {
+      if (sheetName && !availableNames.has(sheetName)) {
+        items.push({
+          id: `worksheet-not-found-${sheetName}`,
+          category: 'worksheet_mapping',
+          status: 'error',
+          message: `月份「${m}」對應之工作表「${sheetName}」不存在於範本中。`,
         })
       }
     }
@@ -274,32 +287,56 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
     }
   }
 
-  // 4. Check Collisions (Static vs Daily rows if date cells are known in target worksheet)
-  if (targetMonth && monthMapObj[targetMonth] && worksheetPreviews.length > 0) {
-    const ws = worksheetPreviews.find((w) => w.name === monthMapObj[targetMonth])
-    if (ws && dateLocator?.targetColumn) {
-      const dateCol = dateLocator.targetColumn.trim().toUpperCase()
+  // 4. Check Collisions (Static vs Daily rows if date cells are known in worksheet)
+  if (worksheetPreviews.length > 0 && dateLocator?.targetColumn) {
+    const dateCol = dateLocator.targetColumn.trim().toUpperCase()
+    const rowTargetCols = new Set(
+      rowMapping.map((r) => r.targetColumn?.trim().toUpperCase()).filter(Boolean)
+    )
+
+    const monthsToCheck = targetMonth
+      ? [targetMonth]
+      : Object.keys(monthMapObj)
+
+    const checkedWorksheets = new Set<string>()
+
+    for (const m of monthsToCheck) {
+      const sheetName = monthMapObj[m]
+      if (!sheetName || checkedWorksheets.has(sheetName)) continue
+      checkedWorksheets.add(sheetName)
+
+      const ws = worksheetPreviews.find((w) => w.name === sheetName)
+      if (!ws) continue
+
+      const activeDates = report && targetMonth === m
+        ? new Set(report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date))
+        : null
+
       const dateRowNumbers = new Set<number>()
       for (const row of ws.rows) {
         const cell = row.cells.find((c) => c.column === dateCol)
         if (cell) {
-          const parsedDate = parseDateCellValue(cell.text, targetMonth)
-          if (parsedDate && parsedDate.startsWith(targetMonth)) {
-            dateRowNumbers.add(row.rowNumber)
+          const parsedDate = parseDateCellValue(cell.text, m)
+          if (parsedDate && parsedDate.startsWith(m)) {
+            if (activeDates === null || activeDates.has(parsedDate)) {
+              dateRowNumbers.add(row.rowNumber)
+            }
           }
         }
       }
 
-      const rowTargetCols = new Set(rowMapping.map((r) => r.targetColumn.trim().toUpperCase()))
       for (const s of staticCellMapping) {
         const parsed = parseA1Address(s.targetCell)
         if (parsed && rowTargetCols.has(parsed.column) && dateRowNumbers.has(parsed.rowNumber)) {
-          items.push({
-            id: `collision-${s.targetCell}`,
-            category: 'collision',
-            status: 'error',
-            message: `靜態儲存格「${s.targetCell.toUpperCase()}」與每日列目標位置衝突。`,
-          })
+          const collisionId = `collision-${sheetName}-${s.targetCell.toUpperCase()}`
+          if (!items.some((i) => i.id === collisionId)) {
+            items.push({
+              id: collisionId,
+              category: 'collision',
+              status: 'error',
+              message: `靜態儲存格「${s.targetCell.toUpperCase()}」在工作表「${sheetName}」與每日列目標位置衝突。`,
+            })
+          }
         }
       }
     }

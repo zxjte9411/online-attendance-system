@@ -265,5 +265,67 @@ describe('Domain: Export Preflight & Formula Guidance (Issue #46)', () => {
       expect(result.canExport).toBe(true)
       expect(result.hasErrors).toBe(false)
     })
+
+    it('detects collision between static mapping target and daily row mapping target', () => {
+      const worksheet: WorkbookWorksheetPreview = {
+        name: '8月',
+        isHidden: false,
+        isProtected: false,
+        hasImages: false,
+        columns: [
+          { column: 'A', isHidden: false },
+          { column: 'C', isHidden: false },
+        ],
+        rows: [
+          {
+            rowNumber: 4,
+            isHidden: false,
+            cells: [
+              { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+              { column: 'C', rowNumber: 4, text: '09:00', structureType: 'ordinary' },
+            ],
+          },
+        ],
+      }
+
+      const result = runExportPreflight({
+        targetMonth: '2026-08',
+        monthWorksheetMapping: { '2026-08': '8月' },
+        rowMapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        staticCellMapping: [
+          { sourceField: 'year_month', targetCell: 'C4' }, // Collides with row mapping C on date row 4
+        ],
+        worksheetPreviews: [worksheet],
+      })
+
+      expect(result.canExport).toBe(false)
+      expect(result.hasErrors).toBe(true)
+      const collisionItem = result.items.find((i) => i.category === 'collision')
+      expect(collisionItem).toBeDefined()
+      expect(collisionItem?.status).toBe('error')
+      expect(collisionItem?.message).toContain('靜態儲存格「C4」在工作表「8月」與每日列目標位置衝突')
+    })
+
+    it('reports error during overview preflight when mapped worksheet does not exist in preview', () => {
+      const ws8 = createMockWorksheetPreview({ name: '8月' })
+      const result = runExportPreflight({
+        monthWorksheetMapping: {
+          '2026-08': '8月',
+          '2026-09': '9月不存在',
+        },
+        rowMapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+        ],
+        worksheetPreviews: [ws8],
+      })
+
+      expect(result.canExport).toBe(false)
+      expect(result.hasErrors).toBe(true)
+      const wsError = result.items.find((i) => i.category === 'worksheet_mapping')
+      expect(wsError?.message).toContain('月份「2026-09」對應之工作表「9月不存在」不存在於範本中')
+    })
   })
 })
