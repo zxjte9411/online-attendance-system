@@ -143,7 +143,7 @@ async function loadPolicies() {
   } catch {
     if (requestToken !== policyRequestToken || assignmentId !== selectedAssignmentId.value) return
     policies.value = []
-    policyError.value = `無法載入「${assignmentName}」的 Work Policy，請稍後再試。`
+    policyError.value = `無法載入「${assignmentName}」的工作制度，請稍後再試。`
   } finally {
     if (requestToken === policyRequestToken && assignmentId === selectedAssignmentId.value) {
       isLoadingPolicies.value = false
@@ -156,7 +156,7 @@ async function handlePolicySaved() {
   showPolicyForm.value = false
   editingPolicy.value = null
   editingPolicyHasAttendance.value = false
-  actionMessage.value = wasEditing ? 'Work Policy 已更新。' : 'Work Policy 已新增。'
+  actionMessage.value = wasEditing ? '工作制度已更新。' : '工作制度已新增。'
   await loadPolicies()
 }
 
@@ -179,7 +179,7 @@ async function handleEditPolicy(policy: AssignmentPolicy) {
   } catch (error) {
     pageError.value = error instanceof Error
       ? error.message
-      : '無法確認此 Work Policy 是否已有出勤紀錄，請稍後再試。'
+      : '無法確認此工作制度是否已有出勤紀錄，請稍後再試。'
     await nextTick()
     errorRegion.value?.focus()
   } finally {
@@ -201,7 +201,7 @@ async function selectAssignment(assignmentId: string) {
     <section class="grid max-w-[42rem] gap-4" aria-labelledby="settings-title">
       <span class="inline-flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-accent"><span class="h-px w-6 bg-current" aria-hidden="true"></span>設定</span>
       <h1 id="settings-title" class="max-w-[13ch] font-display text-[clamp(2.25rem,8vw,4.5rem)] font-semibold leading-[1.12] tracking-[-0.055em] text-balance">把工作環境留在手邊。</h1>
-      <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">管理個人資料、工作派駐與依日期生效的 Work Policy。</p>
+      <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">管理個人資料、工作派駐與依日期生效的工作制度。</p>
     </section>
 
     <div class="mt-8 grid gap-3 border-y border-line py-4">
@@ -270,11 +270,11 @@ async function selectAssignment(assignmentId: string) {
       <section id="policies" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-policies-title">
         <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
           <div class="grid gap-1">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / Work Policy</p>
-            <h2 id="settings-policies-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">Work Policy 版本</h2>
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / 工作制度</p>
+            <h2 id="settings-policies-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作制度版本</h2>
             <p class="text-sm leading-relaxed text-muted">每筆制度都屬於一筆工作派駐；同一派駐的生效日期不可重疊。</p>
           </div>
-          <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="!selectedAssignment || isLoadingPolicies || Boolean(policyError)" @click="editingPolicy = null; editingPolicyHasAttendance = false; showPolicyForm = !showPolicyForm">{{ showPolicyForm ? '取消' : '新增 Work Policy' }}</button>
+          <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="!selectedAssignment || isLoadingPolicies || Boolean(policyError)" @click="editingPolicy = null; editingPolicyHasAttendance = false; showPolicyForm = !showPolicyForm">{{ showPolicyForm ? '取消' : '新增工作制度' }}</button>
         </div>
 
         <div class="grid gap-1.5">
@@ -286,10 +286,10 @@ async function selectAssignment(assignmentId: string) {
 
         <div v-if="selectedAssignment" class="grid gap-3">
           <p class="text-sm text-muted">派駐期間：<span class="font-mono">{{ selectedAssignment.effective_from }} 至 {{ selectedAssignment.effective_to || '未定' }}</span></p>
-          <p v-if="isLoadingPolicies" class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted" role="status" aria-live="polite">正在載入這筆派駐的 Work Policy…</p>
+          <p v-if="isLoadingPolicies" class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted" role="status" aria-live="polite">正在載入這筆派駐的工作制度…</p>
           <p v-else-if="policyError" class="border-s-4 border-[var(--error-line)] ps-4 text-sm leading-relaxed text-[var(--error-ink)]" role="alert">{{ policyError }}</p>
           <template v-else>
-            <ul v-if="policies.length" class="grid divide-y divide-line border-y border-line" aria-label="Work Policy 版本列表">
+            <ul v-if="policies.length" class="grid divide-y divide-line border-y border-line" aria-label="工作制度版本列表">
               <li v-for="policy in policies" :key="policy.id" class="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                 <div class="grid gap-1">
                   <strong>{{ policy.name }}</strong>
@@ -301,10 +301,10 @@ async function selectAssignment(assignmentId: string) {
                 </div>
               </li>
             </ul>
-            <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">這筆工作派駐還沒有 Work Policy。可以先建立過去、目前或未來的制度。</p>
+            <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">這筆工作派駐還沒有工作制度。可以先建立過去、目前或未來的制度。</p>
           </template>
         </div>
-        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">請先建立工作派駐，再設定 Work Policy。</p>
+        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">請先建立工作派駐，再設定工作制度。</p>
 
         <div v-if="showPolicyForm && selectedAssignment && !isLoadingPolicies && !policyError" class="border-t border-line pt-5">
           <WorkPolicyForm :assignment-id="selectedAssignment.id" :assignment="selectedAssignment" :policies="policies" :policy="editingPolicy" :has-attendance="editingPolicyHasAttendance" @saved="handlePolicySaved" />

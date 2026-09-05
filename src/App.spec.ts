@@ -216,7 +216,7 @@ describe('認證路由核心', () => {
     expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
   })
 
-  it('Profile 缺失時導向設定，但不要求工作情境或制度完整', async () => {
+  it('Profile 缺失時導向設定，但不要求工作派駐或制度完整', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
     vi.mocked(getProfile).mockResolvedValue(null)
@@ -239,7 +239,7 @@ describe('認證路由核心', () => {
     expect(router.currentRoute.value.name).toBe('setup')
   })
 
-  it('Profile Ready 時不因工作情境或制度未完成而阻擋受保護路由', async () => {
+  it('Profile Ready 時不因工作派駐或制度未完成而阻擋受保護路由', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
     vi.mocked(getProfile).mockResolvedValue({ display_name: '  王小明  ' } as never)

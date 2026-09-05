@@ -297,7 +297,7 @@ function formatExceptionFlagLabel(flag: string): string {
         月出勤統計與匯出
       </h1>
       <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">
-        依日曆、特殊狀態與 Work Policy 彙總整月工時，並提供 Excel 相容之 CSV 檔案下載。
+        依日曆、特殊狀態與工作制度彙總整月工時，並提供 Excel 相容之 CSV 檔案下載。
       </p>
     </section>
 
@@ -430,7 +430,7 @@ function formatExceptionFlagLabel(flag: string): string {
     >
       <strong class="font-bold">制度設定不完整：</strong>
       <span>
-        目前工作派駐在此月份部分工作日缺少適用的 Work Policy（缺少日期：{{ report.missingPolicyDates.slice(0, 5).join(', ') }}{{ report.missingPolicyDates.length > 5 ? ' 等' : '' }}）。已暫停匯出，請至設定頁面補齊工作制度。
+        目前工作派駐在此月份部分工作日缺少適用的工作制度（缺少日期：{{ report.missingPolicyDates.slice(0, 5).join(', ') }}{{ report.missingPolicyDates.length > 5 ? ' 等' : '' }}）。已暫停匯出，請至設定頁面補齊工作制度。
       </span>
     </div>
 
@@ -597,10 +597,11 @@ function formatExceptionFlagLabel(flag: string): string {
       <p class="font-display text-lg font-bold text-ink">尚未建立任何工作派駐</p>
       <p class="mt-1 text-sm text-muted">目前帳號尚未建立任何工作派駐。請先至設定頁面建立派駐與工作制度後，即可檢視月出勤統計與匯出報表。</p>
       <RouterLink
-        to="/settings#work-assignments"
+        data-test="empty-assignment-cta"
+        to="/settings#assignments"
         class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent hover:underline"
       >
-        前往派駐設定 →
+        前往工作派駐設定 →
       </RouterLink>
     </div>
   </div>

@@ -44,4 +44,18 @@ describe('presentErrorMessage', () => {
     const unknownError = new Error('syntax error at or near "SELECT"')
     expect(presentErrorMessage(unknownError, '載入失敗，請稍後再試。')).toBe('載入失敗，請稍後再試。')
   })
+
+  it('normalizes Work Assignment and Work Policy in clean RPC messages', () => {
+    const noAssignmentError = {
+      code: 'P0001',
+      message: '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。',
+    }
+    expect(presentErrorMessage(noAssignmentError)).toBe('2026-08-10 沒有可用的工作派駐（NO_ASSIGNMENT）。')
+
+    const missingPolicyError = {
+      code: 'P0001',
+      message: '2026-08-11 找不到適用的 Work Policy（MISSING_POLICY）。',
+    }
+    expect(presentErrorMessage(missingPolicyError)).toBe('2026-08-11 找不到適用的工作制度（MISSING_POLICY）。')
+  })
 })

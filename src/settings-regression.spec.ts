@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getTaipeiToday, getWorkPolicyStatus } from './lib/work-policy'
 
-describe('Work Policy Asia/Taipei 狀態', () => {
+describe('工作制度 Asia/Taipei 狀態', () => {
   const today = '2026-08-29'
 
   it('future finite 顯示尚未生效', () => {

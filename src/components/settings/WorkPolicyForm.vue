@@ -111,15 +111,15 @@ async function submit() {
   if (!name.value.trim()) {
     errorMessage.value = '請填寫制度名稱。'
   } else if (!effectiveFrom.value) {
-    errorMessage.value = '請填寫制度生效日。'
+    errorMessage.value = '請填寫制度生效起日。'
   } else if (effectiveTo.value && effectiveTo.value < effectiveFrom.value) {
     errorMessage.value = '生效迄日不能早於生效起日。'
   } else if (isOutsideAssignmentPeriod()) {
-    errorMessage.value = 'Work Policy 必須完整落在工作派駐期間內。'
+    errorMessage.value = '工作制度必須完整落在工作派駐期間內。'
   } else if (!workingDays.value.length) {
     errorMessage.value = '請至少選擇一個工作日。'
   } else if (overlapsExistingPolicy()) {
-    errorMessage.value = '這個生效區間與目前工作派駐的既有 Work Policy 重疊，請改用不重疊的日期。'
+    errorMessage.value = '這個生效區間與目前工作派駐的既有工作制度重疊，請改用不重疊的日期。'
   }
 
   if (errorMessage.value) {
@@ -139,11 +139,11 @@ async function submit() {
       )
       : await createWorkPolicy(props.assignmentId, input)
     emit('saved', savedPolicy)
-    successMessage.value = props.policy ? 'Work Policy 已更新。' : 'Work Policy 已儲存。'
+    successMessage.value = props.policy ? '工作制度已更新。' : '工作制度已儲存。'
   } catch (error) {
     errorMessage.value = error instanceof Error
       ? error.message
-      : 'Work Policy 儲存失敗，請確認日期區間後再試。'
+      : '工作制度儲存失敗，請確認日期區間後再試。'
     await nextTick()
     errorRegion.value?.focus()
   } finally {
@@ -155,7 +155,7 @@ async function submit() {
 <template>
   <form class="grid gap-6" @submit.prevent="submit">
     <p v-if="isUsed" id="policy-lock-help" class="rounded-[0.625rem] border border-accent-soft bg-accent-soft px-3.5 py-3 text-sm leading-relaxed text-muted" role="note">
-      此 Work Policy 已有出勤紀錄使用。為保留歷史計算依據，只有制度名稱與生效迄日可以調整；生效迄日可清空恢復為持續生效。
+      此工作制度已有出勤紀錄使用。為保留歷史計算依據，只有制度名稱與生效迄日可以調整；生效迄日可清空恢復為持續生效。
     </p>
 
     <fieldset class="grid gap-4" :aria-describedby="isUsed ? 'policy-lock-help' : undefined">
@@ -241,7 +241,7 @@ async function submit() {
     <p v-if="errorMessage" id="policy-error" ref="errorRegion" class="rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] px-3.5 py-3 text-sm leading-relaxed text-[var(--error-ink)]" role="alert" tabindex="-1">{{ errorMessage }}</p>
     <p v-if="successMessage" class="rounded-[0.625rem] border border-accent-soft bg-accent-soft px-3.5 py-3 text-sm text-ink" role="status" aria-live="polite">{{ successMessage }}</p>
     <button class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px disabled:cursor-wait disabled:opacity-[0.68] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 forced-colors:border-[ButtonText] forced-colors:bg-[ButtonFace] forced-colors:text-[ButtonText]" type="submit" :disabled="isSaving" :aria-busy="isSaving">
-      {{ isSaving ? '儲存中…' : (policy ? '儲存 Work Policy' : (onboarding ? '儲存並完成設定' : '新增 Work Policy')) }}
+      {{ isSaving ? '儲存中…' : (policy || onboarding ? '儲存工作制度' : '新增工作制度') }}
     </button>
   </form>
 </template>
