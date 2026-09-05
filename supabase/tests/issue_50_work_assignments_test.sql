@@ -231,13 +231,6 @@ select is(
 );
 
 -- 13. Identity edit: With attendance, H/A/P edit is blocked
--- Create a context and policy first for attendance FK
-create temp table test_contexts (
-  id uuid not null
-) on commit drop;
-insert into test_contexts (id)
-select id from public.create_work_context('Ctx', 'Co', 'Proj');
-
 create temp table test_policies (
   id uuid not null
 ) on commit drop;
@@ -251,7 +244,7 @@ insert into public.work_policies (
 ) values (
   (select id from test_policies),
   '00000000-0000-0000-0000-000000000050',
-  (select id from test_contexts),
+  null,
   (select id from test_assignments where label = 'editable'),
   'Pol', '09:00', 480, 60, 'STANDARD_START', array['1'], '2028-08-01', '2028-09-30'
 );
@@ -266,7 +259,7 @@ insert into public.attendance_records (
 ) values (
   '00000000-0000-0000-0000-000000000050',
   '2028-08-15',
-  (select id from test_contexts),
+  null,
   (select id from test_policies),
   (select id from test_assignments where label = 'editable'),
   '2028-08-15 09:00:00+08',

@@ -251,11 +251,11 @@ insert into public.work_assignments (
   '2026-07-01', '2026-07-31'
 );
 insert into public.work_contexts (
-  id, user_id, name, company_identifier, project_identifier, active, is_default
+  id, user_id, name, company_identifier, project_identifier
 ) values (
   '53000000-0000-0000-0000-000000000053',
   '53000000-0000-0000-0000-000000000002',
-  'Issue 53 Legacy Context', 'LEGACY-COMP', 'LEGACY-PROJ', false, false
+  'Issue 53 Legacy Context', 'LEGACY-COMP', 'LEGACY-PROJ'
 );
 insert into public.work_policies (
   user_id, context_id, assignment_id, name, standard_start_time, work_minutes,

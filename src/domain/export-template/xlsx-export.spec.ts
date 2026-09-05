@@ -23,17 +23,6 @@ function createMockReport(yearMonth = '2026-08'): MonthlyReport {
       created_at: '2026-08-01T00:00:00Z',
       updated_at: '2026-08-01T00:00:00Z',
     },
-    context: {
-      id: 'ctx-1',
-      user_id: 'user-1',
-      name: '預設情境',
-      company_identifier: 'ACME_CORP',
-      project_identifier: 'PROJ_ALPHA',
-      active: true,
-      is_default: true,
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-01T00:00:00Z',
-    },
     summary: {
       scheduled_minutes: 10080,
       actual_elapsed_minutes: 1020,
@@ -327,7 +316,7 @@ describe('Domain: XLSX Export Engine', () => {
 
       // 3. Verify Static Cell writes
       expect(ws8?.getCell('B2').value).toBe('115 年 08 月')
-      expect(ws8?.getCell('D2').value).toBe('ACME_CORP')
+      expect(ws8?.getCell('D2').value).toBeNull()
 
       // 4. Verify Row writes
       // 2026-08-01 (Row 6)
@@ -864,68 +853,6 @@ describe('Domain: XLSX Export Engine', () => {
       expect(exportedWs.getCell('B2').value).toBeNull() // must NOT guess assignment.client_company
       expect(exportedWs.getCell('B3').value).toBeNull() // must NOT guess assignment.project
       expect(exportedWs.getCell('E6').value).toBe('FULL_COVERAGE_OK')
-    })
-
-    it('Regression: 有 authoritative Context 時，XLSX 靜態對應正確寫入 Context 定義之識別碼', async () => {
-      const customBytes = await createSyntheticTemplateWorkbook()
-      const reportWithContext = {
-        yearMonth: '2026-08',
-        assignment: {
-          id: 'assign-full',
-          user_id: 'user-1',
-          staffing_employer: '派遣雇主',
-          client_company: '派駐客戶科技公司',
-          project: '核心差勤系統開發',
-          effective_from: '2026-08-01',
-          effective_to: '2026-08-31',
-        },
-        context: {
-          id: 'ctx-1',
-          user_id: 'user-1',
-          name: '舊版 Context',
-          company_identifier: 'AUTH_LEGACY_COMPANY',
-          project_identifier: 'AUTH_LEGACY_PROJECT',
-        },
-        rows: [
-          {
-            date: '2026-08-01',
-            weekday: 6,
-            calendar_day_type: 'HOLIDAY',
-            calendar_source: 'WEEKEND_FALLBACK',
-            in_assignment_period: true,
-            note: 'FULL_COVERAGE_OK',
-          },
-        ],
-        missingPolicyDates: [],
-        hasConfigurationError: false,
-      }
-
-      const staticConfig: ExportTemplateConfig = {
-        name: '派駐靜態欄位範本',
-        monthWorksheetMapping: { '2026-08': '8月' },
-        rowMapping: [
-          { sourceField: 'date', targetColumn: 'B' },
-          { sourceField: 'note', targetColumn: 'E' },
-        ],
-        staticCellMapping: [
-          { sourceField: 'company_identifier', targetCell: 'B2' },
-          { sourceField: 'project_identifier', targetCell: 'B3' },
-        ],
-      }
-
-      const exportedBytes = await exportReportToXlsx({
-        templateBytes: customBytes,
-        report: reportWithContext as any,
-        config: staticConfig,
-        targetMonth: '2026-08',
-      })
-
-      const exportedWb = new ExcelJS.Workbook()
-      await exportedWb.xlsx.load(exportedBytes.slice().buffer as ArrayBuffer)
-      const exportedWs = exportedWb.getWorksheet('8月')!
-
-      expect(exportedWs.getCell('B2').value).toBe('AUTH_LEGACY_COMPANY')
-      expect(exportedWs.getCell('B3').value).toBe('AUTH_LEGACY_PROJECT')
     })
   })
 })

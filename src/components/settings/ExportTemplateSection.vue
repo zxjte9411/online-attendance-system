@@ -47,12 +47,10 @@ const props = defineProps<{
   userId: string
   assignmentId?: string
   assignmentName?: string
-  contextId?: string
-  contextName?: string
 }>()
 
-const effectiveTargetId = computed(() => props.assignmentId || props.contextId || '')
-const effectiveTargetName = computed(() => props.assignmentName || props.contextName || '')
+const effectiveTargetId = computed(() => props.assignmentId || '')
+const effectiveTargetName = computed(() => props.assignmentName || '')
 
 const FIELD_LABELS: Record<ReportModelSourceField, string> = {
   date: '日期（定位欄位）',
@@ -678,9 +676,7 @@ async function loadTemplate() {
 
   try {
     const previousTemplateId = template.value?.id || null
-    const loaded = await getExportTemplate(props.userId, effectiveTargetId.value, {
-      by: props.assignmentId ? 'assignment_id' : 'context_id',
-    })
+    const loaded = await getExportTemplate(props.userId, effectiveTargetId.value)
     if (previousTemplateId !== (loaded?.id || null)) {
       resetPreviewSelection()
     }
@@ -829,8 +825,7 @@ async function handleUpload() {
   try {
     const created = await uploadExportTemplate({
       userId: props.userId,
-      assignmentId: props.assignmentId,
-      contextId: props.contextId,
+      assignmentId: props.assignmentId!,
       name: uploadName.value.trim(),
       file: uploadFile.value,
     })

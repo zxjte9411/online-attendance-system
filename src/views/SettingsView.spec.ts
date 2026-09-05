@@ -8,7 +8,6 @@ import {
   getCurrentUserId,
   getProfile,
   hasAttendanceRecordsForWorkPolicy,
-  listWorkContexts,
   listWorkPolicies,
 } from '../lib/settings'
 import {
@@ -21,9 +20,7 @@ vi.mock('../lib/settings', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/settings')>()),
   getCurrentUserId: vi.fn(),
   getProfile: vi.fn(),
-  listWorkContexts: vi.fn(),
   listWorkPolicies: vi.fn(),
-  setDefaultWorkContext: vi.fn(),
   hasAttendanceRecordsForWorkPolicy: vi.fn(),
 }))
 
@@ -68,7 +65,6 @@ describe('SettingsView.vue with Work Assignments', () => {
       timezone: 'Asia/Taipei',
     })
     vi.mocked(listWorkAssignments).mockResolvedValue(sampleAssignments)
-    vi.mocked(listWorkContexts).mockResolvedValue([])
     vi.mocked(listWorkPolicies).mockResolvedValue([])
     vi.mocked(hasAttendanceRecordsForAssignment).mockResolvedValue(false)
     vi.mocked(hasAttendanceRecordsForWorkPolicy).mockResolvedValue(false)
@@ -87,7 +83,6 @@ describe('SettingsView.vue with Work Assignments', () => {
         plugins: [router],
         stubs: {
           ProfileForm: true,
-          WorkContextForm: true,
           WorkPolicyForm: true,
           ExportTemplateSection: true,
         },

@@ -1,14 +1,14 @@
--- attendance_records coverage is intentionally deferred to Issue #18.
-
+create extension if not exists pgtap;
 begin;
 
-select plan(65);
+select plan(47);
 
 select has_table('public', 'profiles', 'profiles table exists');
 select has_table('public', 'work_contexts', 'work_contexts table exists');
 select has_table('public', 'work_policies', 'work_policies table exists');
 select has_column('public', 'profiles', 'timezone', 'profiles timezone column exists');
-select has_column('public', 'work_contexts', 'is_default', 'work_contexts is_default column exists');
+select hasnt_column('public', 'work_contexts', 'is_default', 'work_contexts is_default column is removed');
+select hasnt_column('public', 'work_contexts', 'active', 'work_contexts active column is removed');
 select has_column('public', 'work_policies', 'effective_to', 'work_policies effective_to column exists');
 select is(
   (select n.nspname
@@ -32,9 +32,24 @@ select is(
   'authenticated has no DELETE privilege on profiles'
 );
 select is(
+  has_table_privilege('authenticated', 'public.work_contexts', 'INSERT'),
+  false,
+  'authenticated has no INSERT privilege on work_contexts'
+);
+select is(
+  has_table_privilege('authenticated', 'public.work_contexts', 'UPDATE'),
+  false,
+  'authenticated has no UPDATE privilege on work_contexts'
+);
+select is(
   has_table_privilege('authenticated', 'public.work_contexts', 'DELETE'),
   false,
   'authenticated has no DELETE privilege on work_contexts'
+);
+select is(
+  has_table_privilege('authenticated', 'public.work_contexts', 'SELECT'),
+  true,
+  'authenticated has SELECT privilege on work_contexts'
 );
 select is(
   has_table_privilege('authenticated', 'public.work_policies', 'DELETE'),
@@ -49,15 +64,27 @@ select is(
 );
 select is(
   (select count(*)::integer from pg_policy
-   where polrelid = 'public.work_contexts'::regclass and polcmd = 'd'),
+   where polrelid = 'public.work_contexts'::regclass and polcmd in ('a', 'w', 'd')),
   0,
-  'work_contexts has no DELETE policy'
+  'work_contexts has no direct write policies'
 );
 select is(
   (select count(*)::integer from pg_policy
    where polrelid = 'public.work_policies'::regclass and polcmd = 'd'),
   0,
   'work_policies has no DELETE policy'
+);
+select hasnt_function(
+  'public', 'create_work_context',
+  'create_work_context RPC is removed'
+);
+select hasnt_function(
+  'public', 'activate_work_context',
+  'activate_work_context RPC is removed'
+);
+select hasnt_function(
+  'public', 'set_default_work_context',
+  'set_default_work_context RPC is removed'
 );
 
 insert into auth.users (id, email)
@@ -69,6 +96,22 @@ insert into public.profiles (id, display_name)
 values
   ('00000000-0000-0000-0000-000000000017', 'Issue 17 A'),
   ('00000000-0000-0000-0000-000000000018', 'Issue 17 B');
+
+-- Seed historical work contexts via superuser/postgres role
+create temp table issue_17_context_ids (
+  label text primary key,
+  id uuid not null
+) on commit drop;
+
+insert into issue_17_context_ids (label, id) values
+  ('first', gen_random_uuid()),
+  ('second', gen_random_uuid()),
+  ('other-user', gen_random_uuid());
+
+insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier) values
+  ((select id from issue_17_context_ids where label = 'first'), '00000000-0000-0000-0000-000000000017', 'First Context', 'Company A', 'Project A'),
+  ((select id from issue_17_context_ids where label = 'second'), '00000000-0000-0000-0000-000000000017', 'Second Context', 'Company A', 'Project B'),
+  ((select id from issue_17_context_ids where label = 'other-user'), '00000000-0000-0000-0000-000000000018', 'Other User Context', 'Company B', 'Project C');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000017';
@@ -88,167 +131,32 @@ select ok(
   'profiles updated_at is maintained by a trigger'
 );
 
-create temp table issue_17_context_ids (
-  label text primary key,
-  id uuid not null
-) on commit drop;
-
-insert into issue_17_context_ids (label, id)
-select 'first', id
-from public.create_work_context('First', 'Company A', 'Project A');
-
-insert into issue_17_context_ids (label, id)
-select 'second', id
-from public.create_work_context('Second', 'Company A', 'Project B');
-
-insert into issue_17_context_ids (label, id)
-select 'inactive', id
-from public.create_work_context('Inactive', 'Company A', 'Project C', false);
-
-select is(
-  (select is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'first')),
-  true,
-  'first active context becomes default'
-);
-select is(
-  (select is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'second')),
-  false,
-  'later active contexts do not replace the default'
-);
-select is(
-  (select is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'inactive')),
-  false,
-  'inactive contexts are never default'
+select throws_ok(
+  $$insert into public.work_contexts (user_id, name, company_identifier, project_identifier)
+    values ('00000000-0000-0000-0000-000000000017', 'Bypass', 'Company A', 'Project D')$$,
+  '42501', null, 'authenticated cannot insert into work_contexts'
 );
 
 select throws_ok(
-  $$insert into public.work_contexts (user_id, name, company_identifier, project_identifier, is_default)
-    values ('00000000-0000-0000-0000-000000000017', 'Bypass', 'Company A', 'Project D', true)$$,
-  'P0001', null, 'is_default changes are RPC-only'
-);
-select throws_ok(
-  $$insert into public.work_contexts (user_id, name, company_identifier, project_identifier, active)
-    values ('00000000-0000-0000-0000-000000000017', 'Bypass', 'Company A', 'Project D', true)$$,
-  '42501', null, 'RLS prevents direct active context insertion from bypassing default creation'
+  $$update public.work_contexts set name = 'Hacked' where id = (select id from issue_17_context_ids where label = 'first')$$,
+  '42501', null, 'authenticated cannot update work_contexts'
 );
 
-select lives_ok(
-  $$select public.set_default_work_context((select id from issue_17_context_ids where label = 'second'))$$,
-  'set_default_work_context accepts an active context owned by the caller'
-);
-select is((select count(*)::integer from public.work_contexts where is_default), 1, 'setting a default is atomic and unique');
-select is((select name from public.work_contexts where is_default), 'Second', 'set_default_work_context selects the requested active context');
-select ok(
-  (select updated_at > created_at from public.work_contexts where name = 'Second'),
-  'work_contexts updated_at is maintained by a trigger'
-);
 select throws_ok(
-  $$select public.set_default_work_context((select id from issue_17_context_ids where label = 'inactive'))$$,
-  'P0001', null, 'set_default_work_context rejects inactive contexts'
+  $$delete from public.work_contexts where id = (select id from issue_17_context_ids where label = 'first')$$,
+  '42501', null, 'authenticated cannot delete work_contexts'
 );
+
+select is((select count(*)::integer from public.work_contexts), 2, 'context SELECT is isolated by owner');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000018';
-insert into issue_17_context_ids (label, id)
-select 'other-user', id
-from public.create_work_context('Other user', 'Company B', 'Project A', false);
-select is(
-  (select count(*)::integer from public.work_contexts where active and is_default),
-  0,
-  'an owner can have an inactive context without an active default'
-);
-select throws_ok(
-  $$update public.work_contexts
-    set active = true
-    where id = (select id from issue_17_context_ids where label = 'other-user')$$,
-  'P0001', null, 'direct activation cannot bypass default creation'
-);
-select lives_ok(
-  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'other-user'))$$,
-  'activate_work_context activates an owned inactive context'
-);
-select is(
-  (select active and is_default from public.work_contexts
-   where id = (select id from issue_17_context_ids where label = 'other-user')),
-  true,
-  'activation atomically sets the context as the active default'
-);
-select is(
-  (select count(*)::integer from public.work_contexts where is_default),
-  1,
-  'activation without existing default maintains a single default'
-);
-select is((select count(*)::integer from public.work_contexts), 1, 'context SELECT is isolated by owner');
+select is((select count(*)::integer from public.work_contexts), 1, 'other user context SELECT is isolated by owner');
 select is(
   (select count(*)::integer from public.profiles where id = '00000000-0000-0000-0000-000000000017'),
   0,
   'profile SELECT is isolated by owner'
 );
 select is((select count(*)::integer from public.work_policies), 0, 'policy SELECT is isolated by owner');
-
-set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000017';
-select throws_ok(
-  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'other-user'))$$,
-  'P0001', null, 'activate_work_context rejects other users contexts'
-);
-
-select lives_ok(
-  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'inactive'))$$,
-  'activate_work_context succeeds when active default already exists'
-);
-select is(
-  (select active from public.work_contexts where id = (select id from issue_17_context_ids where label = 'inactive')),
-  true,
-  'activation with existing default sets active true'
-);
-select is(
-  (select is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'inactive')),
-  false,
-  'activation with existing default keeps is_default false'
-);
-select is(
-  (select name from public.work_contexts where is_default),
-  'Second',
-  'existing default remains unchanged after activating another context'
-);
-select is(
-  (select count(*)::integer from public.work_contexts where is_default),
-  1,
-  'default uniqueness invariant holds with existing default'
-);
-
-insert into issue_17_context_ids (label, id)
-select 'atomic-inactive', id
-from public.create_work_context('Old Atomic Name', 'Old Atomic Co', 'Old Atomic Proj', false);
-
-select lives_ok(
-  $$select public.activate_work_context((select id from issue_17_context_ids where label = 'atomic-inactive'), 'New Atomic Name', 'New Atomic Co', 'New Atomic Proj')$$,
-  'activate_work_context atomically updates metadata and activates context'
-);
-select is(
-  (select name from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
-  'New Atomic Name',
-  'atomic activation updates name'
-);
-select is(
-  (select company_identifier from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
-  'New Atomic Co',
-  'atomic activation updates company identifier'
-);
-select is(
-  (select project_identifier from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
-  'New Atomic Proj',
-  'atomic activation updates project identifier'
-);
-select is(
-  (select active and not is_default from public.work_contexts where id = (select id from issue_17_context_ids where label = 'atomic-inactive')),
-  true,
-  'atomic activation sets active true and keeps is_default false when default exists'
-);
-select is(
-  (select count(*)::integer from public.work_contexts where is_default),
-  1,
-  'default uniqueness holds after atomic activation'
-);
 
 set local role postgres;
 create temp table issue_17_assignment_ids (id uuid not null) on commit drop;
@@ -396,21 +304,12 @@ select lives_ok(
 );
 
 set local role authenticated;
-
-select throws_ok(
-  $$update public.work_contexts set is_default = true
-    where id = (select id from issue_17_context_ids where label = 'first')$$,
-  'P0001', null, 'is_default updates remain RPC-only'
-);
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000017';
 
 select throws_ok(
   $$delete from public.profiles
     where id = '00000000-0000-0000-0000-000000000017'$$,
   '42501', null, 'authenticated cannot delete profiles'
-);
-select throws_ok(
-  $$delete from public.work_contexts where id = (select id from issue_17_context_ids where label = 'first')$$,
-  '42501', null, 'authenticated cannot delete work_contexts'
 );
 select throws_ok(
   $$delete from public.work_policies where name = 'Valid policy updated'$$,

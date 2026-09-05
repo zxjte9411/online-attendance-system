@@ -1,3 +1,4 @@
+create extension if not exists pgtap;
 begin;
 
 select plan(53);
@@ -52,19 +53,18 @@ create temp table test_context_ids (
 ) on commit drop;
 grant all on test_context_ids to authenticated;
 
+insert into test_context_ids (label, id) values
+  ('context_a1', gen_random_uuid()),
+  ('context_a2', gen_random_uuid()),
+  ('context_b', gen_random_uuid());
+
+insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier) values
+  ((select id from test_context_ids where label = 'context_a1'), '11111111-1111-4111-8111-111111111111', 'Context A1', 'COMP-A1', 'PROJ-A1'),
+  ((select id from test_context_ids where label = 'context_a2'), '11111111-1111-4111-8111-111111111111', 'Context A2', 'COMP-A2', 'PROJ-A2'),
+  ((select id from test_context_ids where label = 'context_b'), '22222222-2222-4222-8222-222222222222', 'Context B', 'COMP-B', 'PROJ-B');
+
 set local role authenticated;
-set local "request.jwt.claims" = '{"sub":"11111111-1111-4111-8111-111111111111"}';
-
-insert into test_context_ids (label, id)
-select 'context_a1', id from public.create_work_context('Context A1', 'COMP-A1', 'PROJ-A1');
-
-insert into test_context_ids (label, id)
-select 'context_a2', id from public.create_work_context('Context A2', 'COMP-A2', 'PROJ-A2');
-
 set local "request.jwt.claims" = '{"sub":"22222222-2222-4222-8222-222222222222"}';
-
-insert into test_context_ids (label, id)
-select 'context_b', id from public.create_work_context('Context B', 'COMP-B', 'PROJ-B');
 
 create temp table test_assignment_ids (
   user_id uuid primary key,

@@ -196,7 +196,7 @@ function handleDownloadCsv() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  const company = report.value.assignment?.client_company || report.value.context?.company_identifier || 'export'
+  const company = report.value.assignment?.client_company || 'export'
   a.download = `attendance-report-${company}-${currentMonth.value}.csv`
   document.body.appendChild(a)
   a.click()
@@ -239,7 +239,7 @@ async function handleDownloadXlsx() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    const company = report.value.assignment?.client_company || report.value.context?.company_identifier || 'export'
+    const company = report.value.assignment?.client_company || 'export'
     a.download = `attendance-report-${company}-${currentMonth.value}.xlsx`
     document.body.appendChild(a)
     a.click()

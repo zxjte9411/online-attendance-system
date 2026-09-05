@@ -50,15 +50,18 @@ values
   ('00000000-0000-0000-0000-000000000023', 'Issue 23 User A'),
   ('00000000-0000-0000-0000-000000000024', 'Issue 23 User B');
 
-set local app.work_context_default_rpc = 'on';
-
-insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier, is_default, active)
+insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier)
 values
-  ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000023', 'Context A1', 'COMP-A', 'PROJ-A1', true, true),
-  ('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000023', 'Context A2', 'COMP-A', 'PROJ-A2', false, true),
-  ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000024', 'Context B1', 'COMP-B', 'PROJ-B1', true, true);
+  ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000023', 'Context A1', 'COMP-A', 'PROJ-A1'),
+  ('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000023', 'Context A2', 'COMP-A', 'PROJ-A2'),
+  ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000024', 'Context B1', 'COMP-B', 'PROJ-B1');
 
-set local app.work_context_default_rpc = 'off';
+insert into public.work_assignments (id, user_id, staffing_employer, client_company, project, effective_from, effective_to)
+values
+  ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000023', 'Staffing A1', 'Client A1', 'Project A1', '2026-01-01', '2026-06-30'),
+  ('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000023', 'Staffing A2', 'Client A2', 'Project A2', '2026-07-01', '2026-12-31'),
+  ('00000000-0000-0000-0000-000000000303', '00000000-0000-0000-0000-000000000023', 'Staffing A3', 'Client A3', 'Project A3', '2027-01-01', null),
+  ('00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000024', 'Staffing B1', 'Client B1', 'Project B1', '2026-01-01', null);
 
 -- Switch to User A
 set role authenticated;
@@ -69,6 +72,7 @@ insert into public.export_templates (
   id,
   user_id,
   context_id,
+  assignment_id,
   name,
   storage_path,
   month_worksheet_mapping,
@@ -81,6 +85,7 @@ values (
   '00000000-0000-0000-0000-000000000999',
   '00000000-0000-0000-0000-000000000023',
   '00000000-0000-0000-0000-000000000101',
+  '00000000-0000-0000-0000-000000000301',
   '2026 Monthly Template',
   '00000000-0000-0000-0000-000000000023/00000000-0000-0000-0000-000000000101/00000000-0000-0000-0000-000000000999/source.xlsx',
   '{"2026-08": "8月"}'::jsonb,
@@ -114,8 +119,8 @@ select ok(
 
 -- 3. Composite FK prevents forging context ownership
 select throws_ok(
-  $$insert into public.export_templates (user_id, context_id, name, storage_path)
-    values ('00000000-0000-0000-0000-000000000023', '00000000-0000-0000-0000-000000000201', 'Forged Template', 'path/to/file')$$,
+  $$insert into public.export_templates (user_id, context_id, assignment_id, name, storage_path)
+    values ('00000000-0000-0000-0000-000000000023', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000302', 'Forged Template', 'path/to/file')$$,
   '23503',
   null,
   'foreign key prevents referencing context of another user'
@@ -123,8 +128,8 @@ select throws_ok(
 
 -- 4. Unique per user + context
 select throws_ok(
-  $$insert into public.export_templates (user_id, context_id, name, storage_path)
-    values ('00000000-0000-0000-0000-000000000023', '00000000-0000-0000-0000-000000000101', 'Duplicate Template', 'path/to/file2')$$,
+  $$insert into public.export_templates (user_id, context_id, assignment_id, name, storage_path)
+    values ('00000000-0000-0000-0000-000000000023', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000303', 'Duplicate Template', 'path/to/file2')$$,
   '23505',
   null,
   'duplicate export template for same user and context is rejected'
