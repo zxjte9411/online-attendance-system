@@ -48,10 +48,11 @@ if [ -f /.dockerenv ]; then
     --network "${NETWORK_NAME}" \
     -p "${FIXTURE_PORT}:${FIXTURE_PORT}" \
     alpine:latest sh -c "
+      FIFO=/tmp/dgpa_proxy_fifo
       while true; do
-        rm -f /tmp/f
-        mkfifo /tmp/f
-        nc -l -p ${FIXTURE_PORT} < /tmp/f | nc ${DEVCONTAINER_HOST} ${FIXTURE_PORT} > /tmp/f
+        rm -f \${FIFO}
+        mkfifo \${FIFO}
+        nc -l -p ${FIXTURE_PORT} < \${FIFO} | nc ${DEVCONTAINER_HOST} ${FIXTURE_PORT} > \${FIFO}
       done" >/dev/null 2>&1 || true
 fi
 
