@@ -213,14 +213,14 @@ describe('SetupView', () => {
     await flushPromises()
 
     await stepButtons[2].trigger('click')
-    expect(wrapper.text()).not.toContain('正在載入這筆派駐的 Work Policy')
+    expect(wrapper.text()).not.toContain('正在載入這筆派駐的工作制度')
     const policyForm = wrapper.findComponent(WorkPolicyForm)
     expect(policyForm.props('assignmentId')).toBe('assignment-b')
     expect(policyForm.props('policies')).toEqual([])
     wrapper.unmount()
   })
 
-  it('切換派駐後會忽略舊的 rejected Work Policy 回應', async () => {
+  it('切換派駐後會忽略舊的 rejected 工作制度回應', async () => {
     const assignmentA = { id: 'assignment-a', user_id: 'user-1', staffing_employer: '雇主 A', client_company: '客戶 A', project: '專案 A', effective_from: '2026-01-01', effective_to: null }
     const assignmentB = { id: 'assignment-b', user_id: 'user-1', staffing_employer: '雇主 B', client_company: '客戶 B', project: '專案 B', effective_from: '2026-01-01', effective_to: null }
     const { wrapper } = await mountSetup(

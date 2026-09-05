@@ -32,7 +32,7 @@ const isLoadingPolicies = ref(false)
 const steps = [
   { number: 1, label: '個人資料' },
   { number: 2, label: '工作派駐' },
-  { number: 3, label: 'Work Policy' },
+  { number: 3, label: '工作制度' },
 ] as const
 
 onMounted(async () => {
@@ -128,7 +128,7 @@ async function handleAssignmentSaved(savedAssignments: WorkAssignment[]) {
     await loadPolicies()
     step.value = 3
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Work Policy 載入失敗，請稍後再試。'
+    errorMessage.value = error instanceof Error ? error.message : '工作制度載入失敗，請稍後再試。'
     await nextTick()
     errorRegion.value?.focus()
   }
@@ -142,7 +142,7 @@ async function selectAssignment(assignmentId: string) {
     await loadPolicies()
   } catch (error) {
     if (requestAssignmentId !== selectedAssignmentId.value) return
-    errorMessage.value = error instanceof Error ? error.message : 'Work Policy 載入失敗，請稍後再試。'
+    errorMessage.value = error instanceof Error ? error.message : '工作制度載入失敗，請稍後再試。'
     await nextTick()
     errorRegion.value?.focus()
   }
@@ -245,7 +245,7 @@ function handlePolicySaved(savedPolicy: AssignmentPolicy) {
 
         <div v-else class="grid gap-5" aria-labelledby="policy-step-title">
           <div class="grid gap-1 border-b border-line pb-5">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / Work Policy</p>
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / 工作制度</p>
             <h2 id="policy-step-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">為這筆派駐設定制度。</h2>
             <p class="text-sm leading-relaxed text-muted">可建立過去、目前或未來的制度；日期不必涵蓋今天。</p>
           </div>
@@ -256,7 +256,7 @@ function handlePolicySaved(savedPolicy: AssignmentPolicy) {
             </select>
             <span class="font-mono text-xs text-muted">{{ assignments.find((assignment) => assignment.id === selectedAssignmentId)?.effective_from }} 至 {{ assignments.find((assignment) => assignment.id === selectedAssignmentId)?.effective_to || '未定' }}</span>
           </div>
-          <p v-if="isLoadingPolicies" class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted" role="status" aria-live="polite">正在載入這筆派駐的 Work Policy…</p>
+          <p v-if="isLoadingPolicies" class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted" role="status" aria-live="polite">正在載入這筆派駐的工作制度…</p>
           <WorkPolicyForm v-else-if="userId && selectedAssignmentId" :assignment-id="selectedAssignmentId" :assignment="assignments.find((assignment) => assignment.id === selectedAssignmentId)" :policies="policies" onboarding @saved="handlePolicySaved" />
           <button v-if="canVisitStep(2)" class="min-h-11 justify-self-start font-semibold text-accent underline decoration-[0.1em] underline-offset-[0.2em] transition duration-200 ease-out hover:text-ink focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent" type="button" @click="step = 2">回到上一步</button>
         </div>
