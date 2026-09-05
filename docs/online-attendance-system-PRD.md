@@ -1,8 +1,15 @@
 # 線上出勤時數表產品需求文件（PRD）
 
+> [!WARNING]
+> **文件狀態：Historical / Superseded（歷史保留文件）**
+>
+> 本 PRD 記錄專案初期與 V1 原始設計脈絡，但其內部提及之「Work Context」、「active / default context」與「全域 setup-complete gate」等模型已由 **[Issue #48](https://github.com/zxjte9411/online-attendance-system/issues/48)** 與根目錄 [`CONTEXT.md`](../CONTEXT.md) 重構並取代。
+> 
+> 目前 repository 的 canonical domain vocabulary、生命週期規格與現行合約以 **[`CONTEXT.md`](../CONTEXT.md) 與 Issue #48** 為唯一權威依據。本文件不再作為現行唯一實作、範圍與驗收依據，僅保留供歷史脈絡與既有設計參考。
+
 ## 1. 文件目的與產品定位
 
-本 PRD 是線上出勤時數表唯一的實作、範圍與驗收依據。產品以「個人每天快速完成出勤紀錄，月底能直接產出可用報表」為核心，不以人資管理或多人協作為目標。
+本 PRD 原為線上出勤時數表初期的實作、範圍與驗收依據（現已由 [`CONTEXT.md`](../CONTEXT.md) 與 Issue #48 取代成為 canonical source）。產品以「個人每天快速完成出勤紀錄，月底能直接產出可用報表」為核心，不以人資管理或多人協作為目標。
 
 ### 1.1 產品目標
 
