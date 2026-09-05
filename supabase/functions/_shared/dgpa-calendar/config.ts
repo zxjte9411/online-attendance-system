@@ -6,7 +6,6 @@ export interface DgpaEnvironmentConfig {
   environment?: string | null
   denoEnv?: string | null
   appEnv?: string | null
-  allowTestOverride?: string | null
 }
 
 export interface ResolvedDgpaMetadataUrl {
@@ -35,8 +34,7 @@ export function isLocalOrTestEnvironment(env: DgpaEnvironmentConfig): boolean {
     envName === 'test' ||
     envName === 'local' ||
     envName === 'development' ||
-    envName === 'dev' ||
-    env.allowTestOverride === 'true'
+    envName === 'dev'
   ) {
     return true
   }

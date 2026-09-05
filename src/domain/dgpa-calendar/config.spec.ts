@@ -38,7 +38,7 @@ describe('DGPA Environment & Metadata URL Resolution (config.ts)', () => {
       expect(
         isLocalOrTestEnvironment({
           denoEnv: 'production',
-          allowTestOverride: 'true',
+          appEnv: 'local',
         })
       ).toBe(false)
     })

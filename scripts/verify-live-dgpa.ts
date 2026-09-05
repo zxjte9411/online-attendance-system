@@ -75,6 +75,41 @@ export interface VerificationResult {
   extra?: { label: string; value: string }
 }
 
+function classifyContractOrRegressionError(
+  err: any,
+  verifyBaselineFn: () => void,
+  applicationSeam: string,
+  upstreamSeam: string,
+  upstreamRootCause: string,
+  logs: string[]
+): VerificationResult {
+  try {
+    verifyBaselineFn()
+  } catch (baselineErr: any) {
+    return {
+      success: false,
+      diagnosis: 'APPLICATION REGRESSION',
+      failureSeam: applicationSeam,
+      errorDetails: `Application baseline failed: ${baselineErr.message}. Live error: ${err.message}`,
+      rootCause: `Application logic failed verification against known-good baseline: ${baselineErr.message}`,
+      verdict: 'APPLICATION REGRESSION.',
+      exitCode: 1,
+      logs,
+    }
+  }
+
+  return {
+    success: false,
+    diagnosis: 'UPSTREAM CONTRACT DRIFT',
+    failureSeam: upstreamSeam,
+    errorDetails: err.message,
+    rootCause: upstreamRootCause,
+    verdict: 'Upstream contract drift.',
+    exitCode: 3,
+    logs,
+  }
+}
+
 export interface EvaluateOptions {
   targetYear?: number
   fetchFn?: typeof fetch
@@ -148,32 +183,14 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
     logs.push(`        QualityTime: ${candidate.resourceQualityCheckTime}`)
     logs.push(`        URL:         ${candidate.resourceDownloadUrl}`)
   } catch (err: any) {
-    // Check application baseline to distinguish regression from upstream contract drift
-    try {
-      verifyBaseline()
-    } catch (baselineErr: any) {
-      return {
-        success: false,
-        diagnosis: 'APPLICATION REGRESSION',
-        failureSeam: 'Application resource selection logic (selectDgpaResource)',
-        errorDetails: `Application baseline failed: ${baselineErr.message}. Live error: ${err.message}`,
-        rootCause: 'Application resource selection logic is broken against known-good baseline metadata.',
-        verdict: 'APPLICATION REGRESSION.',
-        exitCode: 1,
-        logs,
-      }
-    }
-
-    return {
-      success: false,
-      diagnosis: 'UPSTREAM CONTRACT DRIFT',
-      failureSeam: 'DGPA dataset metadata schema validation',
-      errorDetails: err.message,
-      rootCause: 'Upstream dataset structure changed, fields missing, or target year resource not published.',
-      verdict: 'Upstream contract drift.',
-      exitCode: 3,
-      logs,
-    }
+    return classifyContractOrRegressionError(
+      err,
+      verifyBaseline,
+      'Application resource selection logic (selectDgpaResource)',
+      'DGPA dataset metadata schema validation',
+      'Upstream dataset structure changed, fields missing, or target year resource not published.',
+      logs
+    )
   }
 
   // Step 3: Download CSV resource from DGPA file server
@@ -217,32 +234,14 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
     const holidays = rows.filter((r) => r.day_type === 'HOLIDAY')
     logs.push(`        Holidays:    ${holidays.length} days`)
   } catch (err: any) {
-    // Check application baseline to distinguish regression from upstream contract drift
-    try {
-      verifyBaseline()
-    } catch (baselineErr: any) {
-      return {
-        success: false,
-        diagnosis: 'APPLICATION REGRESSION',
-        failureSeam: 'Application CSV parsing / decoding logic (parseDgpaCalendarCsv)',
-        errorDetails: `Application baseline failed: ${baselineErr.message}. Live error: ${err.message}`,
-        rootCause: 'Application CSV parser failed verification against known-good baseline fixture.',
-        verdict: 'APPLICATION REGRESSION.',
-        exitCode: 1,
-        logs,
-      }
-    }
-
-    return {
-      success: false,
-      diagnosis: 'UPSTREAM CONTRACT DRIFT',
-      failureSeam: 'DGPA CSV parsing and calendar validation',
-      errorDetails: err.message,
-      rootCause: 'Official CSV content format, header fields, holiday codes, or date continuity changed.',
-      verdict: 'Upstream contract drift.',
-      exitCode: 3,
-      logs,
-    }
+    return classifyContractOrRegressionError(
+      err,
+      verifyBaseline,
+      'Application CSV parsing / decoding logic (parseDgpaCalendarCsv)',
+      'DGPA CSV parsing and calendar validation',
+      'Official CSV content format, header fields, holiday codes, or date continuity changed.',
+      logs
+    )
   }
 
   logs.push('\n' + '='.repeat(70))
