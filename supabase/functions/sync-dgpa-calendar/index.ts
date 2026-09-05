@@ -5,6 +5,7 @@ import {
   decodeDgpaBuffer,
   type DgpaDatasetMetadata,
 } from '../_shared/dgpa-calendar/parser.ts'
+import { resolveDgpaMetadataUrl } from '../_shared/dgpa-calendar/config.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,9 +78,18 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    // 3. Fetch DGPA metadata from data.gov.tw dataset 14718 (or test fixture override)
-    const DEFAULT_METADATA_URL = 'https://data.gov.tw/api/v2/rest/dataset/14718'
-    const metadataUrl = Deno.env.get('DGPA_METADATA_URL') || DEFAULT_METADATA_URL
+    // 3. Fetch DGPA metadata from data.gov.tw dataset 14718 (or authorized local/test fixture override)
+    const resolvedConfig = resolveDgpaMetadataUrl({
+      dgpaMetadataUrl: Deno.env.get('DGPA_METADATA_URL'),
+      supabaseUrl,
+      environment: Deno.env.get('ENVIRONMENT'),
+      denoEnv: Deno.env.get('DENO_ENV'),
+      appEnv: Deno.env.get('APP_ENV'),
+    })
+    const metadataUrl = resolvedConfig.url
+    if (resolvedConfig.rejected) {
+      console.warn(`[DGPA Boundary Warning] ${resolvedConfig.reason}`)
+    }
     let metadata: DgpaDatasetMetadata
     try {
       const metaRes = await fetch(metadataUrl, {
