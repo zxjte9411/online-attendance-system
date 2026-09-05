@@ -213,8 +213,7 @@ describe('Live DGPA Verification Root-Cause Diagnosis (verify-live-dgpa.ts)', ()
   })
 
   it('reliably verifies both 2026 (UTF-8) and 2025 (Big5) application baselines', () => {
-    expect(() => verifyApplicationBaseline(2026)).not.toThrow()
-    expect(() => verifyApplicationBaseline(2025)).not.toThrow()
+    expect(() => verifyApplicationBaseline()).not.toThrow()
   })
 
   it('reliably diagnoses APPLICATION REGRESSION (exitCode 1) when Big5 decoding breaks on year 2025', async () => {

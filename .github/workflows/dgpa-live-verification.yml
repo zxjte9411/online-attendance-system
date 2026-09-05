@@ -28,7 +28,3 @@ jobs:
         run: |
           TARGET_YEAR="${{ github.event.inputs.year || '2026' }}"
           ./scripts/verify-live-dgpa.sh "${TARGET_YEAR}"
-      - name: Verify Live DGPA Contract (Big5 Baseline Year 2025)
-        if: "${{ github.event.inputs.year == '' || github.event.inputs.year == '2026' }}"
-        run: |
-          ./scripts/verify-live-dgpa.sh 2025

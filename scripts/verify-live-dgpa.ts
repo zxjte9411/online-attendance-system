@@ -51,32 +51,31 @@ export interface BaselineVerificationDependencies {
 }
 
 export function verifyApplicationBaseline(
-  yearOrDeps?: number | BaselineVerificationDependencies,
-  maybeDeps?: BaselineVerificationDependencies
+  dependencies?: BaselineVerificationDependencies
 ): void {
-  const targetYear = typeof yearOrDeps === 'number' ? yearOrDeps : 2026
-  const dependencies = typeof yearOrDeps === 'object' && yearOrDeps !== null ? yearOrDeps : maybeDeps
   const selectFn = dependencies?.selectResourceFn ?? selectDgpaResource
   const parseFn = dependencies?.parseCsvFn ?? parseDgpaCalendarCsv
   const decodeFn = dependencies?.decodeBufferFn ?? decodeDgpaBuffer
   const metadata = BASELINE_METADATA
-  const baselineYear = targetYear === 2025 ? 2025 : 2026
-  const rawBuffer = loadBaselineFixtureBuffer(baselineYear)
 
-  // 1. Verify resource selection on known baseline metadata
-  const candidate = selectFn(metadata, baselineYear)
-  if (!candidate) {
-    throw new Error(`Baseline resource selection returned invalid candidate for ${baselineYear}`)
-  }
+  for (const year of [2026, 2025]) {
+    const rawBuffer = loadBaselineFixtureBuffer(year)
 
-  // 2. Verify buffer decoding
-  const encoding = candidate.resourceCharacterEncoding || 'utf-8'
-  const csvText = decodeFn(new Uint8Array(rawBuffer), encoding)
+    // 1. Verify resource selection on known baseline metadata
+    const candidate = selectFn(metadata, year)
+    if (!candidate) {
+      throw new Error(`Baseline resource selection returned invalid candidate for ${year}`)
+    }
 
-  // 3. Verify CSV parsing and calendar validation on known baseline CSV
-  const rows = parseFn(csvText, baselineYear)
-  if (rows.length !== 365) {
-    throw new Error(`Baseline parser returned ${rows.length} rows for ${baselineYear}; expected 365`)
+    // 2. Verify buffer decoding
+    const encoding = candidate.resourceCharacterEncoding || 'utf-8'
+    const csvText = decodeFn(new Uint8Array(rawBuffer), encoding)
+
+    // 3. Verify CSV parsing and calendar validation on known baseline CSV
+    const rows = parseFn(csvText, year)
+    if (rows.length !== 365) {
+      throw new Error(`Baseline parser returned ${rows.length} rows for ${year}; expected 365`)
+    }
   }
 }
 
@@ -174,7 +173,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   const verifyBaseline =
     options?.verifyBaselineFn ??
     (() =>
-      verifyApplicationBaseline(targetYear, {
+      verifyApplicationBaseline({
         selectResourceFn: selectFn,
         parseCsvFn: parseFn,
         decodeBufferFn: decodeFn,
