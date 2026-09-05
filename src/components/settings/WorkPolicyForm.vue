@@ -111,7 +111,7 @@ async function submit() {
   if (!name.value.trim()) {
     errorMessage.value = '請填寫制度名稱。'
   } else if (!effectiveFrom.value) {
-    errorMessage.value = '請填寫制度生效日。'
+    errorMessage.value = '請填寫制度生效起日。'
   } else if (effectiveTo.value && effectiveTo.value < effectiveFrom.value) {
     errorMessage.value = '生效迄日不能早於生效起日。'
   } else if (isOutsideAssignmentPeriod()) {

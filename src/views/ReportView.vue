@@ -597,6 +597,7 @@ function formatExceptionFlagLabel(flag: string): string {
       <p class="font-display text-lg font-bold text-ink">尚未建立任何工作派駐</p>
       <p class="mt-1 text-sm text-muted">目前帳號尚未建立任何工作派駐。請先至設定頁面建立派駐與工作制度後，即可檢視月出勤統計與匯出報表。</p>
       <RouterLink
+        data-test="empty-assignment-cta"
         to="/settings#assignments"
         class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent hover:underline"
       >

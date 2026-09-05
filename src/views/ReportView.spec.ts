@@ -416,6 +416,7 @@ describe('ReportView', () => {
     // Empty state text must be shown
     expect(wrapper.text()).toContain('尚未建立任何工作派駐')
     expect(wrapper.find('[data-test="empty-assignment-state"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="empty-assignment-cta"]').attributes('to')).toBe('/settings#assignments')
     // Summary cards and table rows must not exist
     expect(wrapper.find('[data-test="summary-scheduled"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="report-row"]')).toHaveLength(0)

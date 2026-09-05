@@ -148,7 +148,8 @@ describe('TodayView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-state="unavailable-no-assignment"]').text()).toContain('今天沒有工作派駐')
-    expect(wrapper.get('[data-action="settings"]').attributes('href')).toBe('/settings')
+    expect(wrapper.get('[data-action="settings"]').attributes('href')).toBe('/settings#assignments')
+    expect(wrapper.get('[data-action="settings"]').text()).toBe('前往工作派駐設定')
     expect(wrapper.text()).not.toContain('今日資料還沒載入')
     expect(wrapper.find('[data-action="clock-in"]').exists()).toBe(false)
     wrapper.unmount()

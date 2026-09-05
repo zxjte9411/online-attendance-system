@@ -429,7 +429,7 @@ function formatRounding(mode: unknown, minutes: unknown) {
         <!-- Times & Metrics Grid -->
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div class="grid gap-1">
-            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">實際打卡 (ACTUAL)</span>
+            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">實際時間 (ACTUAL)</span>
             <div class="font-mono text-sm font-semibold tabular-nums">
               <span>{{ formatTime(rec.actual_clock_in_at) }}</span>
               <span class="mx-1.5 text-muted">→</span>
@@ -439,7 +439,7 @@ function formatRounding(mode: unknown, minutes: unknown) {
           </div>
 
           <div class="grid gap-1">
-            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">有效打卡 (EFFECTIVE)</span>
+            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">有效時間 (EFFECTIVE)</span>
             <div class="font-mono text-sm font-semibold tabular-nums">
               <span>{{ formatTime(rec.effective_clock_in_at) }}</span>
               <span class="mx-1.5 text-muted">→</span>
@@ -460,7 +460,7 @@ function formatRounding(mode: unknown, minutes: unknown) {
           </div>
 
           <div class="grid gap-1">
-            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">{{ rec.assignment_snapshot ? '工作派駐快照' : '歷史工作情境快照' }} / 備註</span>
+            <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">{{ rec.assignment_snapshot ? '工作派駐快照' : '歷史工作派駐快照' }} / 備註</span>
             <div class="truncate text-sm font-medium" :title="`${rec.assignment_snapshot ? rec.assignment_snapshot.staffing_employer || '—' : rec.context_snapshot?.name || '—'} (${rec.assignment_snapshot ? rec.assignment_snapshot.client_company || '—' : rec.context_snapshot?.company_identifier || '—'} / ${rec.assignment_snapshot ? rec.assignment_snapshot.project || '—' : rec.context_snapshot?.project_identifier || '—'})`">
               {{ rec.assignment_snapshot ? rec.assignment_snapshot.staffing_employer || '—' : rec.context_snapshot?.name || '—' }}
               <span class="text-xs text-muted">({{ rec.assignment_snapshot ? rec.assignment_snapshot.client_company || '—' : rec.context_snapshot?.company_identifier || '—' }} / {{ rec.assignment_snapshot ? rec.assignment_snapshot.project || '—' : rec.context_snapshot?.project_identifier || '—' }})</span>
@@ -521,7 +521,7 @@ function formatRounding(mode: unknown, minutes: unknown) {
 
           <!-- Context Snapshot -->
           <div class="grid gap-3 rounded-xl border border-line bg-surface-soft p-4">
-            <h3 class="text-xs font-bold tracking-wider text-muted">{{ selectedRecord.assignment_snapshot ? '保存的工作派駐快照' : '保存的歷史工作情境快照' }}</h3>
+            <h3 class="text-xs font-bold tracking-wider text-muted">{{ selectedRecord.assignment_snapshot ? '保存的工作派駐快照' : '保存的歷史工作派駐快照' }}</h3>
             <dl class="grid gap-2 sm:grid-cols-3">
               <div><dt class="text-xs text-muted">{{ selectedRecord.assignment_snapshot ? '派遣雇主' : '名稱' }}</dt><dd class="font-bold">{{ selectedRecord.assignment_snapshot ? selectedRecord.assignment_snapshot.staffing_employer || '—' : selectedRecord.context_snapshot.name || '—' }}</dd></div>
               <div><dt class="text-xs text-muted">{{ selectedRecord.assignment_snapshot ? '派駐客戶' : '公司代碼' }}</dt><dd class="font-mono font-semibold">{{ selectedRecord.assignment_snapshot ? selectedRecord.assignment_snapshot.client_company || '—' : selectedRecord.context_snapshot.company_identifier || '—' }}</dd></div>

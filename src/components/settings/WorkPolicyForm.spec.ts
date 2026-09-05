@@ -90,4 +90,45 @@ describe('WorkPolicyForm.vue', () => {
     expect((wrapper.get('input[name="effective_to"]').element as HTMLInputElement).disabled).toBe(false)
     expect(wrapper.text()).toContain('已有出勤紀錄')
   })
+
+  it('驗證必填與區間錯誤文案符合統一術語', async () => {
+    const wrapper = mount(WorkPolicyForm, {
+      props: {
+        assignmentId,
+        policies: [policy],
+        assignment: {
+          id: assignmentId,
+          user_id: userId,
+          staffing_employer: '派遣雇主',
+          client_company: '派駐客戶',
+          project: '專案',
+          effective_from: '2026-01-01',
+          effective_to: '2026-12-31',
+        },
+      },
+    })
+
+    // 1. 名稱空白
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.text()).toContain('請填寫制度名稱。')
+
+    // 2. 生效起日空白
+    await wrapper.get('input[name="name"]').setValue('測試制度')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.text()).toContain('請填寫制度生效起日。')
+
+    // 3. 超出工作派駐期間
+    await wrapper.get('input[name="effective_from"]').setValue('2025-12-31')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.text()).toContain('工作制度必須完整落在工作派駐期間內。')
+
+    // 4. 生效區間重疊
+    await wrapper.get('input[name="effective_from"]').setValue('2026-02-01')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.text()).toContain('這個生效區間與目前工作派駐的既有工作制度重疊，請改用不重疊的日期。')
+  })
 })

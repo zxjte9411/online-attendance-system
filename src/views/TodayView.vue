@@ -308,7 +308,7 @@ function formatStartTime(value: string | null | undefined) {
         <h2 id="today-no-assignment-title" class="font-display text-2xl font-semibold tracking-[-0.04em]">今天沒有工作派駐。</h2>
         <p class="text-sm leading-relaxed text-muted">目前沒有可用的工作派駐，完成設定後才能開始今天的出勤。</p>
       </div>
-      <a data-action="settings" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" href="/settings">前往工作設定</a>
+      <a data-action="settings" class="inline-flex min-h-12 w-full items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 sm:w-fit" href="/settings#assignments">前往工作派駐設定</a>
     </section>
 
     <section v-else-if="readiness?.resolution === 'MISSING_POLICY'" class="mt-6 grid gap-4 rounded-2xl border border-line bg-surface p-6 shadow-[var(--shadow)] sm:p-8" aria-labelledby="today-missing-policy-title" data-state="unavailable-missing-policy">
@@ -409,7 +409,7 @@ function formatStartTime(value: string | null | undefined) {
           <strong>{{ displayedPolicy?.name }}</strong>
           <span class="text-sm leading-relaxed text-muted">{{ formatStartTime(displayedPolicy?.standard_start_time) }} 開始 · {{ formatMinutes(displayedPolicy?.work_minutes ?? null) }} 工作</span>
         </div>
-        <p class="border-t border-line pt-4 text-[0.8125rem] leading-relaxed text-muted">實際時間與計算結果由伺服器保存；此頁不提供日曆、假勤或手動修正。</p>
+        <p class="border-t border-line pt-4 text-[0.8125rem] leading-relaxed text-muted">實際時間與計算結果由伺服器保存；此頁不提供日曆、特殊狀態或手動修正。</p>
       </aside>
     </div>
   </div>

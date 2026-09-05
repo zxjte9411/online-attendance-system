@@ -191,6 +191,8 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const row = wrapper.get('[data-record-id="rec-1"]')
+    expect(row.text()).toContain('實際時間 (ACTUAL)')
+    expect(row.text()).toContain('有效時間 (EFFECTIVE)')
     expect(row.text()).toContain('09:15')
     expect(row.text()).toContain('09:30')
     expect(row.text()).toContain('18:30')
@@ -220,6 +222,9 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const modal = wrapper.get('[data-testid="detail-modal"]')
+    expect(modal.text()).toContain('保存的歷史工作派駐快照')
+    expect(modal.text()).toContain('保存的工作制度快照')
+    expect(modal.text()).not.toContain('工作情境')
     expect(modal.text()).toContain('Context Alpha')
     expect(modal.text()).toContain('COMP-A')
     expect(modal.text()).toContain('PROJ-A')
@@ -238,6 +243,7 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const row = wrapper.get('[data-record-id="rec-assignment-snapshot"]')
+    expect(row.text()).toContain('工作派駐快照')
     expect(row.text()).toContain('歷史派遣雇主')
     expect(row.text()).toContain('歷史派駐客戶')
     expect(row.text()).toContain('歷史專案')
@@ -246,6 +252,8 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     const modal = wrapper.get('[data-testid="detail-modal"]')
+    expect(modal.text()).toContain('保存的工作派駐快照')
+    expect(modal.text()).toContain('保存的工作制度快照')
     expect(modal.text()).toContain('歷史派遣雇主')
     expect(modal.text()).toContain('歷史派駐客戶')
     expect(modal.text()).toContain('歷史專案')
