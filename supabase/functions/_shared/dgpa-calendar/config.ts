@@ -4,8 +4,6 @@ export interface DgpaEnvironmentConfig {
   dgpaMetadataUrl?: string | null
   supabaseUrl?: string | null
   environment?: string | null
-  denoEnv?: string | null
-  appEnv?: string | null
 }
 
 export interface ResolvedDgpaMetadataUrl {
@@ -17,15 +15,15 @@ export interface ResolvedDgpaMetadataUrl {
 }
 
 export function isLocalOrTestEnvironment(env: DgpaEnvironmentConfig): boolean {
-  const envName = (env.environment || env.denoEnv || env.appEnv || '').trim().toLowerCase()
+  const envName = (env.environment || '').trim().toLowerCase()
   // Explicit production indicators disqualify immediately
   if (envName === 'production' || envName === 'prod') {
     return false
   }
 
   const supabaseUrl = (env.supabaseUrl || '').trim().toLowerCase()
-  // Supabase Cloud URLs (*.supabase.co, *.supabase.net) are production/staging backends
-  if (supabaseUrl.includes('.supabase.co') || supabaseUrl.includes('.supabase.net')) {
+  // Supabase Cloud URLs (*.supabase.co) are remote production/staging backends
+  if (supabaseUrl.includes('.supabase.co')) {
     return false
   }
 

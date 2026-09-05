@@ -77,23 +77,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const sendCsvResponse = (buffer, contentType = 'text/csv') => {
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  };
+
   if (url.pathname === '/fixtures/calendar-2026-utf8.csv') {
     requestCounts.utf8Csv++;
-    res.writeHead(200, {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Length': utf8Buffer.length,
-    });
-    res.end(utf8Buffer);
+    sendCsvResponse(utf8Buffer, 'text/csv; charset=utf-8');
     return;
   }
 
   if (url.pathname === '/fixtures/calendar-2025-big5.csv') {
     requestCounts.big5Csv++;
-    res.writeHead(200, {
-      'Content-Type': 'text/csv',
-      'Content-Length': big5Buffer.length,
-    });
-    res.end(big5Buffer);
+    sendCsvResponse(big5Buffer, 'text/csv');
     return;
   }
 

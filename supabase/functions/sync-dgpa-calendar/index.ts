@@ -83,8 +83,6 @@ Deno.serve(async (req: Request) => {
       dgpaMetadataUrl: Deno.env.get('DGPA_METADATA_URL'),
       supabaseUrl,
       environment: Deno.env.get('ENVIRONMENT'),
-      denoEnv: Deno.env.get('DENO_ENV'),
-      appEnv: Deno.env.get('APP_ENV'),
     })
     const metadataUrl = resolvedConfig.url
     if (resolvedConfig.rejected) {

@@ -35,10 +35,6 @@ export function loadBaselineFixtureBuffer(): Buffer {
   return fs.readFileSync(fixturePath)
 }
 
-export function loadBaselineFixtureCsv(): string {
-  return loadBaselineFixtureBuffer().toString('utf-8')
-}
-
 export function verifyApplicationBaseline(dependencies?: {
   selectResourceFn?: typeof selectDgpaResource
   parseCsvFn?: typeof parseDgpaCalendarCsv
@@ -124,6 +120,25 @@ function classifyContractOrRegressionError(
   }
 }
 
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  init: RequestInit,
+  fetchFn: typeof fetch
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetchFn(url, { ...init, signal: controller.signal })
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} ${res.statusText}`)
+    }
+    return res
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 export interface EvaluateOptions {
   targetYear?: number
   fetchFn?: typeof fetch
@@ -157,18 +172,12 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   let metadata: DgpaDatasetMetadata
   const fetchStartTime = Date.now()
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
-
-    const res = await fetchFn(OFFICIAL_METADATA_URL, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`)
-    }
+    const res = await fetchWithTimeout(
+      OFFICIAL_METADATA_URL,
+      15000,
+      { headers: { Accept: 'application/json' } },
+      fetchFn
+    )
     metadata = await res.json()
     const elapsed = Date.now() - fetchStartTime
     logs.push(`✓ [1/4] Upstream metadata reachable (${elapsed}ms)`)
@@ -210,15 +219,12 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   let csvBuffer: ArrayBuffer
   const downloadStartTime = Date.now()
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20000)
-
-    const res = await fetchFn(candidate.resourceDownloadUrl, { signal: controller.signal })
-    clearTimeout(timeoutId)
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`)
-    }
+    const res = await fetchWithTimeout(
+      candidate.resourceDownloadUrl,
+      20000,
+      {},
+      fetchFn
+    )
     csvBuffer = await res.arrayBuffer()
     const elapsed = Date.now() - downloadStartTime
     logs.push(`✓ [3/4] Candidate CSV downloaded (${csvBuffer.byteLength} bytes in ${elapsed}ms)`)

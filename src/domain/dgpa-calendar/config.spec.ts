@@ -24,8 +24,9 @@ describe('DGPA Environment & Metadata URL Resolution (config.ts)', () => {
 
     it('recognizes test and development environments', () => {
       expect(isLocalOrTestEnvironment({ environment: 'test' })).toBe(true)
-      expect(isLocalOrTestEnvironment({ denoEnv: 'development' })).toBe(true)
-      expect(isLocalOrTestEnvironment({ appEnv: 'local' })).toBe(true)
+      expect(isLocalOrTestEnvironment({ environment: 'development' })).toBe(true)
+      expect(isLocalOrTestEnvironment({ environment: 'local' })).toBe(true)
+      expect(isLocalOrTestEnvironment({ environment: 'dev' })).toBe(true)
     })
 
     it('rejects production environment regardless of other flags', () => {
@@ -37,8 +38,8 @@ describe('DGPA Environment & Metadata URL Resolution (config.ts)', () => {
       ).toBe(false)
       expect(
         isLocalOrTestEnvironment({
-          denoEnv: 'production',
-          appEnv: 'local',
+          environment: 'prod',
+          supabaseUrl: 'http://127.0.0.1:54321',
         })
       ).toBe(false)
     })
