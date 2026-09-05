@@ -12,7 +12,7 @@ import {
   type DayStatusType,
 } from '../calendar-status/overview'
 import type { WorkAssignment } from '../work-assignment/work-assignment'
-import type { WorkContext, WorkPolicy } from '../../lib/settings'
+import type { WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
 
 export type ReportStatusType = DayStatusType | 'ABSENT'
@@ -75,7 +75,6 @@ export type MonthlyReportSummary = {
 export type MonthlyReport = {
   yearMonth: string
   assignment: WorkAssignment
-  context?: WorkContext | null
   rows: DailyReportRow[]
   summary: MonthlyReportSummary
   hasConfigurationError: boolean
@@ -84,8 +83,7 @@ export type MonthlyReport = {
 
 export type BuildMonthlyReportParams = {
   yearMonth: string // YYYY-MM
-  assignment?: WorkAssignment
-  context?: WorkContext
+  assignment: WorkAssignment
   workPolicies: WorkPolicy[]
   attendanceRecords: AttendanceRecord[]
   otherContextAttendanceDates?: Set<string>
@@ -97,6 +95,7 @@ export type BuildMonthlyReportParams = {
 export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyReport {
   const {
     yearMonth,
+    assignment,
     workPolicies,
     attendanceRecords,
     dayStatuses = [],
@@ -104,25 +103,9 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
     dgpaRows = [],
   } = params
 
-  const assignment: WorkAssignment = params.assignment ?? {
-    id: params.context?.id ?? '',
-    user_id: params.context?.user_id ?? '',
-    staffing_employer: '',
-    client_company: '',
-    project: '',
-    effective_from: '1970-01-01',
-    effective_to: null,
-    created_at: params.context?.created_at ?? '',
-    updated_at: params.context?.updated_at ?? '',
-  }
-
   const attendanceMap = new Map<string, AttendanceRecord>()
   for (const rec of attendanceRecords) {
-    if (rec.assignment_id) {
-      if (rec.assignment_id === assignment.id) {
-        attendanceMap.set(rec.work_date, rec)
-      }
-    } else if (params.context && rec.context_id === params.context.id) {
+    if (rec.assignment_id === assignment.id) {
       attendanceMap.set(rec.work_date, rec)
     }
   }
@@ -181,8 +164,8 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
         staffing_employer: assignment.staffing_employer,
         client_company: assignment.client_company,
         project: assignment.project,
-        company_identifier: params.context?.company_identifier ?? '',
-        project_identifier: params.context?.project_identifier ?? '',
+        company_identifier: '',
+        project_identifier: '',
         actual_clock_in_at: null,
         actual_clock_out_at: null,
         effective_clock_in_at: null,
@@ -279,8 +262,8 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
       exception_flags.push('OTHER_CONTEXT_ATTENDANCE')
     }
 
-    let company_identifier = params.context?.company_identifier ?? ''
-    let project_identifier = params.context?.project_identifier ?? ''
+    let company_identifier = ''
+    let project_identifier = ''
     if (attendance?.context_snapshot) {
       const snap = attendance.context_snapshot
       if (typeof snap.company_identifier === 'string') {
@@ -356,7 +339,6 @@ export function buildMonthlyReport(params: BuildMonthlyReportParams): MonthlyRep
   return {
     yearMonth,
     assignment,
-    context: params.context ?? null,
     rows,
     summary,
     hasConfigurationError: missingPolicyDates.length > 0,

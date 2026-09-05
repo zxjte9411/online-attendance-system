@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { buildMonthlyReport } from './monthly-report'
 import { exportReportToCsv, escapeCsvField } from './csv-export'
-import type { WorkContext, WorkPolicy } from '../../lib/settings'
+import type { WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
 import type { DayStatus } from '../calendar-status/overview'
+import type { WorkAssignment } from '../work-assignment/work-assignment'
 
-const mockContext: WorkContext = {
-  id: 'ctx-1',
+const mockAssignment: WorkAssignment = {
+  id: 'assign-1',
   user_id: 'user-1',
-  name: '預設工作情境',
-  company_identifier: 'COMPANY_A',
-  project_identifier: 'PROJECT_X',
-  active: true,
-  is_default: true,
+  staffing_employer: 'COMPANY_A',
+  client_company: 'COMPANY_A',
+  project: 'PROJECT_X',
+  effective_from: '1970-01-01',
+  effective_to: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
 }
 
 const mockPolicy: WorkPolicy = {
@@ -39,6 +42,7 @@ function createAttendance(workDate: string, overrides: Partial<AttendanceRecord>
     id: `att-${workDate}`,
     user_id: 'user-1',
     work_date: workDate,
+    assignment_id: 'assign-1',
     context_id: 'ctx-1',
     work_policy_id: 'pol-1',
     actual_clock_in_at: `${workDate}T09:00:00+08:00`,
@@ -72,7 +76,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
   it('檔案開頭為 UTF-8 BOM (\\uFEFF)', () => {
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
     })
@@ -87,7 +91,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
     })
@@ -101,7 +105,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
   it('總列數符合天數 + 標題列 (31 天為 32 列)', () => {
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
     })
@@ -120,7 +124,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
       dayStatuses,
@@ -147,7 +151,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [incompleteAttendance],
     })
@@ -182,7 +186,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
       dayStatuses,
@@ -214,7 +218,7 @@ describe('CSV Exporter (exportReportToCsv)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [attendanceWithVersion, attendanceWithoutVersion],
     })
@@ -399,38 +403,5 @@ describe('CSV Exporter (exportReportToCsv)', () => {
     expect(rowAug3[2]).toBe('')
     expect(rowAug3[3]).not.toBe('機密專案 C')
     expect(rowAug3[3]).toBe('')
-  })
-
-  it('Regression: 若有 authoritative Context，CSV legacy 欄位正確輸出 Context 識別碼', () => {
-    const reportWithContext = buildMonthlyReport({
-      yearMonth: '2026-08',
-      assignment: {
-        id: 'assign-reg',
-        user_id: 'user-1',
-        staffing_employer: '派遣公司 A',
-        client_company: '客戶企業 B',
-        project: '機密專案 C',
-        effective_from: '2026-08-01',
-        effective_to: '2026-08-31',
-      },
-      context: {
-        id: 'ctx-1',
-        user_id: 'user-1',
-        name: '舊版 Context',
-        company_identifier: 'AUTH_LEGACY_COMPANY',
-        project_identifier: 'AUTH_LEGACY_PROJECT',
-        active: true,
-        is_default: true,
-      },
-      workPolicies: [{ ...mockPolicy, assignment_id: 'assign-reg' }],
-      attendanceRecords: [],
-    })
-
-    const csv = exportReportToCsv(reportWithContext)
-    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
-    const rowAug3 = lines[3].split(',')
-
-    expect(rowAug3[2]).toBe('AUTH_LEGACY_COMPANY')
-    expect(rowAug3[3]).toBe('AUTH_LEGACY_PROJECT')
   })
 })

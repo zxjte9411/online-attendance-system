@@ -1,20 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { buildMonthlyReport } from './monthly-report'
 import { resolveMonthDays } from '../calendar-status/overview'
-import type { WorkContext, WorkPolicy } from '../../lib/settings'
+import type { WorkPolicy } from '../../lib/settings'
 import type { AttendanceRecord } from '../../lib/attendance'
 import type { DayStatus, CalendarOverride } from '../calendar-status/overview'
 import type { DgpaCalendarRow } from '../dgpa-calendar/resolver'
 import type { WorkAssignment } from '../work-assignment/work-assignment'
 
-const mockContext: WorkContext = {
-  id: 'ctx-1',
+const mockAssignment: WorkAssignment = {
+  id: 'assign-1',
   user_id: 'user-1',
-  name: '預設工作情境',
-  company_identifier: 'COMPANY_A',
-  project_identifier: 'PROJECT_X',
-  active: true,
-  is_default: true,
+  staffing_employer: 'COMPANY_A',
+  client_company: 'COMPANY_A',
+  project: 'PROJECT_X',
+  effective_from: '1970-01-01',
+  effective_to: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
 }
 
 const mockPolicy: WorkPolicy = {
@@ -41,6 +43,7 @@ function createAttendance(workDate: string, overrides: Partial<AttendanceRecord>
     id: `att-${workDate}`,
     user_id: 'user-1',
     work_date: workDate,
+    assignment_id: 'assign-1',
     context_id: 'ctx-1',
     work_policy_id: 'pol-1',
     actual_clock_in_at: `${workDate}T09:00:00+08:00`,
@@ -75,7 +78,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     // 2026-02 (28 days)
     const reportFeb2026 = buildMonthlyReport({
       yearMonth: '2026-02',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
     })
@@ -86,7 +89,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     // 2024-02 (29 days - leap year)
     const reportFeb2024 = buildMonthlyReport({
       yearMonth: '2024-02',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [{ ...mockPolicy, effective_from: '2024-01-01' }],
       attendanceRecords: [],
     })
@@ -96,7 +99,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     // 2026-04 (30 days)
     const reportApr = buildMonthlyReport({
       yearMonth: '2026-04',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
     })
@@ -105,7 +108,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     // 2026-08 (31 days)
     const reportAug = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
     })
@@ -139,7 +142,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords,
       dayStatuses,
@@ -256,7 +259,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords,
       dayStatuses,
@@ -283,7 +286,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [latePolicy],
       attendanceRecords: [],
     })
@@ -308,7 +311,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [withVersion, withoutVersion],
     })
@@ -337,7 +340,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       calendarOverrides,
       dgpaRows,
       workPolicies: [mockPolicy],
@@ -367,11 +370,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: {
-        ...mockContext,
-        company_identifier: 'NEW_COMPANY',
-        project_identifier: 'NEW_PROJECT',
-      },
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [historicalAttendance],
     })
@@ -381,8 +380,8 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
     expect(rowWithAttendance.project_identifier).toBe('OLD_PROJECT')
 
     const rowWithoutAttendance = report.rows.find((r) => r.date === '2026-08-04')!
-    expect(rowWithoutAttendance.company_identifier).toBe('NEW_COMPANY')
-    expect(rowWithoutAttendance.project_identifier).toBe('NEW_PROJECT')
+    expect(rowWithoutAttendance.company_identifier).toBe('')
+    expect(rowWithoutAttendance.project_identifier).toBe('')
   })
 
   it('偵測 OTHER_CONTEXT_ATTENDANCE 例外旗標，且不混入其工時', () => {
@@ -390,7 +389,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords: [],
       otherContextAttendanceDates: otherContextDates,
@@ -415,7 +414,7 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
 
     const report = buildMonthlyReport({
       yearMonth: '2026-08',
-      context: mockContext,
+      assignment: mockAssignment,
       workPolicies: [mockPolicy],
       attendanceRecords,
       dayStatuses,
@@ -609,59 +608,20 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
         effective_to: '2026-08-31',
       }
 
-      const reportWithoutContext = buildMonthlyReport({
+      const report = buildMonthlyReport({
         yearMonth: '2026-08',
         assignment: canonicalAssignment,
         workPolicies: [{ ...standardPolicy, assignment_id: 'assign-canon' }],
         attendanceRecords: [],
       })
 
-      expect(reportWithoutContext.context).toBeNull()
-      for (const row of reportWithoutContext.rows) {
+      for (const row of report.rows) {
         expect(row.staffing_employer).toBe('派遣雇主 H')
         expect(row.client_company).toBe('派駐客戶 C')
         expect(row.project).toBe('專案 P')
         // Must NOT guess assignment client_company or project into legacy identifiers
         expect(row.company_identifier).toBe('')
         expect(row.project_identifier).toBe('')
-      }
-    })
-
-    it('有 authoritative legacy Context 時，legacy identifiers 正確使用 Context 定義之識別碼', () => {
-      const canonicalAssignment: WorkAssignment = {
-        id: 'assign-canon',
-        user_id: 'user-1',
-        staffing_employer: '派遣雇主 H',
-        client_company: '派駐客戶 C',
-        project: '專案 P',
-        effective_from: '2026-08-01',
-        effective_to: '2026-08-31',
-      }
-
-      const authoritativeContext: WorkContext = {
-        id: 'ctx-auth-1',
-        user_id: 'user-1',
-        name: '舊版情境',
-        company_identifier: 'LEGACY_COMP_ID',
-        project_identifier: 'LEGACY_PROJ_ID',
-        active: true,
-        is_default: true,
-      }
-
-      const reportWithContext = buildMonthlyReport({
-        yearMonth: '2026-08',
-        assignment: canonicalAssignment,
-        context: authoritativeContext,
-        workPolicies: [{ ...standardPolicy, assignment_id: 'assign-canon' }],
-        attendanceRecords: [],
-      })
-
-      expect(reportWithContext.context).toBe(authoritativeContext)
-      for (const row of reportWithContext.rows) {
-        expect(row.company_identifier).toBe('LEGACY_COMP_ID')
-        expect(row.project_identifier).toBe('LEGACY_PROJ_ID')
-        expect(row.client_company).toBe('派駐客戶 C')
-        expect(row.project).toBe('專案 P')
       }
     })
   })
