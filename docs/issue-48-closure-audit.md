@@ -53,10 +53,10 @@
 - **規範要求**：Work Policy 嚴格隸屬 Work Assignment；policy gap 是合法狀態；used Policy 的 immutable fields 與 effective date 保護維持。
 - **實作與驗證證據**：
   - 資料庫 Invariants (`supabase/tests/issue_51_work_policy_test.sql`，77/77 tests 通過）：
-    - Policy 必須隸屬於 `assignment_id`（ok 6）；排他性約束條件嚴格依 assignment 判定無重疊（ok 24）。
-    - Policy 起訖日期必須完全落在所屬 Assignment 期間內（ok 60–63, throws on out-of-range）。
-    - 容許派駐期間內存在 Policy Gap（past/current/future 間隔合法，ok 44–45）。
-    - 已有出勤紀錄引用之 Policy 欄位（工時、起訖、計算規則等）受到不可變保護（ok 64–72）。
+    - Policy 必須隸屬於 `assignment_id`（ok 1, ok 41）；排他性約束條件嚴格依 assignment 判定無重疊（ok 4, ok 24）。
+    - Policy 起訖日期必須完全落在所屬 Assignment 期間內（ok 21–23, ok 42）。
+    - 容許派駐期間內存在 Policy Gap（past/current/future 間隔合法，ok 20；resolver 遇到 gap 回傳 MISSING_POLICY，ok 64）。
+    - 已有出勤紀錄引用之 Policy 欄位（工時、起訖、計算規則等）受到不可變保護（ok 47, ok 49–51）。
   - Domain 與 UI (`src/settings-regression.spec.ts`，5 tests 全部通過；`src/views/SettingsView.spec.ts`，12 tests 全部通過）：
     - 依據 Asia/Taipei 今日日期正確顯示「尚未生效」、「目前適用」、「已結束」。
     - 已被出勤引用之制度於 UI 鎖定不可變欄位。
@@ -65,8 +65,8 @@
 - **規範要求**：Today 只能在 Attendance Ready(today) 時建立新打卡；無 Assignment / Policy 是正常 unavailable 狀態，而非頁面存取錯誤；已存在紀錄繼續依保存 snapshot 呈現不被改寫。
 - **實作與驗證證據**：
   - 資料庫 Invariants (`supabase/tests/issue_52_attendance_ready_test.sql`，29/29 tests 通過）：
-    - 打卡 RPC 在缺派駐或缺制度時回傳可辨識狀態而非資料庫 crash。
-    - 既有打卡即使當前配置改變，仍可依 snapshot 完成下班打卡（ok 26–27）。
+    - 打卡 RPC 在缺派駐或缺制度時回傳可辨識狀態而非資料庫 crash（ok 8, ok 9）。
+    - 既有打卡即使當前配置改變，仍可依 snapshot 完成下班打卡（ok 20–23, ok 26–27）。
     - 下班打卡不推論或補填 legacy attendance 的 `assignment_id`（ok 28–29）。
   - UI 整合 (`src/views/TodayView.spec.ts`，14 tests 全部通過）：
     - 無今日 Assignment 時呈現 `unavailable-no-assignment` 狀態並提供前往設定連結，非頁面錯誤（L140–155）。
@@ -77,8 +77,8 @@
 - **規範要求**：可對 ended Assignment 的有效日期操作，且仍依 target date -> Assignment -> Policy 解析。
 - **實作與驗證證據**：
   - 資料庫 Invariants (`supabase/tests/issue_53_target_date_attendance_test.sql`，55/55 tests 通過）：
-    - `create_manual_attendance(date, time, time, text)` 與 `edit_attendance_record(id, time, time, text)` 簽章均已移除 `context_id` 參數（ok 7–40）。
-    - 兩者皆以 `resolve_work_assignment_policy(target_date)` 統一解析派駐與制度（ok 52–60）。
+    - `create_manual_attendance(date, time, time, text)` 與 `edit_attendance_record(id, time, time, text)` 簽章均已移除 `context_id` 參數（ok 2–5）。
+    - 兩者皆以 `resolve_work_assignment_policy(target_date)` 統一解析派駐與制度（ok 8–12, ok 23–25, ok 49–50, ok 53–54）。
     - 針對已結束之 Assignment，歷史日期仍可精確解析該區間之 Assignment 與 Policy 並完成補登與編輯。
   - 前端 UI (`src/views/AttendanceView.spec.ts`，13 tests 全部通過）：
     - 手動補登對話框不含工作情境選單（L358, L390）。
@@ -118,10 +118,10 @@
 - **規範要求**：Export Template ownership 為 Work Assignment；legacy context-only template 僅保留必要歷史可讀性，不形成新的 canonical write/update path。
 - **實作與驗證證據**：
   - 資料庫 Invariants (`supabase/tests/issue_55_export_templates_assignment_owner_test.sql`，22/22 tests 通過；`supabase/tests/issue_56_cleanup_legacy_work_context_test.sql`，35/35 tests 通過）：
-    - `export_templates.assignment_id` 具備外鍵與非空檢查（ok 9, ok 24, ok 34）。
-    - authenticated 使用者禁止新增 context-only template（ok 144–148, throws_ok）。
-    - 歷史 context-only template 僅可 SELECT 讀取，UPDATE 與 DELETE 均被 RLS 與 Trigger 嚴格封鎖（ok 158–187, ok 192–206）。
-    - 歷史範本資料未被啟發式遷移或竄改（ok 254–273）。
+    - `export_templates.assignment_id` 具備外鍵與不可為空檢查（`issue_55` ok 2, ok 5, ok 8, ok 10；`issue_56` ok 27, ok 34）。
+    - authenticated 使用者禁止新增 context-only template（`issue_55` ok 11；`issue_56` L217–221 / ok 27）。
+    - 歷史 context-only template 僅可 SELECT 讀取，UPDATE 與 DELETE 均被 RLS 與 Trigger 嚴格封鎖（`issue_55` ok 12–17；`issue_56` L224–250 / ok 28–30）。
+    - 歷史範本資料未被啟發式遷移或竄改（`issue_55` ok 22；`issue_56` L301–312 / ok 35）。
   - UI 整合 (`src/components/settings/ExportTemplateSection.spec.ts`，17 tests 全部通過）：
     - 範本管理與預覽均明確綁定所選派駐。
 
@@ -146,10 +146,53 @@
 | :--- | :--- | :---: | :--- |
 | **App Verification Seam** | `bun run verify` | **PASS** | 56 test files, 884 tests 全部通過；`vue-tsc` 零錯誤；Vite 生產建置打包成功。 |
 | **Local Supabase Reset** | `SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase db reset` | **PASS** | 15 個 migration 全部依序乾淨套用完成。 |
-| **資料庫 pgTAP 測試** | `docker exec -i supabase_db_online-attendance-system psql -v ON_ERROR_STOP=1 -U postgres -d postgres < <file>` | **PASS** | 13 個測試檔案共 **578** 項斷言全部通過（0 failure）。<br>*(註：`supabase test db` 因開發容器跨 Docker host 無法掛載 `/workspaces` 路徑產生 exit 2，依 `README.md` 既定 fallback 執行本機容器測試)* |
+| **資料庫 pgTAP 測試** | 見下方 3.1 Fallback 命令迴圈（13 個 SQL 檔案） | **PASS** | 13 個測試檔案共 **578** 項斷言全部通過（0 failure）。 |
 | **出勤並行隔離回歸** | `./scripts/test-issue-62-attendance-concurrency.sh` | **PASS** | 並行更新 Assignment 與 Policy 均正確回傳 SQLSTATE `55P03`，出勤 snapshot 寫入完整性無損。 |
 | **Local DB Advisors** | `SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase db advisors --local --type all` | **PASS** | `No issues found` (`results: []`)；security 與 performance 亦皆為 0 issues。 |
 | **Local DB Lint** | `SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase db lint --local --schema public --level error` | **PASS** | `public` schema 檢查結果為 0 errors (`results: []`)。 |
+
+### 3.1 資料庫 pgTAP 測試之 Primary 執行失敗與 Fallback 驗證紀錄
+
+#### 1. 實際嘗試之主命令（Primary Command）
+```sh
+SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase test db
+```
+
+#### 2. 原始錯誤與 Exit Code
+- **Exit Code**: `1`
+- **原始輸出（Raw Output）**：
+  ```text
+  Connecting to local database...
+  Files=0, Tests=0,  0 wallclock secs ( 0.00 usr +  0.00 sys =  0.00 CPU)
+  Result: NOTESTS
+  no pgTAP tests found in /workspaces/online-attendance-system/supabase/tests
+  ```
+- **失敗原因**：開發環境執行於 Devcontainer 內，Supabase CLI 呼叫遠端 Host Docker daemon 啟動 `pg_prove` 容器時，嘗試掛載容器內部路徑 `/workspaces/online-attendance-system/supabase/tests`，因該路徑在 Host 實體檔案系統不存在而掛載為空目錄，導致 CLI 判定 `no pgTAP tests found`。
+
+#### 3. 實際執行之 Fallback 命令（Reproducible Fallback Seam）
+依據 [`README.md`](../README.md)「開發容器中的 Local Supabase」規定，改以本機資料庫容器直接執行已提交之 13 個 pgTAP SQL 檔案：
+
+```sh
+for f in $(ls supabase/tests/*.sql | sort); do
+  docker exec -i supabase_db_online-attendance-system psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$f"
+done
+```
+
+#### 4. Fallback 執行結果與斷言統計（Assertion Counts）
+共 13 個測試檔案全部執行成功，斷言無任一失敗（Planned: 578, Passed: 578, Failed: 0）：
+1. `supabase/tests/issue_17_work_context_policy_test.sql`: 47 passed (plan 47, 0 failure)
+2. `supabase/tests/issue_18_attendance_test.sql`: 76 passed (plan 76, 0 failure)
+3. `supabase/tests/issue_19_attendance_manual_edit_test.sql`: 53 passed (plan 53, 0 failure)
+4. `supabase/tests/issue_20_day_status_calendar_overrides_test.sql`: 58 passed (plan 58, 0 failure)
+5. `supabase/tests/issue_21_dgpa_calendar_cache_test.sql`: 29 passed (plan 29, 0 failure)
+6. `supabase/tests/issue_23_export_templates_test.sql`: 35 passed (plan 35, 0 failure)
+7. `supabase/tests/issue_50_work_assignments_test.sql`: 50 passed (plan 50, 0 failure)
+8. `supabase/tests/issue_51_work_policy_test.sql`: 77 passed (plan 77, 0 failure)
+9. `supabase/tests/issue_52_attendance_ready_test.sql`: 29 passed (plan 29, 0 failure)
+10. `supabase/tests/issue_53_target_date_attendance_test.sql`: 55 passed (plan 55, 0 failure)
+11. `supabase/tests/issue_55_export_templates_assignment_owner_test.sql`: 22 passed (plan 22, 0 failure)
+12. `supabase/tests/issue_56_cleanup_legacy_work_context_test.sql`: 35 passed (plan 35, 0 failure)
+13. `supabase/tests/issue_62_attendance_serialization_test.sql`: 12 passed (plan 12, 0 failure)
 
 ---
 
