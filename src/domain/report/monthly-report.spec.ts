@@ -22,6 +22,7 @@ const mockAssignment: WorkAssignment = {
 const mockPolicy: WorkPolicy = {
   id: 'pol-1',
   user_id: 'user-1',
+  assignment_id: 'assign-1',
   context_id: 'ctx-1',
   name: '標準制度 8h',
   standard_start_time: '09:00:00',
@@ -623,6 +624,52 @@ describe('Monthly Report Domain (buildMonthlyReport)', () => {
         expect(row.company_identifier).toBe('')
         expect(row.project_identifier).toBe('')
       }
+    })
+
+    it('Issue #67: 嚴格隔離 legacy Work Policy (assignment_id = null)，不得作為 fallback 或引發 multiple-policy error', () => {
+      const canonicalAssignment: WorkAssignment = {
+        id: 'assign-67',
+        user_id: 'user-1',
+        staffing_employer: 'Employer 67',
+        client_company: 'Client 67',
+        project: 'Project 67',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+      const legacyPolicy: WorkPolicy = {
+        ...standardPolicy,
+        id: 'pol-legacy-67',
+        assignment_id: null,
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+      const canonicalPolicy: WorkPolicy = {
+        ...standardPolicy,
+        id: 'pol-canon-67',
+        assignment_id: 'assign-67',
+        effective_from: '2026-08-01',
+        effective_to: '2026-08-31',
+      }
+
+      // 1. 只有 legacy policy 時：維持 MISSING_POLICY 語意，不得 fallback
+      const reportLegacyOnly = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: canonicalAssignment,
+        workPolicies: [legacyPolicy],
+        attendanceRecords: [],
+      })
+      expect(reportLegacyOnly.hasConfigurationError).toBe(true)
+      expect(reportLegacyOnly.missingPolicyDates.length).toBeGreaterThan(0)
+
+      // 2. canonical + legacy 同時存在：只解析 canonical policy，不拋出錯誤且無 configuration error
+      const reportWithBoth = buildMonthlyReport({
+        yearMonth: '2026-08',
+        assignment: canonicalAssignment,
+        workPolicies: [legacyPolicy, canonicalPolicy],
+        attendanceRecords: [],
+      })
+      expect(reportWithBoth.hasConfigurationError).toBe(false)
+      expect(reportWithBoth.missingPolicyDates).toHaveLength(0)
     })
   })
 })
