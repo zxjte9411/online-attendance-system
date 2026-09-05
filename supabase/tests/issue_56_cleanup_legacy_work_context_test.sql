@@ -1,7 +1,7 @@
 create extension if not exists pgtap;
 begin;
 
-select plan(26);
+select plan(35);
 
 -- 1. work_contexts table schema & permissions
 select has_table('public', 'work_contexts', 'work_contexts table exists');
@@ -49,7 +49,8 @@ insert into public.work_contexts (id, user_id, name, company_identifier, project
 
 -- Seed work_assignments
 insert into public.work_assignments (id, user_id, staffing_employer, client_company, project, effective_from, effective_to) values
-  ('56000000-0000-0000-0000-000000000100', '56000000-0000-0000-0000-000000000001', 'Staffing 1', 'Client 1', 'Project 1', '2026-01-01', null);
+  ('56000000-0000-0000-0000-000000000100', '56000000-0000-0000-0000-000000000001', 'Staffing 1', 'Client 1', 'Project 1', '2026-01-01', null),
+  ('56000000-0000-0000-0000-000000000101', '56000000-0000-0000-0000-000000000002', 'Staffing 2', 'Client 2', 'Project 2', '2026-01-01', null);
 
 -- Seed work_policies
 insert into public.work_policies (
@@ -73,6 +74,18 @@ insert into public.attendance_records (
   '2026-08-01 09:00:00+08', '2026-08-01 09:00:00+08', '2026-08-01 18:00:00+08',
   'CLOCK', '{"name": "Archived Context 1"}'::jsonb, '{}'::jsonb,
   '{"state": "IN_PROGRESS", "calculation_version": "v1"}'::jsonb
+);
+
+-- Seed historical context-owned export template for User 1
+insert into public.export_templates (
+  id, user_id, context_id, assignment_id, name, storage_path
+) values (
+  '56000000-0000-0000-0000-000000000400',
+  '56000000-0000-0000-0000-000000000001',
+  '56000000-0000-0000-0000-000000000010',
+  null,
+  'Historical Context Template',
+  '56000000-0000-0000-0000-000000000001/legacy/tpl/source.xlsx'
 );
 
 -- 2. Authenticated user permission checks on work_contexts
@@ -196,6 +209,108 @@ select throws_ok(
     set context_id = '56000000-0000-0000-0000-000000000010'
     where id = (select id from issue_56_manual_record)$$,
   '42501', null, 'direct update on attendance_records is rejected by RLS'
+);
+
+-- 8. Export Template contract regression tests (#56 Review Requirements 1-5)
+
+-- 8.1 authenticated cannot insert export template with assignment_id = null
+select throws_ok(
+  $$insert into public.export_templates (user_id, context_id, assignment_id, name, storage_path)
+    values ('56000000-0000-0000-0000-000000000001', '56000000-0000-0000-0000-000000000010', null, 'Forbidden Template', 'path')$$,
+  'P0001', null, 'authenticated cannot insert export template with null assignment_id'
+);
+
+-- 8.2 existing legacy context-only template is readable
+select is(
+  (select name from public.export_templates where id = '56000000-0000-0000-0000-000000000400'),
+  'Historical Context Template',
+  'legacy context-only export template is readable'
+);
+
+-- 8.3 legacy template cannot be modified by authenticated update
+update public.export_templates
+set name = 'Hacked Legacy Name'
+where id = '56000000-0000-0000-0000-000000000400';
+
+select is(
+  (select name from public.export_templates where id = '56000000-0000-0000-0000-000000000400'),
+  'Historical Context Template',
+  'legacy context-only export template cannot be modified by authenticated update'
+);
+
+-- 8.4 legacy template cannot be reassigned to an assignment
+update public.export_templates
+set assignment_id = '56000000-0000-0000-0000-000000000100'
+where id = '56000000-0000-0000-0000-000000000400';
+
+select is(
+  (select assignment_id from public.export_templates where id = '56000000-0000-0000-0000-000000000400'),
+  null,
+  'legacy context-only export template cannot be reassigned to an assignment'
+);
+
+-- 8.5 Assignment-owned template normal CRUD works
+insert into public.export_templates (
+  id, user_id, assignment_id, name, storage_path
+) values (
+  '56000000-0000-0000-0000-000000000410',
+  '56000000-0000-0000-0000-000000000001',
+  '56000000-0000-0000-0000-000000000100',
+  'Assignment Template 1',
+  '56000000-0000-0000-0000-000000000001/asg/tpl1/source.xlsx'
+);
+
+select is(
+  (select name from public.export_templates where id = '56000000-0000-0000-0000-000000000410'),
+  'Assignment Template 1',
+  'authenticated can create and select assignment-owned export template'
+);
+
+update public.export_templates
+set name = 'Assignment Template 1 Updated'
+where id = '56000000-0000-0000-0000-000000000410';
+
+select is(
+  (select name from public.export_templates where id = '56000000-0000-0000-0000-000000000410'),
+  'Assignment Template 1 Updated',
+  'authenticated can update own assignment-owned export template'
+);
+
+delete from public.export_templates
+where id = '56000000-0000-0000-0000-000000000410';
+
+select is(
+  (select count(*)::integer from public.export_templates where id = '56000000-0000-0000-0000-000000000410'),
+  0,
+  'authenticated can delete own assignment-owned export template'
+);
+
+-- 8.6 cross-user isolation: User 1 cannot bind template to User 2 assignment
+select throws_ok(
+  $$insert into public.export_templates (user_id, assignment_id, name, storage_path)
+    values ('56000000-0000-0000-0000-000000000001', '56000000-0000-0000-0000-000000000101', 'Forged', 'path')$$,
+  '23503', null, 'cross-user assignment foreign key is strictly enforced'
+);
+
+-- 8.7 legacy context-only row is preserved intact without heuristic migration or takeover
+select is(
+  (select json_build_object(
+     'id', id,
+     'user_id', user_id,
+     'context_id', context_id,
+     'assignment_id', assignment_id,
+     'name', name
+   )::text
+   from public.export_templates
+   where id = '56000000-0000-0000-0000-000000000400'),
+  json_build_object(
+    'id', '56000000-0000-0000-0000-000000000400'::uuid,
+    'user_id', '56000000-0000-0000-0000-000000000001'::uuid,
+    'context_id', '56000000-0000-0000-0000-000000000010'::uuid,
+    'assignment_id', null,
+    'name', 'Historical Context Template'
+  )::text,
+  'legacy context-only row is preserved intact without heuristic takeover'
 );
 
 select * from finish();
