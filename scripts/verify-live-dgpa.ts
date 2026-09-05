@@ -18,38 +18,55 @@ export const BASELINE_METADATA: DgpaDatasetMetadata = {
     distribution: [
       {
         resourceDescription: '115年中華民國政府行政機關辦公日曆表',
-        resourceDownloadUrl: 'https://example.com/fixture.csv',
+        resourceDownloadUrl: 'https://example.com/calendar-2026-utf8.csv',
         resourceCharacterEncoding: 'utf-8',
         resourceFormat: 'CSV',
         resourceQualityCheckTime: '2026-07-15 11:30:22',
+        resourceField: ['西元日期', '星期', '是否放假', '備註'],
+      },
+      {
+        resourceDescription: '114年中華民國政府行政機關辦公日曆表',
+        resourceDownloadUrl: 'https://example.com/calendar-2025-big5.csv',
+        resourceCharacterEncoding: 'big5',
+        resourceFormat: 'CSV',
+        resourceQualityCheckTime: '2026-07-15 11:30:19',
         resourceField: ['西元日期', '星期', '是否放假', '備註'],
       },
     ],
   },
 }
 
-export function loadBaselineFixtureBuffer(): Buffer {
+export function loadBaselineFixtureBuffer(year: number = 2026): Buffer {
   const __filename = fileURLToPath(import.meta.url)
   const __dirname = path.dirname(__filename)
-  const fixturePath = path.resolve(__dirname, '../tests/fixtures/dgpa/calendar-2026-utf8.csv')
+  const fileName = year === 2025 ? 'calendar-2025-big5.csv' : 'calendar-2026-utf8.csv'
+  const fixturePath = path.resolve(__dirname, `../tests/fixtures/dgpa/${fileName}`)
   return fs.readFileSync(fixturePath)
 }
 
-export function verifyApplicationBaseline(dependencies?: {
+export interface BaselineVerificationDependencies {
   selectResourceFn?: typeof selectDgpaResource
   parseCsvFn?: typeof parseDgpaCalendarCsv
   decodeBufferFn?: typeof decodeDgpaBuffer
-}): void {
+}
+
+export function verifyApplicationBaseline(
+  yearOrDeps?: number | BaselineVerificationDependencies,
+  maybeDeps?: BaselineVerificationDependencies
+): void {
+  const targetYear = typeof yearOrDeps === 'number' ? yearOrDeps : 2026
+  const dependencies = typeof yearOrDeps === 'object' && yearOrDeps !== null ? yearOrDeps : maybeDeps
   const selectFn = dependencies?.selectResourceFn ?? selectDgpaResource
   const parseFn = dependencies?.parseCsvFn ?? parseDgpaCalendarCsv
   const decodeFn = dependencies?.decodeBufferFn ?? decodeDgpaBuffer
   const metadata = BASELINE_METADATA
-  const rawBuffer = loadBaselineFixtureBuffer()
+  const baselineYear = targetYear === 2025 ? 2025 : 2026
+  const rawBuffer = loadBaselineFixtureBuffer(baselineYear)
 
   // 1. Verify resource selection on known baseline metadata
-  const candidate = selectFn(metadata, 2026)
-  if (!candidate || candidate.resourceCharacterEncoding !== 'utf-8') {
-    throw new Error('Baseline resource selection returned invalid candidate')
+  const candidate = selectFn(metadata, baselineYear)
+  if (!candidate) {
+    throw new Error(`Baseline resource selection returned invalid candidate for ${baselineYear}`)
   }
 
   // 2. Verify buffer decoding
@@ -57,9 +74,9 @@ export function verifyApplicationBaseline(dependencies?: {
   const csvText = decodeFn(new Uint8Array(rawBuffer), encoding)
 
   // 3. Verify CSV parsing and calendar validation on known baseline CSV
-  const rows = parseFn(csvText, 2026)
+  const rows = parseFn(csvText, baselineYear)
   if (rows.length !== 365) {
-    throw new Error(`Baseline parser returned ${rows.length} rows; expected 365`)
+    throw new Error(`Baseline parser returned ${rows.length} rows for ${baselineYear}; expected 365`)
   }
 }
 
@@ -157,7 +174,7 @@ export async function evaluateLiveDgpa(options?: EvaluateOptions): Promise<Verif
   const verifyBaseline =
     options?.verifyBaselineFn ??
     (() =>
-      verifyApplicationBaseline({
+      verifyApplicationBaseline(targetYear, {
         selectResourceFn: selectFn,
         parseCsvFn: parseFn,
         decodeBufferFn: decodeFn,

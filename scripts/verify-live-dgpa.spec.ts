@@ -211,4 +211,47 @@ describe('Live DGPA Verification Root-Cause Diagnosis (verify-live-dgpa.ts)', ()
     expect(result.exitCode).toBe(EXIT_APPLICATION_REGRESSION)
     expect(result.verdict).toBe('APPLICATION REGRESSION.')
   })
+
+  it('reliably verifies both 2026 (UTF-8) and 2025 (Big5) application baselines', () => {
+    expect(() => verifyApplicationBaseline(2026)).not.toThrow()
+    expect(() => verifyApplicationBaseline(2025)).not.toThrow()
+  })
+
+  it('reliably diagnoses APPLICATION REGRESSION (exitCode 1) when Big5 decoding breaks on year 2025', async () => {
+    // Simulating a regression where Big5 decoding specifically fails
+    const buggyBig5DecodeFn = (_buf: Uint8Array, encoding: string) => {
+      if (encoding.toLowerCase() === 'big5') {
+        throw new Error('EncodingError: Big5 decoder crashed')
+      }
+      return '西元日期,星期,是否放假,備註\n'
+    }
+
+    const mockFetch2025Success: typeof fetch = (async (url: any) => {
+      if (String(url).includes('dataset/14718')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => BASELINE_METADATA,
+        } as any
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        arrayBuffer: async () => new ArrayBuffer(100),
+      } as any
+    }) as any
+
+    const result = await evaluateLiveDgpa({
+      targetYear: 2025,
+      fetchFn: mockFetch2025Success,
+      decodeBufferFn: buggyBig5DecodeFn as any,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.diagnosis).toBe('APPLICATION REGRESSION')
+    expect(result.exitCode).toBe(EXIT_APPLICATION_REGRESSION)
+    expect(result.verdict).toBe('APPLICATION REGRESSION.')
+  })
 })
