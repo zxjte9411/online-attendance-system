@@ -441,5 +441,68 @@ describe('resolveMonthDays', () => {
       })
     }).toThrow('multiple work assignments resolve for target date')
   })
+
+  it('Issue #67: Calendar 嚴格隔離 legacy Work Policy，避免 fallback 或 multiple-policy 衝突', () => {
+    const assignment: WorkAssignment = {
+      id: 'wa-cal-67',
+      user_id: 'u1',
+      staffing_employer: 'Emp 67',
+      client_company: 'Client 67',
+      project: 'Project 67',
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+    const legacyPolicy: WorkPolicy = {
+      id: 'pol-legacy-cal',
+      user_id: 'u1',
+      assignment_id: null,
+      context_id: null,
+      name: 'Legacy 政策',
+      standard_start_time: '09:00:00',
+      work_minutes: 480,
+      fixed_break_minutes: 60,
+      early_arrival_policy: 'STANDARD_START',
+      clock_in_rounding_mode: 'NONE',
+      clock_in_rounding_minutes: null,
+      clock_out_rounding_mode: 'NONE',
+      clock_out_rounding_minutes: null,
+      working_days: ['1', '2', '3', '4', '5'],
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+      timezone: 'Asia/Taipei',
+    }
+    const canonicalPolicy: WorkPolicy = {
+      ...legacyPolicy,
+      id: 'pol-canon-cal',
+      assignment_id: 'wa-cal-67',
+      working_days: ['1', '2', '3', '4', '5', '6'],
+    }
+
+    // 1. 只有 legacy policy 時：applicableWorkPolicy 為 null，週六 (2026-08-01) 走 WEEKEND_FALLBACK (HOLIDAY)
+    const overviewLegacyOnly = buildMonthOverview({
+      yearMonth: '2026-08',
+      dayStatuses: [],
+      calendarOverrides: [],
+      attendanceDates: new Set(),
+      workAssignments: [assignment],
+      workPolicies: [legacyPolicy],
+    })
+    const satLegacy = overviewLegacyOnly.find((d) => d.date === '2026-08-01')
+    expect(satLegacy?.resolvedDayType).toBe('HOLIDAY')
+    expect(satLegacy?.resolvedSource).toBe('WEEKEND_FALLBACK')
+
+    // 2. legacy + canonical 同時存在：解析 canonical policy，週六為 WORKDAY (WORK_POLICY)，不拋出 multiple-policy 錯誤
+    const overviewBoth = buildMonthOverview({
+      yearMonth: '2026-08',
+      dayStatuses: [],
+      calendarOverrides: [],
+      attendanceDates: new Set(),
+      workAssignments: [assignment],
+      workPolicies: [legacyPolicy, canonicalPolicy],
+    })
+    const satBoth = overviewBoth.find((d) => d.date === '2026-08-01')
+    expect(satBoth?.resolvedDayType).toBe('WORKDAY')
+    expect(satBoth?.resolvedSource).toBe('WORK_POLICY')
+  })
 })
 

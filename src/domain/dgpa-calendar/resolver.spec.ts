@@ -268,6 +268,40 @@ describe('Work Policy Resolver (findApplicableWorkPolicy)', () => {
       findApplicableWorkPolicy('2026-06-10', [policyV1, overlappingPolicy])
     }).toThrow('multiple work policies resolve for assignment and target date')
   })
+
+  it('strictly isolates legacy policy (assignment_id = null) when assignmentId is specified', () => {
+    const legacyPolicy: WorkPolicy = {
+      ...policyV1,
+      id: 'pol-legacy',
+      assignment_id: null,
+      effective_from: '2026-06-01',
+      effective_to: '2026-06-30',
+    }
+    const canonicalPolicy: WorkPolicy = {
+      ...policyV1,
+      id: 'pol-canonical',
+      assignment_id: 'wa-1',
+      effective_from: '2026-06-01',
+      effective_to: '2026-06-30',
+    }
+
+    // 1. Legacy-only returns null (never falls back to legacy)
+    expect(findApplicableWorkPolicy('2026-06-10', [legacyPolicy], 'wa-1')).toBeNull()
+
+    // 2. Legacy + canonical returns canonical policy without multiple-policy error
+    const matched = findApplicableWorkPolicy('2026-06-10', [legacyPolicy, canonicalPolicy], 'wa-1')
+    expect(matched?.id).toBe('pol-canonical')
+
+    // 3. Cross-assignment: policy for wa-2 does not match wa-1
+    const policyWa2: WorkPolicy = {
+      ...policyV1,
+      id: 'pol-wa-2',
+      assignment_id: 'wa-2',
+      effective_from: '2026-06-01',
+      effective_to: '2026-06-30',
+    }
+    expect(findApplicableWorkPolicy('2026-06-10', [policyWa2, legacyPolicy], 'wa-1')).toBeNull()
+  })
 })
 
 describe('findApplicableWorkAssignment', () => {
@@ -435,5 +469,112 @@ describe('resolveApplicableWorkPolicy', () => {
       workAssignments: [assignment1],
       workPolicies: [policy1],
     })).toBeNull()
+  })
+
+  it('returns null on active assignment when only legacy policy exists (no fallback to legacy)', () => {
+    const legacyPolicy: WorkPolicy = {
+      ...policy1,
+      id: 'pol-legacy',
+      assignment_id: null,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+    const policy = resolveApplicableWorkPolicy({
+      date: '2026-08-10',
+      workAssignments: [assignment1],
+      workPolicies: [legacyPolicy],
+    })
+    expect(policy).toBeNull()
+  })
+
+  it('resolves canonical policy without multiple-policy error when legacy policy also covers target date', () => {
+    const legacyPolicy: WorkPolicy = {
+      ...policy1,
+      id: 'pol-legacy',
+      assignment_id: null,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+    const policy = resolveApplicableWorkPolicy({
+      date: '2026-08-10',
+      workAssignments: [assignment1],
+      workPolicies: [legacyPolicy, policy1],
+    })
+    expect(policy?.id).toBe('pol-1')
+  })
+
+  it('maintains cross-assignment isolation in the presence of legacy policy and multiple assignments', () => {
+    const legacyPolicy: WorkPolicy = {
+      ...policy1,
+      id: 'pol-legacy',
+      assignment_id: null,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+    // For date under wa-1: resolves pol-1
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-08-10',
+      workAssignments: [assignment1, assignment2],
+      workPolicies: [legacyPolicy, policy1, policy2],
+    })?.id).toBe('pol-1')
+
+    // For date under wa-2: resolves pol-2
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-08-25',
+      workAssignments: [assignment1, assignment2],
+      workPolicies: [legacyPolicy, policy1, policy2],
+    })?.id).toBe('pol-2')
+  })
+
+  it('returns null during policy gap within an active assignment without falling back to legacy policy', () => {
+    const legacyPolicy: WorkPolicy = {
+      ...policy1,
+      id: 'pol-legacy',
+      assignment_id: null,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+    const boundedPolicy: WorkPolicy = {
+      ...policy1,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-10',
+    }
+    // Aug 12 is within assignment1 period (Aug 1 - Aug 15) but in policy gap: should return null, not legacy policy
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-08-12',
+      workAssignments: [assignment1],
+      workPolicies: [legacyPolicy, boundedPolicy],
+    })).toBeNull()
+  })
+
+  it('preserves Profile-only resolution (workAssignments undefined) with legacy/profile policies', () => {
+    const legacyPolicy: WorkPolicy = {
+      ...policy1,
+      id: 'pol-legacy',
+      assignment_id: null,
+      effective_from: '2026-08-01',
+      effective_to: '2026-08-31',
+    }
+    const policy = resolveApplicableWorkPolicy({
+      date: '2026-08-10',
+      workPolicies: [legacyPolicy],
+    })
+    expect(policy?.id).toBe('pol-legacy')
+  })
+
+  it('respects exact policy effective_from and effective_to boundaries', () => {
+    // Exact start date
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-08-01',
+      workAssignments: [assignment1],
+      workPolicies: [policy1],
+    })?.id).toBe('pol-1')
+
+    // Exact end date
+    expect(resolveApplicableWorkPolicy({
+      date: '2026-08-15',
+      workAssignments: [assignment1],
+      workPolicies: [policy1],
+    })?.id).toBe('pol-1')
   })
 })

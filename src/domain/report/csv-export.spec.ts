@@ -21,6 +21,7 @@ const mockAssignment: WorkAssignment = {
 const mockPolicy: WorkPolicy = {
   id: 'pol-1',
   user_id: 'user-1',
+  assignment_id: 'assign-1',
   context_id: 'ctx-1',
   name: '標準制度 8h',
   standard_start_time: '09:00:00',
