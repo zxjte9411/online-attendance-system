@@ -1,0 +1,30 @@
+name: DGPA Live Upstream Verification
+
+# Non-blocking, out-of-band scheduled/manual workflow.
+# Does NOT run on PR or push; does NOT block PR merges.
+# Used solely to detect upstream government data platform availability or contract drift.
+
+on:
+  schedule:
+    # Daily at 04:00 UTC (12:00 Taiwan time)
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Target year to verify against official DGPA data (e.g. 2026 or 2025)'
+        required: false
+        default: '2026'
+
+jobs:
+  verify-live-upstream:
+    name: Verify DGPA Live Upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Verify Live DGPA Contract (Target Year)
+        run: |
+          TARGET_YEAR="${{ github.event.inputs.year || '2026' }}"
+          ./scripts/verify-live-dgpa.sh "${TARGET_YEAR}"
