@@ -36,9 +36,12 @@ import { presentErrorMessage } from '../lib/error-presentation'
 import {
   getExportTemplate,
   downloadExportTemplateFile,
+  getWorkbookPreview,
   type ExportTemplate,
+  type WorkbookWorksheetPreview,
 } from '../lib/export-templates'
 import { exportReportToXlsx } from '../domain/export-template/xlsx-export'
+import { runExportPreflight } from '../domain/export-template/preflight'
 
 type LoadedScopeData = {
   month: string
@@ -59,6 +62,7 @@ const loadedScope = ref<LoadedScopeData | null>(null)
 const isLoading = ref(true)
 const loadError = ref('')
 const exportTemplate = ref<ExportTemplate | null>(null)
+const templatePreviews = ref<readonly WorkbookWorksheetPreview[]>([])
 const isExportingXlsx = ref(false)
 const exportXlsxError = ref('')
 
@@ -95,6 +99,18 @@ const hasTemplate = computed(() => Boolean(exportTemplate.value))
 const hasWorksheetMapping = computed(() => {
   if (!exportTemplate.value) return false
   return Boolean(exportTemplate.value.month_worksheet_mapping?.[currentMonth.value])
+})
+
+const exportPreflight = computed(() => {
+  if (!exportTemplate.value) return null
+  return runExportPreflight({
+    targetMonth: currentMonth.value,
+    monthWorksheetMapping: exportTemplate.value.month_worksheet_mapping || {},
+    rowMapping: exportTemplate.value.row_mapping || [],
+    staticCellMapping: exportTemplate.value.static_cell_mapping || [],
+    worksheetPreviews: templatePreviews.value,
+    report: report.value,
+  })
 })
 
 onMounted(async () => {
@@ -155,6 +171,8 @@ async function loadMonthData() {
     if (!matchedAssignment) return
 
     exportTemplate.value = template
+    templatePreviews.value = []
+
     loadedScope.value = {
       month: requestedMonth,
       assignmentId: requestedAssignmentId,
@@ -164,6 +182,21 @@ async function loadMonthData() {
       statuses,
       overrides,
       dgpas,
+    }
+
+    if (template?.storage_path) {
+      downloadExportTemplateFile(template.storage_path)
+        .then((fileBuffer) => getWorkbookPreview(fileBuffer))
+        .then((preview) => {
+          if (requestId === currentRequestId) {
+            templatePreviews.value = preview.worksheets
+          }
+        })
+        .catch(() => {
+          if (requestId === currentRequestId) {
+            templatePreviews.value = []
+          }
+        })
     }
   } catch (err) {
     if (requestId !== currentRequestId) return
@@ -213,6 +246,14 @@ async function handleDownloadXlsx() {
     !exportTemplate.value ||
     !hasWorksheetMapping.value
   ) {
+    return
+  }
+
+  if (exportPreflight.value && !exportPreflight.value.canExport) {
+    exportXlsxError.value = `XLSX 匯出前檢查未通過：${exportPreflight.value.items
+      .filter((i) => i.status === 'error')
+      .map((i) => i.message)
+      .join('；')}`
     return
   }
 
@@ -365,8 +406,8 @@ function formatExceptionFlagLabel(flag: string): string {
           v-if="hasTemplate"
           type="button"
           data-test="download-xlsx-button"
-          :disabled="!report || report.hasConfigurationError || isLoading || isExportingXlsx || !hasWorksheetMapping"
-          :title="!hasWorksheetMapping ? '此月份尚未設定工作表對應' : undefined"
+          :disabled="!report || report.hasConfigurationError || isLoading || isExportingXlsx || !hasWorksheetMapping || (exportPreflight !== null && !exportPreflight.canExport)"
+          :title="!hasWorksheetMapping ? '此月份尚未設定工作表對應' : (exportPreflight && !exportPreflight.canExport) ? '範本設定未通過匯出前檢查' : undefined"
           class="inline-flex min-h-11 items-center gap-2 rounded-[0.625rem] border border-accent bg-surface px-4 py-2 text-sm font-bold text-accent transition-[opacity,transform] duration-200 enabled:hover:-translate-y-px enabled:active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-accent"
           @click="handleDownloadXlsx"
         >
@@ -395,20 +436,6 @@ function formatExceptionFlagLabel(flag: string): string {
     </div>
 
     <div
-      v-if="!isLoading && !loadError && !hasTemplate && assignments.length > 0"
-      data-test="missing-template-cta"
-      class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border border-line bg-surface-soft p-4 text-sm"
-    >
-      <span class="text-muted">此工作派駐尚未設定 XLSX 匯出範本。</span>
-      <RouterLink
-        to="/settings#export-templates"
-        class="font-semibold text-accent hover:underline"
-      >
-        前往設定範本 →
-      </RouterLink>
-    </div>
-
-    <div
       v-if="!isLoading && !loadError && hasTemplate && !hasWorksheetMapping"
       data-test="missing-worksheet-cta"
       class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border border-accent-soft bg-accent-soft p-4 text-sm text-ink"
@@ -419,6 +446,66 @@ function formatExceptionFlagLabel(flag: string): string {
         class="font-semibold text-accent hover:underline"
       >
         前往設定工作表對應 →
+      </RouterLink>
+    </div>
+
+    <div
+      v-if="!isLoading && !loadError && hasTemplate && hasWorksheetMapping && exportPreflight && !exportPreflight.canExport"
+      data-test="export-preflight-banner"
+      class="mt-4 rounded-[0.625rem] border border-[var(--error-line)] bg-[var(--error-surface)] p-4 text-sm text-[var(--error-ink)]"
+      role="alert"
+    >
+      <strong class="font-bold">XLSX 匯出前檢查未通過：</strong>
+      <ul class="mt-1 list-disc list-inside space-y-0.5 text-xs">
+        <li v-for="item in exportPreflight.items.filter((i) => i.status === 'error')" :key="item.id">
+          {{ item.message }}
+        </li>
+      </ul>
+      <div class="mt-2">
+        <RouterLink
+          to="/settings#export-templates"
+          class="font-semibold text-accent hover:underline text-xs"
+        >
+          前往範本設定修正 →
+        </RouterLink>
+      </div>
+    </div>
+
+    <div
+      v-if="!isLoading && !loadError && hasTemplate && hasWorksheetMapping && exportPreflight?.canExport"
+      data-test="export-preflight-status"
+      class="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border border-line bg-surface-soft p-3 text-xs text-muted"
+      role="status"
+    >
+      <div class="flex items-center gap-1.5 text-ink">
+        <span
+          :class="[
+            'font-bold',
+            exportPreflight.isFullyVerified ? 'text-emerald-600 dark:text-emerald-400' : 'text-accent'
+          ]"
+        >
+          {{ exportPreflight.isFullyVerified ? '✓' : 'ℹ️' }}
+        </span>
+        <span v-if="exportPreflight.isFullyVerified">
+          XLSX 匯出檢查就緒（已驗證：工作表「{{ exportTemplate?.month_worksheet_mapping[currentMonth] }}」、日期定位 {{ exportTemplate?.row_mapping.find(r => r.sourceField === 'date')?.targetColumn }} 欄、無公式覆寫與衝突；未 Mapping 之公式與內容將保留）。
+        </span>
+        <span v-else>
+          XLSX 範本設定基本檢查通過（未取得範本檔案預覽，將於匯出時進行最終驗證；未 Mapping 之公式與內容將保留）。
+        </span>
+      </div>
+    </div>
+
+    <div
+      v-if="!isLoading && !loadError && !hasTemplate && assignments.length > 0"
+      data-test="missing-template-cta"
+      class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border border-line bg-surface-soft p-4 text-sm"
+    >
+      <span class="text-muted">此工作派駐尚未設定 XLSX 匯出範本。</span>
+      <RouterLink
+        to="/settings#export-templates"
+        class="font-semibold text-accent hover:underline"
+      >
+        前往設定範本 →
       </RouterLink>
     </div>
 
