@@ -38,8 +38,6 @@ async function mountSetup(savedProfile: typeof profile | null = null, assignment
     assignments: assignments as never,
     currentAssignment: (assignments[0] as never) ?? null,
     policies: policies as never,
-    contexts: [],
-    defaultContext: null,
     complete: Boolean(savedProfile && assignments.length && policies.length),
   })
   vi.mocked(listWorkPolicies).mockResolvedValue(loadedPolicies as never)
@@ -51,7 +49,6 @@ async function mountSetup(savedProfile: typeof profile | null = null, assignment
     global: {
       plugins: [router],
       stubs: {
-        WorkContextForm: true,
         WorkAssignmentForm: true,
         WorkPolicyForm: true,
       },
@@ -70,8 +67,6 @@ describe('SetupView', () => {
       assignments: [],
       currentAssignment: null,
       policies: [],
-      contexts: [],
-      defaultContext: null,
       complete: false,
     })
     vi.mocked(listWorkPolicies).mockResolvedValue([])

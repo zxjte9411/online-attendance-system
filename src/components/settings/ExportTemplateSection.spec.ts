@@ -136,14 +136,14 @@ describe('Component: ExportTemplateSection', () => {
     vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue({ worksheets: [] })
   })
 
-  it('renders upload CTA when no template exists for the context', async () => {
+  it('renders upload CTA when no template exists for the assignment', async () => {
     vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(null)
 
     const wrapper = mount(ExportTemplateSection, {
       props: {
         userId: 'user-1',
-        contextId: 'ctx-1',
-        contextName: '測試情境',
+        assignmentId: 'asg-1',
+        assignmentName: '測試派駐',
       },
     })
 
@@ -166,9 +166,7 @@ describe('Component: ExportTemplateSection', () => {
 
     await flushPromises()
 
-    expect(exportTemplatesApi.getExportTemplate).toHaveBeenCalledWith('user-1', 'asg-test-1', {
-      by: 'assignment_id',
-    })
+    expect(exportTemplatesApi.getExportTemplate).toHaveBeenCalledWith('user-1', 'asg-test-1')
     expect(wrapper.text()).toContain('尚未上傳 XLSX 匯出範本')
   })
 
@@ -176,9 +174,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -197,8 +195,8 @@ describe('Component: ExportTemplateSection', () => {
     const wrapper = mount(ExportTemplateSection, {
       props: {
         userId: 'user-1',
-        contextId: 'ctx-1',
-        contextName: '測試情境',
+        assignmentId: 'asg-1',
+        assignmentName: '測試派駐',
       },
     })
 
@@ -215,9 +213,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -227,19 +225,19 @@ describe('Component: ExportTemplateSection', () => {
     const nextTemplate: exportTemplatesApi.ExportTemplate = {
       ...mockTemplate,
       id: 'tpl-2',
-      context_id: 'ctx-2',
+      assignment_id: 'asg-2',
       month_worksheet_mapping: { '2026-09': '8月' },
     }
 
-    vi.mocked(exportTemplatesApi.getExportTemplate).mockImplementation(async (_userId, contextId) =>
-      contextId === 'ctx-2' ? nextTemplate : mockTemplate
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockImplementation(async (_userId, assignmentId) =>
+      assignmentId === 'asg-2' ? nextTemplate : mockTemplate
     )
     vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
     vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月', '9月'])
     vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
     const wrapper = mount(ExportTemplateSection, {
-      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
     })
 
     await flushPromises()
@@ -257,7 +255,7 @@ describe('Component: ExportTemplateSection', () => {
     await wrapper.find('#template-name-input').setValue('更新後的名稱')
     expect((worksheetSelect.element as HTMLSelectElement).value).toBe('9月')
 
-    await wrapper.setProps({ contextId: 'ctx-2' })
+    await wrapper.setProps({ assignmentId: 'asg-2' })
     await flushPromises()
     expect(
       (wrapper.find('[data-test="preview-worksheet-select"]').element as HTMLSelectElement).value
@@ -272,9 +270,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -316,7 +314,7 @@ describe('Component: ExportTemplateSection', () => {
     })
 
     const wrapper = mount(ExportTemplateSection, {
-      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
     })
 
     await flushPromises()
@@ -335,9 +333,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '可見表' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -351,7 +349,7 @@ describe('Component: ExportTemplateSection', () => {
     vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
 
     const wrapper = mount(ExportTemplateSection, {
-      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
     })
 
     await flushPromises()
@@ -382,30 +380,30 @@ describe('Component: ExportTemplateSection', () => {
     expect(wrapper.text()).toContain('↖ merged A1:C1')
   })
 
-  it('resets hidden preview toggles when loading a different context', async () => {
+  it('resets hidden preview toggles when loading a different assignment', async () => {
     const template: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '可見表' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
       created_at: '2026-08-01T00:00:00Z',
       updated_at: '2026-08-01T00:00:00Z',
     }
-    const nextTemplate = { ...template, id: 'tpl-2', context_id: 'ctx-2' }
+    const nextTemplate = { ...template, id: 'tpl-2', assignment_id: 'asg-2' }
 
-    vi.mocked(exportTemplatesApi.getExportTemplate).mockImplementation(async (_userId, contextId) =>
-      contextId === 'ctx-2' ? nextTemplate : template
+    vi.mocked(exportTemplatesApi.getExportTemplate).mockImplementation(async (_userId, assignmentId) =>
+      assignmentId === 'asg-2' ? nextTemplate : template
     )
     vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
     vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['可見表', '隱藏表'])
     vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
 
     const wrapper = mount(ExportTemplateSection, {
-      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
     })
     await flushPromises()
 
@@ -414,7 +412,7 @@ describe('Component: ExportTemplateSection', () => {
     await wrapper.find('[data-test="preview-worksheet-select"]').setValue('可見表')
     await wrapper.find('#show-hidden-preview-rows-columns').setValue(true)
 
-    await wrapper.setProps({ contextId: 'ctx-2' })
+    await wrapper.setProps({ assignmentId: 'asg-2' })
     await flushPromises()
 
     expect((wrapper.find('#show-hidden-worksheets').element as HTMLInputElement).checked).toBe(false)
@@ -432,9 +430,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '可見表' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -448,7 +446,7 @@ describe('Component: ExportTemplateSection', () => {
     vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
 
     const wrapper = mount(ExportTemplateSection, {
-      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
     })
 
     await flushPromises()
@@ -463,9 +461,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -480,7 +478,7 @@ describe('Component: ExportTemplateSection', () => {
     vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
 
     const wrapper = mount(ExportTemplateSection, {
-      props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+      props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
     })
 
     await flushPromises()
@@ -499,9 +497,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -524,8 +522,8 @@ describe('Component: ExportTemplateSection', () => {
     const wrapper = mount(ExportTemplateSection, {
       props: {
         userId: 'user-1',
-        contextId: 'ctx-1',
-        contextName: '測試情境',
+        assignmentId: 'asg-1',
+        assignmentName: '測試派駐',
       },
     })
 
@@ -551,9 +549,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -584,8 +582,8 @@ describe('Component: ExportTemplateSection', () => {
     const wrapper = mount(ExportTemplateSection, {
       props: {
         userId: 'user-1',
-        contextId: 'ctx-1',
-        contextName: '測試情境',
+        assignmentId: 'asg-1',
+        assignmentName: '測試派駐',
       },
     })
 
@@ -621,9 +619,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -655,8 +653,8 @@ describe('Component: ExportTemplateSection', () => {
     const wrapper = mount(ExportTemplateSection, {
       props: {
         userId: 'user-1',
-        contextId: 'ctx-1',
-        contextName: '測試情境',
+        assignmentId: 'asg-1',
+        assignmentName: '測試派駐',
       },
     })
 
@@ -695,9 +693,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -717,8 +715,8 @@ describe('Component: ExportTemplateSection', () => {
     const wrapper = mount(ExportTemplateSection, {
       props: {
         userId: 'user-1',
-        contextId: 'ctx-1',
-        contextName: '測試情境',
+        assignmentId: 'asg-1',
+        assignmentName: '測試派駐',
       },
     })
 
@@ -839,9 +837,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplate: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -859,7 +857,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -893,7 +891,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -932,7 +930,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -959,7 +957,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -979,7 +977,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1009,7 +1007,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1041,7 +1039,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1067,7 +1065,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1089,7 +1087,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplate)
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1131,7 +1129,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1153,7 +1151,7 @@ describe('Component: ExportTemplateSection', () => {
       const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1181,7 +1179,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeHeaderReferencePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1224,7 +1222,7 @@ describe('Component: ExportTemplateSection', () => {
       const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1369,9 +1367,9 @@ describe('Component: ExportTemplateSection', () => {
     const mockTemplateWithStatic: exportTemplatesApi.ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司出勤表範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
       row_mapping: [
         { sourceField: 'date', targetColumn: 'B' },
@@ -1392,7 +1390,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1427,7 +1425,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1451,7 +1449,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1477,7 +1475,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1511,7 +1509,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1544,7 +1542,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1577,7 +1575,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1598,7 +1596,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1623,7 +1621,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.saveExportTemplateMapping).mockResolvedValue(mockTemplateWithStatic)
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1668,7 +1666,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeStaticPreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1686,7 +1684,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1725,9 +1723,9 @@ describe('Component: ExportTemplateSection', () => {
       const uploadedTemplate: exportTemplatesApi.ExportTemplate = {
         id: 'tpl-new',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '公司出勤月報表',
-        storage_path: 'user-1/ctx-1/tpl-new/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-new/source.xlsx',
         month_worksheet_mapping: {},
         row_mapping: [],
         static_cell_mapping: [],
@@ -1744,7 +1742,7 @@ describe('Component: ExportTemplateSection', () => {
 
       expect(exportTemplatesApi.uploadExportTemplate).toHaveBeenCalledWith({
         userId: 'user-1',
-        contextId: 'ctx-1',
+        assignmentId: 'asg-1',
         name: '公司出勤月報表',
         file: dummyFile,
       })
@@ -1757,7 +1755,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makeEdgeCasePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1789,7 +1787,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockRejectedValue(new Error('無法解析活頁簿檔案'))
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1818,9 +1816,9 @@ describe('Component: ExportTemplateSection', () => {
       const mockTemplate: exportTemplatesApi.ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -1833,7 +1831,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -1898,7 +1896,7 @@ describe('Component: ExportTemplateSection', () => {
       const replacedTemplate: exportTemplatesApi.ExportTemplate = {
         ...mockTemplate,
         name: '已更換範本',
-        storage_path: 'user-1/ctx-1/tpl-1/new-source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/new-source.xlsx',
         month_worksheet_mapping: { '2026-08': '2026年度表' },
       }
       const persistedNewPreview: WorkbookPreview = {
@@ -1954,9 +1952,9 @@ describe('Component: ExportTemplateSection', () => {
       const mockTemplate: exportTemplatesApi.ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -1970,7 +1968,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -2020,9 +2018,9 @@ describe('Component: ExportTemplateSection', () => {
       const mockTemplate: exportTemplatesApi.ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '出勤範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'A' }],
         static_cell_mapping: [],
@@ -2035,7 +2033,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -2119,9 +2117,9 @@ describe('Component: ExportTemplateSection', () => {
       const mockTemplate: exportTemplatesApi.ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -2134,7 +2132,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -2210,7 +2208,7 @@ describe('Component: ExportTemplateSection', () => {
       }
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 
@@ -2268,9 +2266,9 @@ describe('Component: ExportTemplateSection', () => {
       const mockTemplate: exportTemplatesApi.ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '出勤範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'A' }],
         static_cell_mapping: [],
@@ -2283,7 +2281,7 @@ describe('Component: ExportTemplateSection', () => {
       vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
 
       const wrapper = mount(ExportTemplateSection, {
-        props: { userId: 'user-1', contextId: 'ctx-1', contextName: '測試情境' },
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
       })
       await flushPromises()
 

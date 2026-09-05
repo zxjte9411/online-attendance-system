@@ -3,7 +3,6 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import ProfileForm from '../components/settings/ProfileForm.vue'
 import WorkAssignmentForm from '../components/settings/WorkAssignmentForm.vue'
-import WorkContextForm from '../components/settings/WorkContextForm.vue'
 import WorkPolicyForm from '../components/settings/WorkPolicyForm.vue'
 import ExportTemplateSection from '../components/settings/ExportTemplateSection.vue'
 import {
@@ -21,11 +20,8 @@ import {
   getCurrentUserId,
   getProfile,
   hasAttendanceRecordsForWorkPolicy,
-  listWorkContexts,
   listWorkPolicies,
-  setDefaultWorkContext,
   type Profile,
-  type WorkContext,
   type WorkPolicy,
 } from '../lib/settings'
 
@@ -38,27 +34,20 @@ const assignments = ref<WorkAssignment[]>([])
 const editingAssignment = ref<WorkAssignment | null>(null)
 const editingAssignmentHasAttendance = ref(false)
 const showAssignmentForm = ref(false)
-const contexts = ref<WorkContext[]>([])
 const policies = ref<AssignmentPolicy[]>([])
 const selectedAssignmentId = ref('')
 const editingPolicy = ref<AssignmentPolicy | null>(null)
 const editingPolicyHasAttendance = ref(false)
 const checkingPolicyId = ref('')
-const selectedContextId = ref('')
 let policyRequestToken = 0
 const isLoadingPolicies = ref(false)
 const policyError = ref('')
-const editingContext = ref<WorkContext | null>(null)
-const showContextForm = ref(false)
 const showPolicyForm = ref(false)
 const isLoading = ref(true)
-const isSettingDefault = ref(false)
 const pageError = ref('')
 const actionMessage = ref('')
 const errorRegion = ref<HTMLElement | null>(null)
 
-const selectedContext = computed(() => contexts.value.find((context) => context.id === selectedContextId.value) ?? null)
-const defaultContext = computed(() => contexts.value.find((context) => context.active && context.is_default) ?? null)
 const selectedAssignment = computed(() => assignments.value.find((assignment) => assignment.id === selectedAssignmentId.value) ?? null)
 const selectedTemplateAssignmentId = ref('')
 const selectedTemplateAssignment = computed(() => assignments.value.find((assignment) => assignment.id === selectedTemplateAssignmentId.value) ?? null)
@@ -71,14 +60,12 @@ async function load() {
 
   try {
     userId.value = await getCurrentUserId()
-    const [savedProfile, savedAssignments, savedContexts] = await Promise.all([
+    const [savedProfile, savedAssignments] = await Promise.all([
       getProfile(userId.value),
       listWorkAssignments(userId.value),
-      listWorkContexts(userId.value),
     ])
     profile.value = savedProfile
     assignments.value = savedAssignments
-    contexts.value = savedContexts
     const requestedAssignmentId = typeof route.query.assignment_id === 'string'
       ? route.query.assignment_id
       : ''
@@ -86,10 +73,6 @@ async function load() {
       ? requestedAssignmentId
       : savedAssignments[0]?.id ?? ''
     selectedTemplateAssignmentId.value = selectedAssignmentId.value || savedAssignments[0]?.id || ''
-    const nextContext = savedContexts.find((context) => context.active && context.is_default)
-      ?? savedContexts.find((context) => context.active)
-      ?? savedContexts[0]
-    selectedContextId.value = nextContext?.id ?? ''
     await loadPolicies()
   } catch (error) {
     pageError.value = error instanceof Error ? error.message : '設定資料載入失敗，請稍後再試。'
@@ -168,33 +151,6 @@ async function loadPolicies() {
   }
 }
 
-async function handleContextSaved(savedContexts: WorkContext[]) {
-  contexts.value = savedContexts
-  showContextForm.value = false
-  editingContext.value = null
-  actionMessage.value = '工作情境已更新。'
-  if (!selectedContextId.value) selectedContextId.value = savedContexts[0]?.id ?? ''
-}
-
-async function handleSetDefault(contextId: string) {
-  if (isSettingDefault.value) return
-
-  isSettingDefault.value = true
-  pageError.value = ''
-  actionMessage.value = ''
-
-  try {
-    contexts.value = await setDefaultWorkContext(userId.value, contextId)
-    actionMessage.value = '預設工作情境已切換。'
-  } catch (error) {
-    pageError.value = error instanceof Error ? error.message : '預設工作情境切換失敗，請稍後再試。'
-    await nextTick()
-    errorRegion.value?.focus()
-  } finally {
-    isSettingDefault.value = false
-  }
-}
-
 async function handlePolicySaved() {
   const wasEditing = Boolean(editingPolicy.value)
   showPolicyForm.value = false
@@ -238,10 +194,6 @@ async function selectAssignment(assignmentId: string) {
   editingPolicyHasAttendance.value = false
   await loadPolicies()
 }
-
-function selectContext(contextId: string) {
-  selectedContextId.value = contextId
-}
 </script>
 
 <template>
@@ -249,15 +201,11 @@ function selectContext(contextId: string) {
     <section class="grid max-w-[42rem] gap-4" aria-labelledby="settings-title">
       <span class="inline-flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-accent"><span class="h-px w-6 bg-current" aria-hidden="true"></span>設定</span>
       <h1 id="settings-title" class="max-w-[13ch] font-display text-[clamp(2.25rem,8vw,4.5rem)] font-semibold leading-[1.12] tracking-[-0.055em] text-balance">把工作環境留在手邊。</h1>
-      <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">管理個人資料、工作派駐、工作情境與依日期生效的 Work Policy。</p>
+      <p class="max-w-[34rem] text-[clamp(1rem,1.5vw,1.125rem)] text-muted text-pretty">管理個人資料、工作派駐與依日期生效的 Work Policy。</p>
     </section>
 
-    <div class="mt-8 grid gap-3 border-y border-line py-4 sm:grid-cols-[1fr_1fr] sm:gap-0">
-      <div class="grid gap-1 border-line sm:border-e sm:pe-5">
-        <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">目前預設</span>
-        <strong class="font-display text-lg font-semibold">{{ defaultContext?.name || '尚未設定' }}</strong>
-      </div>
-      <div class="grid gap-1 pt-4 sm:pt-0 sm:ps-5">
+    <div class="mt-8 grid gap-3 border-y border-line py-4">
+      <div class="grid gap-1">
         <span class="text-[0.6875rem] font-bold tracking-[0.14em] text-muted">時區</span>
         <span class="font-mono text-sm font-semibold">Asia/Taipei（固定）</span>
       </div>
@@ -319,43 +267,10 @@ function selectContext(contextId: string) {
         </div>
       </section>
 
-      <section id="contexts" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-contexts-title">
-        <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
-          <div class="grid gap-1">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / 工作情境</p>
-            <h2 id="settings-contexts-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">工作情境</h2>
-            <p class="text-sm leading-relaxed text-muted">只有 active 情境可以成為預設。</p>
-          </div>
-          <button class="inline-flex min-h-11 items-center justify-center rounded-[0.625rem] border border-accent bg-accent px-4 py-2 font-semibold text-canvas transition duration-200 ease-out hover:-translate-y-px hover:border-ink hover:bg-ink active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="editingContext = null; showContextForm = !showContextForm">{{ showContextForm ? '取消新增' : '新增工作情境' }}</button>
-        </div>
-
-        <ul v-if="contexts.length" class="grid divide-y divide-line" aria-label="工作情境列表">
-          <li v-for="context in contexts" :key="context.id" class="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div class="grid gap-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <strong>{{ context.name }}</strong>
-                <span v-if="context.is_default" class="rounded-[0.375rem] border border-accent-soft bg-accent-soft px-2 py-0.5 text-xs font-bold text-accent">目前預設</span>
-                <span class="rounded-[0.375rem] border border-line px-2 py-0.5 text-xs text-muted">{{ context.active ? '啟用中' : '已停用' }}</span>
-              </div>
-              <span class="text-sm text-muted">{{ context.company_identifier }} · {{ context.project_identifier }}</span>
-            </div>
-            <div class="flex flex-wrap gap-2 sm:justify-end">
-              <button class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0" type="button" @click="editingContext = context; showContextForm = true">編輯</button>
-              <button v-if="context.active && !context.is_default" class="min-h-11 rounded-[0.625rem] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink transition duration-200 ease-out hover:-translate-y-px hover:border-accent hover:text-accent active:translate-y-px focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:translate-y-0 disabled:cursor-wait disabled:opacity-60" type="button" :disabled="isSettingDefault" :aria-busy="isSettingDefault" @click="handleSetDefault(context.id)">設為預設</button>
-            </div>
-          </li>
-        </ul>
-        <p v-else class="border-s-4 border-accent ps-4 text-sm leading-relaxed text-muted">還沒有工作情境。新增一筆 active 情境後，它會自動成為預設。</p>
-
-        <div v-if="showContextForm" class="border-t border-line pt-5">
-          <WorkContextForm :user-id="userId" :context="editingContext" @saved="handleContextSaved" />
-        </div>
-      </section>
-
       <section id="policies" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-policies-title">
         <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
           <div class="grid gap-1">
-            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">04 / Work Policy</p>
+            <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">03 / Work Policy</p>
             <h2 id="settings-policies-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">Work Policy 版本</h2>
             <p class="text-sm leading-relaxed text-muted">每筆制度都屬於一筆工作派駐；同一派駐的生效日期不可重疊。</p>
           </div>
@@ -398,7 +313,7 @@ function selectContext(contextId: string) {
 
       <section id="export-templates" class="grid gap-5 rounded-2xl border border-line bg-surface p-5 shadow-[var(--shadow)] sm:p-8" aria-labelledby="settings-export-templates-title">
         <div class="grid gap-1 border-b border-line pb-5">
-          <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">05 / XLSX 匯出範本</p>
+          <p class="text-[0.6875rem] font-bold tracking-[0.14em] text-accent">04 / XLSX 匯出範本</p>
           <h2 id="settings-export-templates-title" class="font-display text-2xl font-semibold tracking-[-0.045em]">XLSX 匯出範本</h2>
           <p class="text-sm leading-relaxed text-muted">為各工作派駐上傳專屬的 Excel 範本並配置欄位對應，即可在報表匯出填妥的檔案。</p>
         </div>
