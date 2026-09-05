@@ -2327,4 +2327,225 @@ describe('Component: ExportTemplateSection', () => {
       expect(wrapper.find('[data-test="current-header-range-info"]').text()).toContain('Row 2–3')
     })
   })
+
+  describe('Mapping Semantics Guidance, Formula Warnings, and Preflight UX (Issue #46)', () => {
+    it('renders semantic guidance explaining write-in rules, date locator, and formula preservation', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'asg-1',
+        name: '出勤範本',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'A' }],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(makePreviewResult())
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+      })
+      await flushPromises()
+
+      const guide = wrapper.find('[data-test="mapping-semantics-guide"]')
+      expect(guide.exists()).toBe(true)
+      expect(guide.text()).toContain('寫入規則')
+      expect(guide.text()).toContain('日期（定位欄位）為必要欄位')
+      expect(guide.text()).toContain('公式與既有內容完整保留')
+      expect(guide.text()).toContain('公式覆寫保護')
+    })
+
+    it('displays formula target warning when row mapping targets a column containing formula cells', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'asg-1',
+        name: '出勤範本',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'weekday', targetColumn: 'B' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      const previewWithFormula: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 4,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+                  { column: 'B', rowNumber: 4, text: '=TEXT(A4, "aaaa")', structureType: 'formula' },
+                ],
+              },
+            ],
+          },
+        ],
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(previewWithFormula)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+      })
+      await flushPromises()
+
+      // Formula target warning banner
+      const warningBanner = wrapper.find('[data-test="formula-target-warning"]')
+      expect(warningBanner.exists()).toBe(true)
+      expect(warningBanner.text()).toContain('目標欄位「B」（星期）在工作表「8月」中包含公式')
+      expect(warningBanner.text()).toContain('拒絕覆寫')
+
+      // Inline row formula warning
+      const inlineRowWarning = wrapper.find('[data-test="row-formula-warning-1"]')
+      expect(inlineRowWarning.exists()).toBe(true)
+      expect(inlineRowWarning.text()).toContain('包含公式')
+
+      // Preflight badge reflects errors
+      const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
+      expect(preflightBadge.text()).toBe('存在需修正項目')
+    })
+
+    it('displays formula target warning when static mapping targets a cell containing formula', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'asg-1',
+        name: '出勤範本',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'date', targetColumn: 'A' }],
+        static_cell_mapping: [{ sourceField: 'year_month', targetCell: 'B2' }],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      const previewWithFormula: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 2,
+                isHidden: false,
+                cells: [
+                  { column: 'B', rowNumber: 2, text: '=TODAY()', structureType: 'formula' },
+                ],
+              },
+            ],
+          },
+        ],
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(previewWithFormula)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+      })
+      await flushPromises()
+
+      const staticWarning = wrapper.find('[data-test="static-formula-target-warning"]')
+      expect(staticWarning.exists()).toBe(true)
+      expect(staticWarning.text()).toContain('目標靜態儲存格「B2」（報表月份 (YYYY-MM)）在工作表「8月」中包含公式')
+
+      const inlineStaticWarning = wrapper.find('[data-test="static-formula-warning-0"]')
+      expect(inlineStaticWarning.exists()).toBe(true)
+      expect(inlineStaticWarning.text()).toContain('包含公式')
+    })
+
+    it('does not produce formula warnings for unmapped formula columns and confirms preservation', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'asg-1',
+        name: '出勤範本',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      const previewWithUnmappedFormula: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'B', isHidden: false },
+              { column: 'C', isHidden: false },
+            ],
+            rows: [
+              {
+                rowNumber: 4,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+                  { column: 'B', rowNumber: 4, text: '=WEEKDAY(A4)', structureType: 'formula' }, // B is unmapped formula
+                  { column: 'C', rowNumber: 4, text: '09:00', structureType: 'ordinary' },
+                ],
+              },
+            ],
+          },
+        ],
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(previewWithUnmappedFormula)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+      })
+      await flushPromises()
+
+      // No formula warning banner
+      expect(wrapper.find('[data-test="formula-target-warning"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="row-formula-warning-0"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="row-formula-warning-1"]').exists()).toBe(false)
+
+      // Preflight badge is green
+      const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
+      expect(preflightBadge.text()).toBe('設定可正常匯出')
+
+      // Unmapped preservation item is shown in preflight panel
+      const preservationItem = wrapper.find('[data-test="preflight-item-unmapped_preservation"]')
+      expect(preservationItem.exists()).toBe(true)
+      expect(preservationItem.text()).toContain('未 Mapping 的公式與原始內容會保留')
+    })
+  })
 })

@@ -649,4 +649,82 @@ describe('ReportView', () => {
 
     expect(listPoliciesSpy).toHaveBeenCalledWith('user-1', 'assign-ended-2')
   })
+
+  describe('XLSX Export Preflight UX (Issue #46)', () => {
+    it('shows preflight error banner and disables XLSX download button when template lacks date locator', async () => {
+      const mockTplWithoutDateLocator: exportTemplatesLib.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'assign-1',
+        name: '缺少定位欄位範本',
+        storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [{ sourceField: 'actual_clock_in_at', targetColumn: 'C' }], // Missing 'date'
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockTplWithoutDateLocator)
+
+      const wrapper = mount(ReportView, {
+        global: {
+          stubs: { RouterLink: true },
+        },
+      })
+      await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+      await flushPromises()
+
+      // Preflight banner is displayed
+      const preflightBanner = wrapper.find('[data-test="export-preflight-banner"]')
+      expect(preflightBanner.exists()).toBe(true)
+      expect(preflightBanner.text()).toContain('缺少必要「日期（定位欄位）」')
+
+      // Download XLSX button is disabled
+      const xlsxBtn = wrapper.find('[data-test="download-xlsx-button"]')
+      expect(xlsxBtn.attributes('disabled')).toBeDefined()
+      expect(xlsxBtn.attributes('title')).toBe('範本設定未通過匯出前檢查')
+    })
+
+    it('shows preflight status when template is valid and ready for export', async () => {
+      const mockValidTpl: exportTemplatesLib.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'assign-1',
+        name: '完整範本',
+        storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockValidTpl)
+
+      const wrapper = mount(ReportView, {
+        global: {
+          stubs: { RouterLink: true },
+        },
+      })
+      await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+      await flushPromises()
+
+      // Preflight banner (error) does not exist
+      expect(wrapper.find('[data-test="export-preflight-banner"]').exists()).toBe(false)
+
+      // Preflight status confirms readiness
+      const preflightStatus = wrapper.find('[data-test="export-preflight-status"]')
+      expect(preflightStatus.exists()).toBe(true)
+      expect(preflightStatus.text()).toContain('XLSX 匯出檢查就緒')
+      expect(preflightStatus.text()).toContain('日期定位：A 欄')
+      expect(preflightStatus.text()).toContain('工作表：8月')
+      expect(preflightStatus.text()).toContain('未 Mapping 之公式與內容將保留')
+
+      // Download button is enabled
+      const xlsxBtn = wrapper.find('[data-test="download-xlsx-button"]')
+      expect(xlsxBtn.attributes('disabled')).toBeUndefined()
+    })
+  })
 })

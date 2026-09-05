@@ -42,6 +42,12 @@ import {
   type PreviewSelectionTarget,
   type PreviewCellStructureType,
 } from '../../domain/export-template/header-reference'
+import {
+  checkFormulaTargetWarnings,
+  runExportPreflight,
+  type FormulaTargetWarning,
+  type PreflightResult,
+} from '../../domain/export-template/preflight'
 
 const props = defineProps<{
   userId: string
@@ -511,6 +517,57 @@ const staticWarnings = computed(() => {
     worksheetPreviews: previewWorksheets.value,
   })
 })
+
+const formulaWarnings = computed(() => {
+  return checkFormulaTargetWarnings({
+    monthWorksheetMapping: monthMappings.value,
+    rowMappings: rowMappings.value,
+    staticMappings: staticMappings.value,
+    worksheetPreviews: activePreviewWorksheets.value,
+    selectedWorksheetName: activeSelectedPreviewWorksheetName.value,
+  })
+})
+
+const exportPreflight = computed<PreflightResult>(() => {
+  return runExportPreflight({
+    monthWorksheetMapping: monthMappings.value,
+    rowMapping: rowMappings.value.map((r) => ({
+      sourceField: r.sourceField,
+      targetColumn: r.targetColumn,
+      transforms: r.transforms,
+    })),
+    staticCellMapping: staticMappings.value.map((s) => ({
+      sourceField: s.sourceField,
+      targetCell: s.targetCell,
+      transforms: s.transforms,
+    })),
+    worksheetPreviews: activePreviewWorksheets.value,
+  })
+})
+
+function getRowFormulaWarning(item: RowMappingUiItem): string | null {
+  const col = item.targetColumn?.trim().toUpperCase()
+  if (!col) return null
+  const w = formulaWarnings.value.find(
+    (warning) =>
+      warning.kind === 'row_mapping' &&
+      warning.target === col &&
+      warning.sourceField === item.sourceField
+  )
+  return w?.message || null
+}
+
+function getStaticFormulaWarning(item: StaticMappingUiItem): string | null {
+  const cell = item.targetCell?.trim().toUpperCase()
+  if (!cell) return null
+  const w = formulaWarnings.value.find(
+    (warning) =>
+      warning.kind === 'static_mapping' &&
+      warning.target === cell &&
+      warning.sourceField === item.sourceField
+  )
+  return w?.message || null
+}
 
 function formatStructureTypeLabel(type: PreviewCellStructureType): string {
   if (type === 'formula') return '公式'
@@ -1532,6 +1589,77 @@ async function handleSaveMapping() {
           />
         </div>
 
+        <!-- Semantic Guidance Callout -->
+        <div
+          data-test="mapping-semantics-guide"
+          class="rounded-xl border border-line bg-surface-soft p-4 text-xs text-ink space-y-2"
+        >
+          <div class="font-bold text-sm text-accent flex items-center gap-1.5">
+            <span>💡 XLSX 欄位對應與匯出規則說明</span>
+          </div>
+          <ul class="space-y-1.5 list-disc list-inside text-muted">
+            <li>
+              <strong class="text-ink">寫入規則（非純欄位辨識）</strong>：Row Mapping 與 Static Mapping 是指示匯出時「將出勤資料寫入哪些 Excel 欄位／儲存格」，而非替欄位貼標籤。
+            </li>
+            <li>
+              <strong class="text-ink">日期（定位欄位）為必要欄位</strong>：系統需要此欄位作為 Date Locator，先搜尋各日期所在列，再寫入其他每日出勤資料。
+            </li>
+            <li>
+              <strong class="text-ink">公式與既有內容完整保留</strong>：Excel 原本自行計算的公式欄位（例如星期、工時計算等）通常<strong>不需要 Mapping</strong>；未 Mapping 的儲存格、既有公式、格式與其他工作表內容都會完整保留。
+            </li>
+            <li>
+              <strong class="text-ink">公式覆寫保護</strong>：若將 Mapping 指向包含公式的欄位／儲存格，匯出器為保護原始範本公式不受覆寫破壞，將會中斷並拒絕匯出。
+            </li>
+          </ul>
+        </div>
+
+        <!-- Export Preflight Panel -->
+        <section
+          data-test="export-preflight-panel"
+          class="rounded-xl border border-line bg-surface p-4 shadow-[var(--shadow)] space-y-3"
+          aria-label="匯出前設定檢查"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
+            <h4 class="font-semibold text-sm flex items-center gap-2">
+              <span>匯出前檢查（Preflight）</span>
+              <span
+                data-test="preflight-badge"
+                :class="[
+                  'rounded-full px-2 py-0.5 text-[0.6875rem] font-bold',
+                  exportPreflight.canExport ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                ]"
+              >
+                {{ exportPreflight.canExport ? '設定可正常匯出' : '存在需修正項目' }}
+              </span>
+            </h4>
+            <span class="text-xs text-muted">儲存前可預先確認是否符合匯出條件</span>
+          </div>
+
+          <ul class="grid gap-2 text-xs">
+            <li
+              v-for="item in exportPreflight.items"
+              :key="item.id"
+              :data-test="`preflight-item-${item.category}`"
+              :class="[
+                'flex items-start gap-2 rounded-lg p-2.5',
+                item.status === 'error' ? 'bg-[var(--error-surface)] text-[var(--error-ink)] border border-[var(--error-line)]' :
+                item.status === 'warning' ? 'bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200 border border-amber-300' :
+                item.status === 'pass' ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200 border border-emerald-200' :
+                'bg-surface-soft text-muted border border-line'
+              ]"
+              :role="item.status === 'error' ? 'alert' : 'status'"
+            >
+              <span class="font-bold shrink-0 text-sm">
+                {{ item.status === 'pass' ? '✓' : item.status === 'error' ? '❌' : item.status === 'warning' ? '⚠️' : 'ℹ️' }}
+              </span>
+              <div class="grid gap-0.5">
+                <span class="font-semibold">{{ item.message }}</span>
+                <span v-if="item.detail" class="text-xs opacity-90">{{ item.detail }}</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+
         <!-- Section A: Month Worksheet Mapping -->
         <section class="grid gap-3 border-t border-line pt-5">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -1606,7 +1734,9 @@ async function handleSaveMapping() {
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 class="font-semibold text-base">每日列欄位對應（Row Mapping）</h4>
-              <p class="text-xs text-muted">設定報表欄位寫入工作表的英文字母欄位代號（如 A, B, C）。必須包含一個「日期」定位欄。</p>
+              <p class="text-xs text-muted">
+                設定報表每日出勤資料寫入 Excel 工作表的目標欄位（如 A, B, C）。必須包含一個「日期」定位欄；Excel 原本自行計算的公式欄通常不需 Mapping。
+              </p>
             </div>
             <button
               type="button"
@@ -1615,6 +1745,21 @@ async function handleSaveMapping() {
             >
               + 新增欄位對應
             </button>
+          </div>
+
+          <!-- Formula Target Warning Banner (Row mappings) -->
+          <div
+            v-if="formulaWarnings.some((w) => w.kind === 'row_mapping')"
+            data-test="formula-target-warning"
+            class="rounded-[0.625rem] border border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30 p-3.5 text-xs text-rose-900 dark:text-rose-200"
+            role="alert"
+          >
+            <div class="font-semibold mb-1">公式覆寫警告（匯出時將被阻擋）：</div>
+            <ul class="list-disc list-inside space-y-0.5">
+              <li v-for="(w, idx) in formulaWarnings.filter((w) => w.kind === 'row_mapping')" :key="idx">
+                {{ w.message }}
+              </li>
+            </ul>
           </div>
 
           <!-- Cross-Worksheet Header Consistency Warning (Non-blocking) -->
@@ -1733,6 +1878,16 @@ async function handleSaveMapping() {
                 </button>
               </div>
 
+              <!-- Inline Formula Warning for this row mapping -->
+              <div
+                v-if="getRowFormulaWarning(item)"
+                :data-test="`row-formula-warning-${idx}`"
+                class="rounded border border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30 p-2.5 text-xs text-rose-900 dark:text-rose-200"
+                role="alert"
+              >
+                {{ getRowFormulaWarning(item) }}
+              </div>
+
               <!-- Value Map Options if selected -->
               <div
                 v-if="item.transformType === 'VALUE_MAP'"
@@ -1767,7 +1922,7 @@ async function handleSaveMapping() {
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 class="font-semibold text-base">靜態儲存格對應（Static Cell Mapping）</h4>
-              <p class="text-xs text-muted">將報表全域欄位（如月份、公司識別碼）填入指定 A1 儲存格（如 B2, D2）。</p>
+              <p class="text-xs text-muted">將報表全域欄位（如月份、公司識別碼）寫入指定 A1 儲存格（如 B2, D2）。</p>
             </div>
             <button
               type="button"
@@ -1776,6 +1931,21 @@ async function handleSaveMapping() {
             >
               + 新增儲存格對應
             </button>
+          </div>
+
+          <!-- Formula Target Warning Banner (Static mappings) -->
+          <div
+            v-if="formulaWarnings.some((w) => w.kind === 'static_mapping')"
+            data-test="static-formula-target-warning"
+            class="rounded-[0.625rem] border border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30 p-3.5 text-xs text-rose-900 dark:text-rose-200"
+            role="alert"
+          >
+            <div class="font-semibold mb-1">公式覆寫警告（匯出時將被阻擋）：</div>
+            <ul class="list-disc list-inside space-y-0.5">
+              <li v-for="(w, idx) in formulaWarnings.filter((w) => w.kind === 'static_mapping')" :key="idx">
+                {{ w.message }}
+              </li>
+            </ul>
           </div>
 
           <!-- Cross-Worksheet Static Cell Consistency Warning (Non-blocking) -->
@@ -1874,6 +2044,16 @@ async function handleSaveMapping() {
                 >
                   刪除
                 </button>
+              </div>
+
+              <!-- Inline Formula Warning for this static mapping -->
+              <div
+                v-if="getStaticFormulaWarning(item)"
+                :data-test="`static-formula-warning-${idx}`"
+                class="rounded border border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30 p-2.5 text-xs text-rose-900 dark:text-rose-200"
+                role="alert"
+              >
+                {{ getStaticFormulaWarning(item) }}
               </div>
 
               <!-- Value Map Options if selected -->
