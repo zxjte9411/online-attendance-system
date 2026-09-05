@@ -79,36 +79,6 @@ describe('Lib: Export Templates Service', () => {
     })
   })
 
-  it('getExportTemplate queries database by user_id and context_id', async () => {
-    const mockData: ExportTemplate = {
-      id: 'tpl-1',
-      user_id: 'user-1',
-      context_id: 'ctx-1',
-      name: '2026 範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
-      month_worksheet_mapping: { '2026-08': '8月' },
-      row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
-      static_cell_mapping: [],
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-01T00:00:00Z',
-    }
-
-    const maybeSingleMock = vi.fn().mockResolvedValue({ data: mockData, error: null })
-    const eqContextMock = vi.fn().mockReturnValue({ maybeSingle: maybeSingleMock })
-    const eqUserMock = vi.fn().mockReturnValue({ eq: eqContextMock })
-    const selectMock = vi.fn().mockReturnValue({ eq: eqUserMock })
-
-    mockSupabase.from.mockReturnValue({
-      select: selectMock,
-    } as any)
-
-    const result = await getExportTemplate('user-1', 'ctx-1', { by: 'context_id' })
-    expect(result).toEqual(mockData)
-    expect(mockSupabase.from).toHaveBeenCalledWith('export_templates')
-    expect(selectMock).toHaveBeenCalledWith('*')
-    expect(eqUserMock).toHaveBeenCalledWith('user_id', 'user-1')
-    expect(eqContextMock).toHaveBeenCalledWith('context_id', 'ctx-1')
-  })
 
   it('getExportTemplate queries database by user_id and assignment_id', async () => {
     const mockData: ExportTemplate = {
@@ -466,9 +436,9 @@ describe('Lib: Export Templates Service', () => {
     const insertedData: ExportTemplate = {
       id: 'new-id',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '公司範本',
-      storage_path: 'user-1/ctx-1/new-id/source.xlsx',
+      storage_path: 'user-1/asg-1/new-id/source.xlsx',
       month_worksheet_mapping: {},
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [],
@@ -486,7 +456,7 @@ describe('Lib: Export Templates Service', () => {
 
     const result = await uploadExportTemplate({
       userId: 'user-1',
-      contextId: 'ctx-1',
+      assignmentId: 'asg-1',
       name: '公司範本',
       file: fileBytes,
     })
@@ -504,7 +474,7 @@ describe('Lib: Export Templates Service', () => {
     await expect(
       uploadExportTemplate({
         userId: 'user-1',
-        contextId: 'ctx-1',
+        assignmentId: 'asg-1',
         name: '壞檔案',
         file: corruptFile,
       })
@@ -515,9 +485,9 @@ describe('Lib: Export Templates Service', () => {
     const updatedData: ExportTemplate = {
       id: 'tpl-1',
       user_id: 'user-1',
-      context_id: 'ctx-1',
+      assignment_id: 'asg-1',
       name: '更新範本',
-      storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+      storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
       month_worksheet_mapping: { '2026-08': '8月' },
       row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
       static_cell_mapping: [{ sourceField: 'year_month', targetCell: 'B2' }],
@@ -558,9 +528,9 @@ describe('Lib: Export Templates Service', () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -599,16 +569,16 @@ describe('Lib: Export Templates Service', () => {
       expect(result).toEqual({ template: updatedData, warning: null })
       expect(uploadMock).toHaveBeenCalled()
       expect(updateMock).toHaveBeenCalled()
-      expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+      expect(removeMock).toHaveBeenCalledWith(['user-1/asg-1/tpl-1/source.xlsx'])
     })
 
     it('reports partial-success warning when old storage file cleanup fails', async () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -645,16 +615,16 @@ describe('Lib: Export Templates Service', () => {
 
       expect(result.template).toEqual(updatedData)
       expect(result.warning).toContain('舊範本檔案清理失敗')
-      expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+      expect(removeMock).toHaveBeenCalledWith(['user-1/asg-1/tpl-1/source.xlsx'])
     })
 
     it('rejects replacement if new workbook is missing configured month worksheets without touching storage or DB', async () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月', '2026-09': '9月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -686,9 +656,9 @@ describe('Lib: Export Templates Service', () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -722,9 +692,9 @@ describe('Lib: Export Templates Service', () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -758,9 +728,9 @@ describe('Lib: Export Templates Service', () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [
           // Missing date locator!
@@ -796,9 +766,9 @@ describe('Lib: Export Templates Service', () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [
           // Invalid column identifier!
@@ -834,9 +804,9 @@ describe('Lib: Export Templates Service', () => {
       const currentTemplate: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '舊範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: { '2026-08': '8月' },
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -875,7 +845,7 @@ describe('Lib: Export Templates Service', () => {
 
       // Verifies newly uploaded file was cleaned up and old file was not removed
       expect(removeMock).toHaveBeenCalledTimes(1)
-      expect(removeMock).not.toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+      expect(removeMock).not.toHaveBeenCalledWith(['user-1/asg-1/tpl-1/source.xlsx'])
     })
   })
 
@@ -884,9 +854,9 @@ describe('Lib: Export Templates Service', () => {
       const template: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: {},
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
@@ -910,16 +880,16 @@ describe('Lib: Export Templates Service', () => {
       await deleteExportTemplate('user-1', template)
 
       expect(deleteMock).toHaveBeenCalled()
-      expect(removeMock).toHaveBeenCalledWith(['user-1/ctx-1/tpl-1/source.xlsx'])
+      expect(removeMock).toHaveBeenCalledWith(['user-1/asg-1/tpl-1/source.xlsx'])
     })
 
     it('throws error when storage file cleanup fails and does not report clean success', async () => {
       const template: ExportTemplate = {
         id: 'tpl-1',
         user_id: 'user-1',
-        context_id: 'ctx-1',
+        assignment_id: 'asg-1',
         name: '範本',
-        storage_path: 'user-1/ctx-1/tpl-1/source.xlsx',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
         month_worksheet_mapping: {},
         row_mapping: [{ sourceField: 'date', targetColumn: 'B' }],
         static_cell_mapping: [],
