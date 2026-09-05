@@ -77,8 +77,9 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    // 3. Fetch DGPA metadata from data.gov.tw dataset 14718
-    const metadataUrl = 'https://data.gov.tw/api/v2/rest/dataset/14718'
+    // 3. Fetch DGPA metadata from data.gov.tw dataset 14718 (or test fixture override)
+    const DEFAULT_METADATA_URL = 'https://data.gov.tw/api/v2/rest/dataset/14718'
+    const metadataUrl = Deno.env.get('DGPA_METADATA_URL') || DEFAULT_METADATA_URL
     let metadata: DgpaDatasetMetadata
     try {
       const metaRes = await fetch(metadataUrl, {
@@ -89,7 +90,10 @@ Deno.serve(async (req: Request) => {
       }
       metadata = await metaRes.json()
     } catch (err: any) {
-      return new Response(JSON.stringify({ error: `無法取得 DGPA dataset metadata: ${err.message}` }), {
+      return new Response(JSON.stringify({
+        error: `無法取得 DGPA dataset metadata: ${err.message}`,
+        error_type: 'UPSTREAM_METADATA_FETCH_FAILED',
+      }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -100,7 +104,10 @@ Deno.serve(async (req: Request) => {
     try {
       candidate = selectDgpaResource(metadata, year)
     } catch (err: any) {
-      return new Response(JSON.stringify({ error: err.message }), {
+      return new Response(JSON.stringify({
+        error: err.message,
+        error_type: 'UPSTREAM_RESOURCE_SELECTION_FAILED',
+      }), {
         status: 422,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -115,7 +122,10 @@ Deno.serve(async (req: Request) => {
       }
       csvBuffer = await csvRes.arrayBuffer()
     } catch (err: any) {
-      return new Response(JSON.stringify({ error: `無法下載 DGPA CSV 資源: ${err.message}` }), {
+      return new Response(JSON.stringify({
+        error: `無法下載 DGPA CSV 資源: ${err.message}`,
+        error_type: 'UPSTREAM_CSV_DOWNLOAD_FAILED',
+      }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -130,7 +140,10 @@ Deno.serve(async (req: Request) => {
     try {
       rows = parseDgpaCalendarCsv(csvText, year)
     } catch (err: any) {
-      return new Response(JSON.stringify({ error: `DGPA CSV 格式或驗證失敗: ${err.message}` }), {
+      return new Response(JSON.stringify({
+        error: `DGPA CSV 格式或驗證失敗: ${err.message}`,
+        error_type: 'UPSTREAM_CSV_PARSE_FAILED',
+      }), {
         status: 422,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -150,7 +163,10 @@ Deno.serve(async (req: Request) => {
     })
 
     if (rpcError) {
-      return new Response(JSON.stringify({ error: `資料庫寫入失敗: ${rpcError.message}` }), {
+      return new Response(JSON.stringify({
+        error: `資料庫寫入失敗: ${rpcError.message}`,
+        error_type: 'DATABASE_WRITE_FAILED',
+      }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -170,7 +186,10 @@ Deno.serve(async (req: Request) => {
       }
     )
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: `伺服器錯誤: ${err.message || '未知錯誤'}` }), {
+    return new Response(JSON.stringify({
+      error: `伺服器錯誤: ${err.message || '未知錯誤'}`,
+      error_type: 'INTERNAL_SERVER_ERROR',
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
