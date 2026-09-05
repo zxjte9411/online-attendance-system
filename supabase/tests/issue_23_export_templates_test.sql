@@ -50,15 +50,11 @@ values
   ('00000000-0000-0000-0000-000000000023', 'Issue 23 User A'),
   ('00000000-0000-0000-0000-000000000024', 'Issue 23 User B');
 
-set local app.work_context_default_rpc = 'on';
-
-insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier, is_default, active)
+insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier)
 values
-  ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000023', 'Context A1', 'COMP-A', 'PROJ-A1', true, true),
-  ('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000023', 'Context A2', 'COMP-A', 'PROJ-A2', false, true),
-  ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000024', 'Context B1', 'COMP-B', 'PROJ-B1', true, true);
-
-set local app.work_context_default_rpc = 'off';
+  ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000023', 'Context A1', 'COMP-A', 'PROJ-A1'),
+  ('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000023', 'Context A2', 'COMP-A', 'PROJ-A2'),
+  ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000024', 'Context B1', 'COMP-B', 'PROJ-B1');
 
 -- Switch to User A
 set role authenticated;

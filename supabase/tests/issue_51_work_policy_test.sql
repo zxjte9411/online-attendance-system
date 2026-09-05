@@ -1,3 +1,4 @@
+create extension if not exists pgtap;
 begin;
 
 select plan(77);
@@ -97,9 +98,12 @@ select is(
   'primary assignment is created for the policy subset tests'
 );
 
+reset role;
 create temp table issue_51_contexts (id uuid not null) on commit drop;
-insert into issue_51_contexts (id)
-select id from public.create_work_context('Issue 51 Legacy Context', 'Issue 51 Company', 'Issue 51 Project');
+insert into issue_51_contexts (id) values (gen_random_uuid());
+insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier)
+values ((select id from issue_51_contexts), '00000000-0000-0000-0000-000000000051', 'Issue 51 Legacy Context', 'Issue 51 Company', 'Issue 51 Project');
+set role authenticated;
 
 create temp table issue_51_policies (
   label text primary key,

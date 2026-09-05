@@ -46,11 +46,9 @@ values
   ('00000000-0000-0000-0000-000000001551', '00000000-0000-0000-0000-000000000055', 'Staffing A', 'Client Alpha', 'Project 1', '2026-01-01', null),
   ('00000000-0000-0000-0000-000000002551', '00000000-0000-0000-0000-000000000056', 'Staffing B', 'Client Beta', 'Project 2', '2026-01-01', null);
 
-set local app.work_context_default_rpc = 'on';
-insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier, is_default, active)
+insert into public.work_contexts (id, user_id, name, company_identifier, project_identifier)
 values
-  ('00000000-0000-0000-0000-000000003551', '00000000-0000-0000-0000-000000000055', 'Context A1', 'COMP-A', 'PROJ-1', true, true);
-set local app.work_context_default_rpc = 'off';
+  ('00000000-0000-0000-0000-000000003551', '00000000-0000-0000-0000-000000000055', 'Context A1', 'COMP-A', 'PROJ-1');
 
 -- Switch to User A
 set role authenticated;
