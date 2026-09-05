@@ -114,9 +114,9 @@ export interface WorkbookPreview {
   readonly worksheets: readonly WorkbookWorksheetPreview[]
 }
 
-const WORKBOOK_PREVIEW_MAX_ROWS = 200
-const WORKBOOK_PREVIEW_MAX_COLUMNS = 50
-const WORKBOOK_PREVIEW_TRAILING_COLUMNS = 2
+export const WORKBOOK_PREVIEW_MAX_ROWS = 200
+export const WORKBOOK_PREVIEW_MAX_COLUMNS = 50
+export const WORKBOOK_PREVIEW_TRAILING_COLUMNS = 2
 
 export async function getWorkbookPreview(
   fileData: ArrayBuffer | Uint8Array | Blob

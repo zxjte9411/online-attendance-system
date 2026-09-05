@@ -1,4 +1,7 @@
-import type { WorkbookWorksheetPreview } from '../../lib/export-templates'
+import {
+  type WorkbookWorksheetPreview,
+  WORKBOOK_PREVIEW_MAX_ROWS,
+} from '../../lib/export-templates'
 import {
   validateExportTemplateConfig,
   type RowMappingEntry,
@@ -70,7 +73,7 @@ export function isWorksheetCellObservable(
 
 export function isWorksheetRowTruncated(ws: WorkbookWorksheetPreview): boolean {
   const maxRow = ws.rows.length > 0 ? Math.max(...ws.rows.map((r) => r.rowNumber)) : 0
-  return (ws.rowCount !== undefined && ws.rowCount > maxRow) || ws.rows.length >= 200
+  return (ws.rowCount !== undefined && ws.rowCount > maxRow) || ws.rows.length >= WORKBOOK_PREVIEW_MAX_ROWS
 }
 
 function normalizeMonthMap(

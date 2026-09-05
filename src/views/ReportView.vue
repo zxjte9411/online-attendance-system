@@ -490,7 +490,7 @@ function formatExceptionFlagLabel(flag: string): string {
           XLSX 匯出檢查就緒（已驗證：工作表「{{ exportTemplate?.month_worksheet_mapping[currentMonth] }}」、日期定位 {{ exportTemplate?.row_mapping.find(r => r.sourceField === 'date')?.targetColumn }} 欄、無公式覆寫與衝突；未 Mapping 之公式與內容將保留）。
         </span>
         <span v-else>
-          XLSX 範本設定基本檢查通過（未取得範本檔案預覽，將於匯出時進行最終驗證；未 Mapping 之公式與內容將保留）。
+          XLSX 範本設定基本檢查通過（{{ templatePreviews.length > 0 ? '部分設定超出預覽範圍' : '未取得範本檔案預覽' }}，將於匯出時進行最終驗證；未 Mapping 之公式與內容將保留）。
         </span>
       </div>
     </div>
