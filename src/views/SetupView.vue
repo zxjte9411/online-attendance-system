@@ -51,7 +51,7 @@ async function loadSetup() {
     const status = await getSetupStatus(userId.value)
     profile.value = status.profile
     assignments.value = status.assignments ?? []
-    selectedAssignmentId.value = status.currentAssignment?.id ?? assignments.value[0]?.id ?? ''
+    selectedAssignmentId.value = status.initialAssignment?.id ?? assignments.value[0]?.id ?? ''
     policies.value = []
     await loadPolicies()
 

@@ -36,9 +36,7 @@ async function mountSetup(savedProfile: typeof profile | null = null, assignment
   vi.mocked(getSetupStatus).mockResolvedValue({
     profile: savedProfile,
     assignments: assignments as never,
-    currentAssignment: (assignments[0] as never) ?? null,
-    policies: policies as never,
-    complete: Boolean(savedProfile && assignments.length && policies.length),
+    initialAssignment: (assignments[0] as never) ?? null,
   })
   vi.mocked(listWorkPolicies).mockResolvedValue(loadedPolicies as never)
   const router = createTestRouter()
@@ -65,9 +63,7 @@ describe('SetupView', () => {
     vi.mocked(getSetupStatus).mockResolvedValue({
       profile: null,
       assignments: [],
-      currentAssignment: null,
-      policies: [],
-      complete: false,
+      initialAssignment: null,
     })
     vi.mocked(listWorkPolicies).mockResolvedValue([])
   })

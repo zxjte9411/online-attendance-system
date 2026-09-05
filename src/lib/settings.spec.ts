@@ -129,7 +129,7 @@ describe('lib/settings work policy wrappers', () => {
     })
   })
 
-  it('uses an existing assignment and any of its policies for setup status', async () => {
+  it('derives profile, assignments, and initialAssignment for setup status', async () => {
     const assignment = {
       id: assignmentId,
       user_id: userId,
@@ -139,7 +139,6 @@ describe('lib/settings work policy wrappers', () => {
       effective_from: '9999-01-01',
       effective_to: null,
     }
-    const legacyPolicy = { ...policy, assignment_id: assignmentId, context_id: 'context-1', effective_from: '9999-01-01' }
     const queryMocks = {
       profiles: {
         maybeSingle: vi.fn().mockResolvedValue({
@@ -150,26 +149,17 @@ describe('lib/settings work policy wrappers', () => {
       work_assignments: {
         order: vi.fn().mockResolvedValue({ data: [assignment], error: null }),
       },
-      work_policies: {
-        order: vi.fn().mockResolvedValue({ data: [legacyPolicy], error: null }),
-      },
     }
     mockSupabase.from.mockImplementation((table: keyof typeof queryMocks) => {
       const query = queryMocks[table]
-      const assignmentEq = vi.fn().mockReturnValue(query)
-      const eq = vi.fn().mockReturnValue(table === 'work_policies'
-        ? { eq: assignmentEq }
-        : query)
-      const select = vi.fn().mockReturnValue({ eq })
+      const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue(query) })
       return { select }
     })
 
     const result = await getSetupStatus(userId)
 
+    expect(result.profile).toEqual({ id: userId, display_name: '小明', timezone: 'Asia/Taipei' })
     expect(result.assignments).toEqual([assignment])
-    expect(result.currentAssignment).toEqual(assignment)
-    expect(result.policies).toEqual([legacyPolicy])
-    expect(result.complete).toBe(true)
-    expect(queryMocks.work_policies.order).toHaveBeenCalled()
+    expect(result.initialAssignment).toEqual(assignment)
   })
 })

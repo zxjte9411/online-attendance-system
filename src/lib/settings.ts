@@ -61,9 +61,8 @@ type AssignmentWorkPolicy = WorkPolicy & { assignment_id: string }
 export type SetupStatus = {
   profile: Profile | null
   assignments: WorkAssignment[]
-  currentAssignment: WorkAssignment | null
-  policies: WorkPolicy[]
-  complete: boolean
+  /** 僅供 Setup Guide 精靈初始選取之 UX 建議，非 canonical 派駐狀態判定 */
+  initialAssignment: WorkAssignment | null
 }
 
 export async function getCurrentUserId() {
@@ -169,19 +168,11 @@ export async function getSetupStatus(userId: string): Promise<SetupStatus> {
     getProfile(userId),
     listWorkAssignments(userId),
   ])
-  const currentAssignment = assignments[0] ?? null
-  const policies = currentAssignment ? await listWorkPolicies(userId, currentAssignment.id) : []
 
   return {
     profile,
     assignments,
-    currentAssignment,
-    policies,
-    complete: Boolean(
-      profile?.display_name?.trim()
-      && currentAssignment
-      && policies.length > 0,
-    ),
+    initialAssignment: assignments[0] ?? null,
   }
 }
 

@@ -608,7 +608,7 @@ export async function replaceExportTemplate({
 
   // 4. Upload to new storage path
   const newTemplateFileId = crypto.randomUUID()
-  const targetFolder = currentTemplate.assignment_id || 'default'
+  const targetFolder = currentTemplate.assignment_id
   const newStoragePath = `${userId}/${targetFolder}/${newTemplateFileId}/source.xlsx`
 
   let uploadBody: Blob | Uint8Array | ArrayBuffer
