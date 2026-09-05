@@ -50,6 +50,8 @@ export function checkFormulaTargetWarnings(params: {
   staticMappings?: Array<{ sourceField: StaticSourceField; targetCell: string }>
   worksheetPreviews?: readonly WorkbookWorksheetPreview[]
   selectedWorksheetName?: string
+  targetMonth?: string
+  report?: MonthlyReport | null
 }): FormulaTargetWarning[] {
   const {
     monthWorksheetMapping,
@@ -57,39 +59,103 @@ export function checkFormulaTargetWarnings(params: {
     staticMappings = [],
     worksheetPreviews = [],
     selectedWorksheetName,
+    targetMonth,
+    report,
   } = params
 
   if (!worksheetPreviews.length) return []
 
-  // Determine which worksheets to inspect
-  let targetSheetNames: string[] = []
-  if (monthWorksheetMapping) {
-    const rawList = Array.isArray(monthWorksheetMapping)
-      ? monthWorksheetMapping.map((m) => m.worksheet)
-      : Object.values(monthWorksheetMapping)
-    targetSheetNames = Array.from(new Set(rawList.map((s) => s?.trim()).filter(Boolean)))
+  // Normalize monthWorksheetMapping
+  const monthMapObj: Record<string, string> = {}
+  if (Array.isArray(monthWorksheetMapping)) {
+    for (const item of monthWorksheetMapping) {
+      if (item.month?.trim() && item.worksheet?.trim()) {
+        monthMapObj[item.month.trim()] = item.worksheet.trim()
+      }
+    }
+  } else if (monthWorksheetMapping && typeof monthWorksheetMapping === 'object') {
+    for (const [k, v] of Object.entries(monthWorksheetMapping)) {
+      if (k.trim() && v?.trim()) {
+        monthMapObj[k.trim()] = v.trim()
+      }
+    }
   }
 
-  if (targetSheetNames.length === 0) {
-    if (selectedWorksheetName) {
-      targetSheetNames = [selectedWorksheetName]
-    } else {
-      targetSheetNames = worksheetPreviews.map((ws) => ws.name)
+  // Determine target worksheet inspections with associated applicable months
+  const targets: Array<{ sheetName: string; months: string[] }> = []
+
+  if (targetMonth) {
+    const sheetName = monthMapObj[targetMonth]
+    if (sheetName) {
+      targets.push({ sheetName, months: [targetMonth] })
+    }
+  } else if (selectedWorksheetName) {
+    const mappedMonths = Object.entries(monthMapObj)
+      .filter(([_, wsName]) => wsName === selectedWorksheetName)
+      .map(([m]) => m)
+    targets.push({ sheetName: selectedWorksheetName, months: mappedMonths })
+  } else if (Object.keys(monthMapObj).length > 0) {
+    const sheetToMonths = new Map<string, string[]>()
+    for (const [m, wsName] of Object.entries(monthMapObj)) {
+      if (!sheetToMonths.has(wsName)) {
+        sheetToMonths.set(wsName, [])
+      }
+      sheetToMonths.get(wsName)!.push(m)
+    }
+    for (const [sheetName, months] of sheetToMonths.entries()) {
+      targets.push({ sheetName, months })
+    }
+  } else {
+    for (const ws of worksheetPreviews) {
+      targets.push({ sheetName: ws.name, months: [] })
     }
   }
 
   const warnings: FormulaTargetWarning[] = []
+  const dateLocator = rowMappings.find((r) => r.sourceField === 'date')?.targetColumn?.trim().toUpperCase()
 
-  for (const sheetName of targetSheetNames) {
+  for (const { sheetName, months } of targets) {
     const ws = worksheetPreviews.find((w) => w.name === sheetName)
     if (!ws) continue
 
-    // 1. Check Row Mappings
+    // Collect daily date rows where date matches applicable months (or active report dates)
+    const activeDates = report && targetMonth && months.includes(targetMonth)
+      ? new Set(report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date))
+      : null
+
+    const dailyDateRowNumbers = new Set<number>()
+    if (dateLocator) {
+      for (const row of ws.rows) {
+        const dateCell = row.cells.find((c) => c.column === dateLocator)
+        if (dateCell) {
+          if (months.length > 0) {
+            for (const m of months) {
+              const parsed = parseDateCellValue(dateCell.text, m)
+              if (parsed && parsed.startsWith(m)) {
+                if (activeDates === null || activeDates.has(parsed)) {
+                  dailyDateRowNumbers.add(row.rowNumber)
+                }
+              }
+            }
+          } else {
+            // No specific month mapped: parse cell text across full date formats
+            const parsed = parseDateCellValue(dateCell.text, '')
+            if (parsed) {
+              dailyDateRowNumbers.add(row.rowNumber)
+            }
+          }
+        }
+      }
+    }
+
+    // 1. Check Row Mappings ONLY against actual daily date rows
     for (const r of rowMappings) {
       const col = (r.targetColumn || '').trim().toUpperCase()
       if (!col) continue
 
+      // Look only at rows identified as daily date rows
       const formulaCell = ws.rows
+        .filter((row) => dailyDateRowNumbers.has(row.rowNumber))
         .flatMap((row) => row.cells)
         .find((cell) => cell.column === col && cell.structureType === 'formula')
 
@@ -102,12 +168,12 @@ export function checkFormulaTargetWarnings(params: {
           sourceField: r.sourceField,
           worksheet: sheetName,
           firstCellAddress: cellAddr,
-          message: `目標欄位「${col}」（${fieldName}）在工作表「${sheetName}」中包含公式（如 ${cellAddr}）。匯出器為避免破壞公式會拒絕覆寫，請確認此欄位是否不需 Mapping。`,
+          message: `目標欄位「${col}」（${fieldName}）在工作表「${sheetName}」之每日資料列中包含公式（如 ${cellAddr}）。匯出器為避免破壞公式會拒絕覆寫，請確認此欄位是否不需 Mapping。`,
         })
       }
     }
 
-    // 2. Check Static Mappings
+    // 2. Check Static Mappings against exact A1 address
     for (const s of staticMappings) {
       const cellStr = (s.targetCell || '').trim().toUpperCase()
       if (!cellStr) continue
@@ -136,10 +202,11 @@ export function checkFormulaTargetWarnings(params: {
   return warnings
 }
 
-export type PreflightStatus = 'pass' | 'warning' | 'error' | 'info'
+export type PreflightStatus = 'pass' | 'warning' | 'error' | 'not_verified' | 'info'
 export type PreflightCategory =
   | 'date_locator'
   | 'worksheet_mapping'
+  | 'date_row_locator'
   | 'formula_target'
   | 'collision'
   | 'mapping_config'
@@ -157,6 +224,7 @@ export interface PreflightResult {
   canExport: boolean
   hasErrors: boolean
   hasWarnings: boolean
+  isFullyVerified: boolean
   items: PreflightCheckItem[]
 }
 
@@ -197,7 +265,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
     }
   }
 
-  // 1. Check Date Locator
+  // 1. Check Date Locator in configuration
   const dateLocator = rowMapping.find((e) => e.sourceField === 'date')
   if (!dateLocator || !dateLocator.targetColumn?.trim()) {
     items.push({
@@ -216,7 +284,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
     })
   }
 
-  // 2. Check Target Month Worksheet Mapping / Worksheet existence
+  // 2. Check Worksheet Mapping & Worksheet existence in workbook
   if (targetMonth) {
     const mappedSheetName = monthMapObj[targetMonth]
     if (!mappedSheetName) {
@@ -226,68 +294,175 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
         status: 'error',
         message: `尚未設定月份「${targetMonth}」對應的工作表名稱。`,
       })
-    } else {
-      if (worksheetPreviews.length > 0) {
-        const wsExists = worksheetPreviews.some((w) => w.name === mappedSheetName)
-        if (!wsExists) {
-          items.push({
-            id: `worksheet-not-found-${mappedSheetName}`,
-            category: 'worksheet_mapping',
-            status: 'error',
-            message: `範本中找不到名為「${mappedSheetName}」的工作表。`,
-          })
-        } else {
-          items.push({
-            id: 'worksheet-mapping-pass',
-            category: 'worksheet_mapping',
-            status: 'pass',
-            message: `工作表對應：${targetMonth} → ${mappedSheetName}`,
-          })
-        }
+    } else if (worksheetPreviews.length > 0) {
+      const wsExists = worksheetPreviews.some((w) => w.name === mappedSheetName)
+      if (!wsExists) {
+        items.push({
+          id: `worksheet-not-found-${mappedSheetName}`,
+          category: 'worksheet_mapping',
+          status: 'error',
+          message: `範本中找不到名為「${mappedSheetName}」的工作表。`,
+        })
       } else {
         items.push({
           id: 'worksheet-mapping-pass',
           category: 'worksheet_mapping',
           status: 'pass',
-          message: `工作表對應：${targetMonth} → ${mappedSheetName}`,
+          message: `工作表對應已驗證：${targetMonth} → ${mappedSheetName}`,
         })
       }
+    } else {
+      items.push({
+        id: 'worksheet-mapping-unverified',
+        category: 'worksheet_mapping',
+        status: 'not_verified',
+        message: `工作表對應已設定（${targetMonth} → ${mappedSheetName}），尚未取得範本檔案進行工作表存在性驗證。`,
+      })
     }
-  } else if (worksheetPreviews.length > 0 && Object.keys(monthMapObj).length > 0) {
-    // Setting page overview: verify all mapped worksheet names exist in workbook preview
+  } else if (worksheetPreviews.length > 0) {
     const availableNames = new Set(worksheetPreviews.map((w) => w.name))
-    for (const [m, sheetName] of Object.entries(monthMapObj)) {
-      if (sheetName && !availableNames.has(sheetName)) {
+    const mappedEntries = Object.entries(monthMapObj)
+    if (mappedEntries.length === 0) {
+      items.push({
+        id: 'worksheet-mapping-none',
+        category: 'worksheet_mapping',
+        status: 'info',
+        message: '尚未設定月份工作表對應。',
+      })
+    } else {
+      let missingCount = 0
+      for (const [m, sheetName] of mappedEntries) {
+        if (sheetName && !availableNames.has(sheetName)) {
+          missingCount++
+          items.push({
+            id: `worksheet-not-found-${sheetName}`,
+            category: 'worksheet_mapping',
+            status: 'error',
+            message: `月份「${m}」對應之工作表「${sheetName}」不存在於範本中。`,
+          })
+        }
+      }
+      if (missingCount === 0) {
         items.push({
-          id: `worksheet-not-found-${sheetName}`,
+          id: 'worksheet-mapping-overview-pass',
           category: 'worksheet_mapping',
-          status: 'error',
-          message: `月份「${m}」對應之工作表「${sheetName}」不存在於範本中。`,
+          status: 'pass',
+          message: `工作表對應已驗證：已設定之 ${mappedEntries.length} 個月份工作表皆存在於範本中`,
         })
       }
     }
+  } else {
+    items.push({
+      id: 'worksheet-mapping-unverified',
+      category: 'worksheet_mapping',
+      status: 'not_verified',
+      message: '月份工作表對應尚未取得範本檔案進行存在性驗證。',
+    })
   }
 
-  // 3. Check Formula Target Overwrite
-  const formulaWarnings = checkFormulaTargetWarnings({
-    monthWorksheetMapping: monthMapObj,
-    rowMappings: rowMapping,
-    staticMappings: staticCellMapping,
-    worksheetPreviews,
-  })
+  // 3. Check Date Row Locator in worksheet
+  if (targetMonth && monthMapObj[targetMonth]) {
+    const sheetName = monthMapObj[targetMonth]
+    if (worksheetPreviews.length > 0) {
+      const ws = worksheetPreviews.find((w) => w.name === sheetName)
+      if (ws && dateLocator?.targetColumn) {
+        const dateCol = dateLocator.targetColumn.trim().toUpperCase()
+        const activeDates = report
+          ? report.rows.filter((r) => r.in_assignment_period !== false).map((r) => r.date)
+          : null
 
-  if (formulaWarnings.length > 0) {
-    for (const w of formulaWarnings) {
+        const foundDates = new Set<string>()
+        for (const row of ws.rows) {
+          const cell = row.cells.find((c) => c.column === dateCol)
+          if (cell) {
+            const parsed = parseDateCellValue(cell.text, targetMonth)
+            if (parsed && parsed.startsWith(targetMonth)) {
+              foundDates.add(parsed)
+            }
+          }
+        }
+
+        if (activeDates && activeDates.length > 0) {
+          const missingDate = activeDates.find((d) => !foundDates.has(d))
+          if (missingDate) {
+            items.push({
+              id: `date-row-missing-${missingDate}`,
+              category: 'date_row_locator',
+              status: 'error',
+              message: `在工作表「${sheetName}」欄位 ${dateCol} 找不到日期「${missingDate}」對應的列。`,
+            })
+          } else {
+            items.push({
+              id: 'date-row-locator-pass',
+              category: 'date_row_locator',
+              status: 'pass',
+              message: `日期列定位已驗證：已於「${sheetName}」找到 ${activeDates.length} 個出勤日期的對應列`,
+            })
+          }
+        } else if (foundDates.size > 0) {
+          items.push({
+            id: 'date-row-locator-pass',
+            category: 'date_row_locator',
+            status: 'pass',
+            message: `日期列定位已驗證：已於「${sheetName}」找到 ${foundDates.size} 個 ${targetMonth} 日期列`,
+          })
+        } else {
+          items.push({
+            id: 'date-row-none-found',
+            category: 'date_row_locator',
+            status: 'error',
+            message: `在工作表「${sheetName}」欄位 ${dateCol} 找不到屬於月份「${targetMonth}」的日期列。`,
+          })
+        }
+      }
+    } else {
       items.push({
-        id: `formula-overwrite-${w.worksheet}-${w.target}-${w.sourceField}`,
-        category: 'formula_target',
-        status: 'error',
-        message: w.message,
+        id: 'date-row-locator-unverified',
+        category: 'date_row_locator',
+        status: 'not_verified',
+        message: '尚未取得範本預覽，無法預先驗證日期列定位（將於匯出時進行最終檢查）。',
       })
     }
   }
 
-  // 4. Check Collisions (Static vs Daily rows if date cells are known in worksheet)
+  // 4. Check Formula Target Overwrite
+  if (worksheetPreviews.length > 0) {
+    const formulaWarnings = checkFormulaTargetWarnings({
+      monthWorksheetMapping: monthMapObj,
+      rowMappings: rowMapping,
+      staticMappings: staticCellMapping,
+      worksheetPreviews,
+      targetMonth,
+      report,
+    })
+
+    if (formulaWarnings.length > 0) {
+      for (const w of formulaWarnings) {
+        items.push({
+          id: `formula-overwrite-${w.worksheet}-${w.target}-${w.sourceField}`,
+          category: 'formula_target',
+          status: 'error',
+          message: w.message,
+        })
+      }
+    } else {
+      items.push({
+        id: 'formula-target-pass',
+        category: 'formula_target',
+        status: 'pass',
+        message: '公式覆寫檢查通過：目標寫入欄位與儲存格未包含公式',
+      })
+    }
+  } else {
+    items.push({
+      id: 'formula-target-unverified',
+      category: 'formula_target',
+      status: 'not_verified',
+      message: '尚未取得範本預覽，無法預先檢查目標儲存格是否包含公式（將於匯出時進行最終保護檢查）。',
+    })
+  }
+
+  // 5. Check Collisions (Static vs Daily rows if date cells are known in worksheet)
   if (worksheetPreviews.length > 0 && dateLocator?.targetColumn) {
     const dateCol = dateLocator.targetColumn.trim().toUpperCase()
     const rowTargetCols = new Set(
@@ -299,6 +474,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
       : Object.keys(monthMapObj)
 
     const checkedWorksheets = new Set<string>()
+    let collisionFound = false
 
     for (const m of monthsToCheck) {
       const sheetName = monthMapObj[m]
@@ -328,6 +504,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
       for (const s of staticCellMapping) {
         const parsed = parseA1Address(s.targetCell)
         if (parsed && rowTargetCols.has(parsed.column) && dateRowNumbers.has(parsed.rowNumber)) {
+          collisionFound = true
           const collisionId = `collision-${sheetName}-${s.targetCell.toUpperCase()}`
           if (!items.some((i) => i.id === collisionId)) {
             items.push({
@@ -340,9 +517,25 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
         }
       }
     }
+
+    if (!collisionFound) {
+      items.push({
+        id: 'collision-pass',
+        category: 'collision',
+        status: 'pass',
+        message: '儲存格位置檢查通過：未發現每日列與靜態儲存格位置衝突',
+      })
+    }
+  } else if (worksheetPreviews.length === 0) {
+    items.push({
+      id: 'collision-unverified',
+      category: 'collision',
+      status: 'not_verified',
+      message: '尚未取得範本預覽，無法預先檢查儲存格位置衝突（將於匯出時進行最終檢查）。',
+    })
   }
 
-  // 5. Config validation
+  // 6. Config validation
   const validation = validateExportTemplateConfig({
     name: 'preflight-check',
     monthWorksheetMapping: monthMapObj,
@@ -363,7 +556,7 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
     }
   }
 
-  // 6. Unmapped formula & content preservation notice (Always helpful info)
+  // 7. Unmapped formula & content preservation notice (Always helpful info)
   items.push({
     id: 'unmapped-preservation',
     category: 'unmapped_preservation',
@@ -373,11 +566,17 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
 
   const hasErrors = items.some((i) => i.status === 'error')
   const hasWarnings = items.some((i) => i.status === 'warning')
+  const isFullyVerified =
+    worksheetPreviews.length > 0 &&
+    !hasErrors &&
+    items.some((i) => i.status === 'pass') &&
+    !items.some((i) => i.status === 'not_verified')
 
   return {
     canExport: !hasErrors,
     hasErrors,
     hasWarnings,
+    isFullyVerified,
     items,
   }
 }

@@ -2413,7 +2413,7 @@ describe('Component: ExportTemplateSection', () => {
       // Formula target warning banner
       const warningBanner = wrapper.find('[data-test="formula-target-warning"]')
       expect(warningBanner.exists()).toBe(true)
-      expect(warningBanner.text()).toContain('目標欄位「B」（星期）在工作表「8月」中包含公式')
+      expect(warningBanner.text()).toContain('目標欄位「B」（星期）在工作表「8月」之每日資料列中包含公式')
       expect(warningBanner.text()).toContain('拒絕覆寫')
 
       // Inline row formula warning

@@ -702,6 +702,29 @@ describe('ReportView', () => {
         updated_at: '2026-08-01T00:00:00Z',
       }
       vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockValidTpl)
+      vi.spyOn(exportTemplatesLib, 'downloadExportTemplateFile').mockResolvedValue(new ArrayBuffer(8))
+      vi.spyOn(exportTemplatesLib, 'getWorkbookPreview').mockResolvedValue({
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [{ column: 'A', isHidden: false }, { column: 'C', isHidden: false }],
+            rows: Array.from({ length: 31 }, (_, idx) => {
+              const day = String(idx + 1).padStart(2, '0')
+              return {
+                rowNumber: 4 + idx,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 4 + idx, text: `2026-08-${day}`, structureType: 'ordinary' as const },
+                  { column: 'C', rowNumber: 4 + idx, text: '09:00', structureType: 'ordinary' as const },
+                ],
+              }
+            }),
+          },
+        ],
+      })
 
       const wrapper = mount(ReportView, {
         global: {
@@ -714,17 +737,112 @@ describe('ReportView', () => {
       // Preflight banner (error) does not exist
       expect(wrapper.find('[data-test="export-preflight-banner"]').exists()).toBe(false)
 
-      // Preflight status confirms readiness
+      // Preflight status confirms verified readiness
       const preflightStatus = wrapper.find('[data-test="export-preflight-status"]')
       expect(preflightStatus.exists()).toBe(true)
-      expect(preflightStatus.text()).toContain('XLSX 匯出檢查就緒')
-      expect(preflightStatus.text()).toContain('日期定位：A 欄')
-      expect(preflightStatus.text()).toContain('工作表：8月')
-      expect(preflightStatus.text()).toContain('未 Mapping 之公式與內容將保留')
+      expect(preflightStatus.text()).toContain('XLSX 匯出檢查就緒（已驗證：工作表「8月」、日期定位 A 欄、無公式覆寫與衝突')
 
       // Download button is enabled
       const xlsxBtn = wrapper.find('[data-test="download-xlsx-button"]')
       expect(xlsxBtn.attributes('disabled')).toBeUndefined()
+    })
+
+    it('truthful fallback: shows unverified info notice rather than false-safe when template preview cannot be fetched', async () => {
+      const mockValidTpl: exportTemplatesLib.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'assign-1',
+        name: '完整範本',
+        storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockValidTpl)
+      // Preview download throws error
+      vi.spyOn(exportTemplatesLib, 'downloadExportTemplateFile').mockRejectedValue(new Error('Storage unavailable'))
+
+      const wrapper = mount(ReportView, {
+        global: {
+          stubs: { RouterLink: true },
+        },
+      })
+      await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+      await flushPromises()
+
+      // Error banner is NOT shown (since config is valid and export can proceed to authoritative exporter)
+      expect(wrapper.find('[data-test="export-preflight-banner"]').exists()).toBe(false)
+
+      // Status text indicates basic check passed without claiming full verification (no false-safe)
+      const preflightStatus = wrapper.find('[data-test="export-preflight-status"]')
+      expect(preflightStatus.exists()).toBe(true)
+      expect(preflightStatus.text()).toContain('未取得範本檔案預覽，將於匯出時進行最終驗證')
+
+      // Download button is still enabled to allow authoritative exporter to verify
+      const xlsxBtn = wrapper.find('[data-test="download-xlsx-button"]')
+      expect(xlsxBtn.attributes('disabled')).toBeUndefined()
+    })
+
+    it('shows preflight error and disables download when template preview contains formula overwrite on daily row', async () => {
+      const mockValidTpl: exportTemplatesLib.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'assign-1',
+        name: '完整範本',
+        storage_path: 'user-1/assign-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      vi.spyOn(exportTemplatesLib, 'getExportTemplate').mockResolvedValue(mockValidTpl)
+      vi.spyOn(exportTemplatesLib, 'downloadExportTemplateFile').mockResolvedValue(new ArrayBuffer(8))
+      vi.spyOn(exportTemplatesLib, 'getWorkbookPreview').mockResolvedValue({
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            columns: [{ column: 'A', isHidden: false }, { column: 'C', isHidden: false }],
+            rows: [
+              {
+                rowNumber: 4,
+                isHidden: false,
+                cells: [
+                  { column: 'A', rowNumber: 4, text: '2026-08-01', structureType: 'ordinary' },
+                  { column: 'C', rowNumber: 4, text: '=SUM(...)', structureType: 'formula' }, // Formula on daily row!
+                ],
+              },
+            ],
+          },
+        ],
+      })
+
+      const wrapper = mount(ReportView, {
+        global: {
+          stubs: { RouterLink: true },
+        },
+      })
+      await wrapper.find('[data-test="month-input"]').setValue('2026-08')
+      await flushPromises()
+
+      const preflightBanner = wrapper.find('[data-test="export-preflight-banner"]')
+      expect(preflightBanner.exists()).toBe(true)
+      expect(preflightBanner.text()).toContain('包含公式')
+      expect(preflightBanner.text()).toContain('拒絕覆寫')
+
+      const xlsxBtn = wrapper.find('[data-test="download-xlsx-button"]')
+      expect(xlsxBtn.attributes('disabled')).toBeDefined()
     })
   })
 })

@@ -36,7 +36,9 @@ import { presentErrorMessage } from '../lib/error-presentation'
 import {
   getExportTemplate,
   downloadExportTemplateFile,
+  getWorkbookPreview,
   type ExportTemplate,
+  type WorkbookWorksheetPreview,
 } from '../lib/export-templates'
 import { exportReportToXlsx } from '../domain/export-template/xlsx-export'
 import { runExportPreflight } from '../domain/export-template/preflight'
@@ -60,6 +62,7 @@ const loadedScope = ref<LoadedScopeData | null>(null)
 const isLoading = ref(true)
 const loadError = ref('')
 const exportTemplate = ref<ExportTemplate | null>(null)
+const templatePreviews = ref<readonly WorkbookWorksheetPreview[]>([])
 const isExportingXlsx = ref(false)
 const exportXlsxError = ref('')
 
@@ -105,6 +108,7 @@ const exportPreflight = computed(() => {
     monthWorksheetMapping: exportTemplate.value.month_worksheet_mapping || {},
     rowMapping: exportTemplate.value.row_mapping || [],
     staticCellMapping: exportTemplate.value.static_cell_mapping || [],
+    worksheetPreviews: templatePreviews.value,
     report: report.value,
   })
 })
@@ -167,6 +171,8 @@ async function loadMonthData() {
     if (!matchedAssignment) return
 
     exportTemplate.value = template
+    templatePreviews.value = []
+
     loadedScope.value = {
       month: requestedMonth,
       assignmentId: requestedAssignmentId,
@@ -176,6 +182,21 @@ async function loadMonthData() {
       statuses,
       overrides,
       dgpas,
+    }
+
+    if (template?.storage_path) {
+      downloadExportTemplateFile(template.storage_path)
+        .then((fileBuffer) => getWorkbookPreview(fileBuffer))
+        .then((preview) => {
+          if (requestId === currentRequestId) {
+            templatePreviews.value = preview.worksheets
+          }
+        })
+        .catch(() => {
+          if (requestId === currentRequestId) {
+            templatePreviews.value = []
+          }
+        })
     }
   } catch (err) {
     if (requestId !== currentRequestId) return
@@ -457,8 +478,20 @@ function formatExceptionFlagLabel(flag: string): string {
       role="status"
     >
       <div class="flex items-center gap-1.5 text-ink">
-        <span class="font-bold text-emerald-600 dark:text-emerald-400">✓</span>
-        <span>XLSX 匯出檢查就緒（日期定位：{{ exportTemplate?.row_mapping.find(r => r.sourceField === 'date')?.targetColumn }} 欄，工作表：{{ exportTemplate?.month_worksheet_mapping[currentMonth] }}，未 Mapping 之公式與內容將保留）。</span>
+        <span
+          :class="[
+            'font-bold',
+            exportPreflight.isFullyVerified ? 'text-emerald-600 dark:text-emerald-400' : 'text-accent'
+          ]"
+        >
+          {{ exportPreflight.isFullyVerified ? '✓' : 'ℹ️' }}
+        </span>
+        <span v-if="exportPreflight.isFullyVerified">
+          XLSX 匯出檢查就緒（已驗證：工作表「{{ exportTemplate?.month_worksheet_mapping[currentMonth] }}」、日期定位 {{ exportTemplate?.row_mapping.find(r => r.sourceField === 'date')?.targetColumn }} 欄、無公式覆寫與衝突；未 Mapping 之公式與內容將保留）。
+        </span>
+        <span v-else>
+          XLSX 範本設定基本檢查通過（未取得範本檔案預覽，將於匯出時進行最終驗證；未 Mapping 之公式與內容將保留）。
+        </span>
       </div>
     </div>
 
