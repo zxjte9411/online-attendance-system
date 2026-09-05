@@ -243,63 +243,167 @@ function isMergedMember(cell: ExcelJS.Cell): boolean {
   return cell.isMerged && cell.master.address !== cell.address
 }
 
+function formatDefaultDate(value: Date): string | null {
+  if (!value || !(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return null
+  }
+  const year = value.getUTCFullYear()
+  const month = String(value.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(value.getUTCDate()).padStart(2, '0')
+  const hours = value.getUTCHours()
+  const minutes = value.getUTCMinutes()
+  const seconds = value.getUTCSeconds()
+  if (hours !== 0 || minutes !== 0 || seconds !== 0) {
+    return `${year}-${month}-${day} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+  }
+  return `${year}-${month}-${day}`
+}
+
+function formatPreviewDate(value: Date, numFmt: string | undefined): string | null {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return null
+  }
+  return formatExcelDateTime(value, numFmt) || formatDefaultDate(value)
+}
+
+function resolveFormulaDisplay(target: ExcelJS.Cell): { preview: string; header: string } {
+  const result = target.result as unknown
+  const formulaStr = target.formula || formulaFromValue(target.value)
+  const fallbackFormula = formulaStr ? `=${formulaStr.replace(/^=/, '')}` : ''
+
+  if (result !== undefined && result !== null) {
+    if (isCellErrorValue(result)) {
+      return { preview: `ƒ ${result.error}`, header: result.error }
+    }
+
+    if (result instanceof Date) {
+      if (!Number.isNaN(result.getTime())) {
+        const formatted = formatPreviewDate(result, target.numFmt)
+        if (formatted) return { preview: `ƒ ${formatted}`, header: formatted }
+        if (target.text && target.text !== '[object Object]' && target.text !== 'Invalid Date') {
+          return { preview: `ƒ ${target.text}`, header: target.text }
+        }
+      }
+      if (
+        target.text &&
+        target.text !== '[object Object]' &&
+        target.text !== 'Invalid Date' &&
+        target.text !== 'NaN-NaN-aN'
+      ) {
+        return { preview: `ƒ ${target.text}`, header: target.text }
+      }
+      return {
+        preview: fallbackFormula ? `ƒ ${fallbackFormula}` : 'ƒ',
+        header: fallbackFormula,
+      }
+    }
+
+    if (typeof result === 'object') {
+      if (target.text && target.text !== '[object Object]') {
+        return { preview: `ƒ ${target.text}`, header: target.text }
+      }
+      return {
+        preview: fallbackFormula ? `ƒ ${fallbackFormula}` : 'ƒ',
+        header: fallbackFormula,
+      }
+    }
+
+    if (typeof result === 'number') {
+      if (Number.isNaN(result)) {
+        return {
+          preview: fallbackFormula ? `ƒ ${fallbackFormula}` : 'ƒ',
+          header: fallbackFormula,
+        }
+      }
+      return { preview: `ƒ ${String(result)}`, header: String(result) }
+    }
+
+    if (typeof result === 'string') {
+      if (result === 'NaN' || result === 'Invalid Date' || result === 'NaN-NaN-aN') {
+        return {
+          preview: fallbackFormula ? `ƒ ${fallbackFormula}` : 'ƒ',
+          header: fallbackFormula,
+        }
+      }
+      return { preview: `ƒ ${result}`, header: result }
+    }
+
+    return { preview: `ƒ ${String(result)}`, header: String(result) }
+  }
+
+  return {
+    preview: fallbackFormula ? `ƒ ${fallbackFormula}` : 'ƒ',
+    header: fallbackFormula,
+  }
+}
+
 function previewCellText(cell: ExcelJS.Cell): string {
   if (cell.value instanceof Date) {
-    const formatted = formatExcelDateTime(cell.value, cell.numFmt)
-    if (formatted) return formatted
+    if (!Number.isNaN(cell.value.getTime())) {
+      const formatted = formatPreviewDate(cell.value, cell.numFmt)
+      if (formatted) return formatted
+      if (cell.text && cell.text !== '[object Object]' && cell.text !== 'Invalid Date') {
+        return cell.text
+      }
+    }
+    if (
+      cell.text &&
+      cell.text !== '[object Object]' &&
+      cell.text !== 'Invalid Date' &&
+      cell.text !== 'NaN-NaN-aN'
+    ) {
+      return cell.text
+    }
+    return ''
   }
 
   if (isFormulaCell(cell)) {
-    const result = cell.result as unknown
-    if (result !== undefined && result !== null) {
-      if (isCellErrorValue(result)) return `ƒ ${result.error}`
-      if (result instanceof Date) {
-        const formatted = formatExcelDateTime(result, cell.numFmt)
-        if (formatted) return `ƒ ${formatted}`
-      }
-      if (typeof result === 'object') {
-        if (cell.text && cell.text !== '[object Object]') return `ƒ ${cell.text}`
-        const formula = cell.formula || formulaFromValue(cell.value)
-        return `ƒ =${formula.replace(/^=/, '')}`
-      }
-      return `ƒ ${String(result)}`
-    }
-
-    const formula = cell.formula || formulaFromValue(cell.value)
-    return `ƒ =${formula.replace(/^=/, '')}`
+    return resolveFormulaDisplay(cell).preview
   }
 
   if (isMergedMember(cell)) {
     return `↖ merged ${getMergedRange(cell)}`
   }
 
-  return cell.text || String(cell.value)
+  if (cell.text && cell.text !== 'Invalid Date') return cell.text
+  if (cell.value !== null && cell.value !== undefined && typeof cell.value !== 'object') {
+    return String(cell.value)
+  }
+
+  return ''
 }
 
 function previewCellHeaderText(cell: ExcelJS.Cell): string {
   const target = cell.isMerged ? cell.master : cell
   if (target.value instanceof Date) {
-    const formatted = formatExcelDateTime(target.value, target.numFmt)
-    if (formatted) return formatted
+    if (!Number.isNaN(target.value.getTime())) {
+      const formatted = formatPreviewDate(target.value, target.numFmt)
+      if (formatted) return formatted
+      if (target.text && target.text !== '[object Object]' && target.text !== 'Invalid Date') {
+        return target.text
+      }
+    }
+    if (
+      target.text &&
+      target.text !== '[object Object]' &&
+      target.text !== 'Invalid Date' &&
+      target.text !== 'NaN-NaN-aN'
+    ) {
+      return target.text
+    }
+    return ''
   }
 
   if (isFormulaCell(target)) {
-    const result = target.result as unknown
-    if (result !== undefined && result !== null) {
-      if (isCellErrorValue(result)) return result.error
-      if (result instanceof Date) {
-        const formatted = formatExcelDateTime(result, target.numFmt)
-        if (formatted) return formatted
-      }
-      if (typeof result === 'object') {
-        if (target.text && target.text !== '[object Object]') return target.text
-        return ''
-      }
-      return String(result)
-    }
+    return resolveFormulaDisplay(target).header
   }
 
-  return target.text || (target.value !== null && target.value !== undefined ? String(target.value) : '')
+  if (target.text && target.text !== 'Invalid Date') return target.text
+  if (target.value !== null && target.value !== undefined && typeof target.value !== 'object') {
+    return String(target.value)
+  }
+
+  return ''
 }
 
 function isCellErrorValue(value: unknown): value is { error: string } {
@@ -312,8 +416,13 @@ function isCellErrorValue(value: unknown): value is { error: string } {
 }
 
 function formulaFromValue(value: ExcelJS.CellValue): string {
-  if (typeof value === 'object' && value !== null && 'formula' in value) {
-    return value.formula || ''
+  if (typeof value === 'object' && value !== null) {
+    if ('formula' in value && typeof (value as { formula?: unknown }).formula === 'string') {
+      return (value as { formula: string }).formula
+    }
+    if ('sharedFormula' in value && typeof (value as { sharedFormula?: unknown }).sharedFormula === 'string') {
+      return (value as { sharedFormula: string }).sharedFormula
+    }
   }
   return ''
 }
@@ -336,7 +445,9 @@ function getMergedRangeEndColumn(cell: ExcelJS.Cell): number {
 }
 
 function formatExcelDateTime(value: Date, numFmt: string | undefined): string | null {
-  if (!numFmt) return null
+  if (!numFmt || !value || !(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return null
+  }
 
   const format = numFmt
     .replace(/\[[^\]]*\]/g, '')
@@ -377,6 +488,10 @@ function formatExcelDateTime(value: Date, numFmt: string | undefined): string | 
       value.getUTCMinutes()
     ).padStart(2, '0')}${secondToken ? `:${String(value.getUTCSeconds()).padStart(2, '0')}` : ''}`
     result += `${result ? ' ' : ''}${time}${hasAmPm ? (rawHour >= 12 ? ' PM' : ' AM') : ''}`
+  }
+
+  if (!result || result.includes('NaN') || result.includes('Invalid Date')) {
+    return null
   }
 
   return result || null
