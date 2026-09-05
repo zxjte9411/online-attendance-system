@@ -218,13 +218,19 @@ describe('AttendanceView', () => {
     const wrapper = mount(AttendanceView, { attachTo: document.body })
     await flushPromises()
 
-    await wrapper.get('[data-record-id="rec-1"] [data-action="view-detail"]').trigger('click')
+    const card = wrapper.get('[data-record-id="rec-1"]')
+    expect(card.text()).toContain('歷史工作資料快照')
+    expect(card.text()).not.toContain('工作情境')
+    expect(card.text()).not.toContain('工作派駐快照')
+
+    await card.get('[data-action="view-detail"]').trigger('click')
     await flushPromises()
 
     const modal = wrapper.get('[data-testid="detail-modal"]')
-    expect(modal.text()).toContain('保存的歷史工作派駐快照')
+    expect(modal.text()).toContain('保存的歷史工作資料快照')
     expect(modal.text()).toContain('保存的工作制度快照')
     expect(modal.text()).not.toContain('工作情境')
+    expect(modal.text()).not.toContain('歷史工作派駐快照')
     expect(modal.text()).toContain('Context Alpha')
     expect(modal.text()).toContain('COMP-A')
     expect(modal.text()).toContain('PROJ-A')
@@ -435,11 +441,21 @@ describe('AttendanceView', () => {
   })
 
   it.each([
-    ['NO_ASSIGNMENT', '2026-08-10', '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。'],
-    ['MISSING_POLICY', '2026-08-11', '2026-08-11 找不到適用的 Work Policy（MISSING_POLICY）。'],
-  ])('日期特定 %s RPC 錯誤會原樣且可區分地顯示', async (resolution, workDate, errorMessage) => {
+    [
+      'NO_ASSIGNMENT',
+      '2026-08-10',
+      '2026-08-10 沒有可用的 Work Assignment（NO_ASSIGNMENT）。',
+      '2026-08-10 沒有可用的工作派駐（NO_ASSIGNMENT）。',
+    ],
+    [
+      'MISSING_POLICY',
+      '2026-08-11',
+      '2026-08-11 找不到適用的 Work Policy（MISSING_POLICY）。',
+      '2026-08-11 找不到適用的工作制度（MISSING_POLICY）。',
+    ],
+  ])('日期特定 %s RPC 錯誤會轉換為統一術語且可區分地顯示', async (resolution, workDate, rpcMessage, expectedMessage) => {
     vi.mocked(createManualAttendance).mockRejectedValueOnce({
-      message: errorMessage,
+      message: rpcMessage,
       code: 'P0001',
       details: `RPC resolution: ${resolution}`,
       hint: '請先完成工作派駐與工作制度設定。',
@@ -460,7 +476,9 @@ describe('AttendanceView', () => {
     await flushPromises()
 
     expect(modal.get('[role="alert"]').text()).toContain(resolution)
-    expect(modal.get('[role="alert"]').text()).toBe(errorMessage)
+    expect(modal.get('[role="alert"]').text()).toBe(expectedMessage)
+    expect(modal.get('[role="alert"]').text()).not.toContain('Work Assignment')
+    expect(modal.get('[role="alert"]').text()).not.toContain('Work Policy')
     wrapper.unmount()
   })
 })

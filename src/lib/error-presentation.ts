@@ -60,12 +60,26 @@ export function presentErrorMessage(error: unknown, fallbackMessage = '操作失
     return '網路連線異常，請檢查網路連線後再試。'
   }
 
-  // 4. Clean user-facing custom error (e.g. '請先登入。')
-  if (rawMessage && !lowerMsg.includes('error') && !lowerMsg.includes('violates') && !lowerMsg.includes('constraint') && !lowerMsg.includes('null') && !lowerMsg.includes('undefined')) {
-    if (/[\u4e00-\u9fa5]/.test(rawMessage)) {
-      return rawMessage
+  // 4. Custom business / RPC errors or clean Chinese messages
+  if (rawMessage) {
+    if (lowerMsg.includes('no_assignment') || lowerMsg.includes('missing_policy')) {
+      return normalizeTerminology(rawMessage)
+    }
+
+    if (!lowerMsg.includes('error') && !lowerMsg.includes('violates') && !lowerMsg.includes('constraint') && !lowerMsg.includes('null') && !lowerMsg.includes('undefined')) {
+      if (/[\u4e00-\u9fa5]/.test(rawMessage)) {
+        return normalizeTerminology(rawMessage)
+      }
     }
   }
 
   return fallbackMessage
+}
+
+export function normalizeTerminology(message: string): string {
+  return message
+    .replace(/(?<=[\u4e00-\u9fa5])\s*Work Assignment\b/g, '工作派駐')
+    .replace(/\bWork Assignment\b/g, '工作派駐')
+    .replace(/(?<=[\u4e00-\u9fa5])\s*Work Policy\b/g, '工作制度')
+    .replace(/\bWork Policy\b/g, '工作制度')
 }
