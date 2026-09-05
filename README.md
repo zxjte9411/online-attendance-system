@@ -32,9 +32,22 @@ SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase db reset
 SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase stop
 ```
 
-- 專案未使用 Edge Functions；若 Edge Runtime 因缺少 entrypoint 阻擋啟動，改用 `SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase start --exclude edge-runtime`。
+- Edge Function `sync-dgpa-calendar` 用於同步行政院人事行政總處（DGPA）辦公日曆。在開發容器中啟動時，若 Docker 主機路徑與容器路徑不同，可指定主機路徑啟動：`SUPABASE_SERVICES_HOSTNAME=host.docker.internal supabase --workdir <主機專案路徑> start`。
 - 資料庫測試優先使用 `supabase test db`。若 Docker credential helper 無法拉取 `pg_prove` 映像，保留錯誤輸出，並以本機資料庫容器執行已提交的 pgTAP SQL 作為 fallback：`docker exec -i supabase_db_online-attendance-system psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/<test-file>.sql`。
 - 此流程只操作 Local Supabase；勿把 `.env.local` 的值貼入文件、提交，或套用到 Dev／Production 專案。
+
+### DGPA 辦公日曆同步驗證 Seam
+
+專案將 DGPA 辦公日曆同步的驗證清楚切分為兩種不同職責的 Seam：
+
+1. **確定性本地 Smoke 測試（Merge-blocking CI 閘門）**：
+   - 執行命令：`./scripts/smoke-edge-function.sh`
+   - 目的：在 CI 與本地啟動本機 Edge Runtime，使用獨立的本機 Fixture 伺服器提供 2026（UTF-8）與 2025（Big5）全年度完整測試資料，驗證未授權 401、參數錯誤 400、下載解碼、全年度 365 筆校驗與寫入 `dgpa_calendar_cache`。
+   - 隔離保證：透過 Edge Runtime 環境變數 `DGPA_METADATA_URL` 指向本機 fixture 伺服器，嚴格阻絕任何對外部 `data.gov.tw` 的連線，不受外部網路或政府機關服務中斷影響。
+2. **真實 Upstream 存活與漂移探針（Non-blocking 定期／手動檢查）**：
+   - 執行命令：`./scripts/verify-live-dgpa.sh [YEAR]`（預設當前年份）
+   - GitHub Actions 工作流：`.github/workflows/dgpa-live-verification.yml`（每日 04:00 UTC 定時執行，並支援 `workflow_dispatch` 手動觸發）。
+   - 目的：直接連線政府資料開放平台真實 API，檢驗 upstream metadata 結構、資源候選下載、編碼解碼與欄位規格，能明確辨識「外部服務異常／合約漂移」與「本機應用程式回歸」。此工作流**不阻擋** PR merge。
 
 ## 環境與設定責任
 
