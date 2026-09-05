@@ -409,6 +409,93 @@ describe('Lib: Export Templates Service', () => {
     expect(cells.find((cell) => cell.column === 'E')?.text).toBe('8:30 AM')
   })
 
+  it('handles formula date cells and fallbacks for invalid dates and missing cached results', async () => {
+    const sourceWorkbook = new ExcelJS.Workbook()
+    const sourceWorksheet = sourceWorkbook.addWorksheet('FormulaDates')
+    sourceWorksheet.getCell('A1').value = { formula: 'TODAY()', result: new Date('2026-08-03T00:00:00.000Z') }
+    sourceWorksheet.getCell('A1').numFmt = 'yyyy/mm/dd'
+    sourceWorksheet.getCell('B1').value = { formula: 'NOW()', result: new Date('2026-08-03T08:30:00.000Z') }
+    sourceWorksheet.getCell('B1').numFmt = 'yyyy-mm-dd hh:mm'
+    sourceWorksheet.getCell('C1').value = { formula: 'TODAY()', result: new Date('2026-08-03T00:00:00.000Z') }
+    sourceWorksheet.getCell('C1').numFmt = 'yyyy-mm-dd'
+    sourceWorksheet.getCell('D1').value = { formula: 'SUM(A1:B1)' }
+    const bytes = await sourceWorkbook.xlsx.writeBuffer()
+
+    const xlsxPrototype = Object.getPrototypeOf(new ExcelJS.Workbook().xlsx)
+    const originalLoad = xlsxPrototype.load
+    const loadSpy = vi.spyOn(xlsxPrototype, 'load').mockImplementation(async function (this: any, input: any) {
+      await originalLoad.call(this, input)
+      const sheet = this.workbook.getWorksheet('FormulaDates')
+      // Simulate invalid Date cached result with numFmt (the exact cause of ƒ NaN-NaN-aN)
+      sheet.getCell('E1').value = { formula: 'DATE(2026, 8, 1)', result: new Date(NaN) }
+      sheet.getCell('E1').numFmt = 'yyyy-mm-dd'
+      // Simulate NaN numeric result
+      sheet.getCell('F1').value = { formula: '0/0', result: Number.NaN }
+      // Simulate invalid Date string result
+      sheet.getCell('G1').value = { formula: 'BAD_DATE()', result: 'NaN-NaN-aN' }
+      // Simulate ordinary cell with invalid Date
+      sheet.getCell('H1').value = new Date(NaN)
+      sheet.getCell('H1').numFmt = 'yyyy-mm-dd'
+      // Simulate formula with valid Date but non-date numFmt fallback
+      sheet.getCell('I1').value = { formula: 'NOW()', result: new Date('2026-08-03T08:30:00.000Z') }
+      sheet.getCell('I1').numFmt = '@'
+      // Simulate formula with legitimate text containing substring "NaN"
+      sheet.getCell('J1').value = { formula: 'TEXT()', result: 'NaN status note' }
+    })
+
+    try {
+      const preview = await getWorkbookPreview(new Uint8Array(bytes))
+      const cells = preview.worksheets[0].rows[0].cells
+
+      const cellA = cells.find((c) => c.column === 'A')
+      expect(cellA?.text).toBe('ƒ 2026/08/03')
+      expect(cellA?.headerText).toBe('2026/08/03')
+
+      const cellB = cells.find((c) => c.column === 'B')
+      expect(cellB?.text).toBe('ƒ 2026-08-03 08:30')
+      expect(cellB?.headerText).toBe('2026-08-03 08:30')
+
+      const cellC = cells.find((c) => c.column === 'C')
+      expect(cellC?.text).toBe('ƒ 2026-08-03')
+      expect(cellC?.headerText).toBe('2026-08-03')
+
+      const cellD = cells.find((c) => c.column === 'D')
+      expect(cellD?.text).toBe('ƒ =SUM(A1:B1)')
+      expect(cellD?.headerText).toBe('=SUM(A1:B1)')
+
+      const cellE = cells.find((c) => c.column === 'E')
+      expect(cellE?.text).toBe('ƒ =DATE(2026, 8, 1)')
+      expect(cellE?.headerText).toBe('=DATE(2026, 8, 1)')
+      expect(cellE?.text).not.toContain('NaN')
+      expect(cellE?.text).not.toContain('Invalid Date')
+
+      const cellF = cells.find((c) => c.column === 'F')
+      expect(cellF?.text).toBe('ƒ =0/0')
+      expect(cellF?.headerText).toBe('=0/0')
+      expect(cellF?.text).not.toContain('NaN')
+
+      const cellG = cells.find((c) => c.column === 'G')
+      expect(cellG?.text).toBe('ƒ =BAD_DATE()')
+      expect(cellG?.headerText).toBe('=BAD_DATE()')
+      expect(cellG?.text).not.toContain('NaN')
+
+      const cellH = cells.find((c) => c.column === 'H')
+      expect(cellH?.text).not.toContain('NaN')
+      expect(cellH?.text).not.toContain('Invalid Date')
+      expect(cellH?.headerText).not.toContain('NaN')
+
+      const cellI = cells.find((c) => c.column === 'I')
+      expect(cellI?.text).toBe('ƒ 2026-08-03 08:30')
+      expect(cellI?.headerText).toBe('2026-08-03 08:30')
+
+      const cellJ = cells.find((c) => c.column === 'J')
+      expect(cellJ?.text).toBe('ƒ NaN status note')
+      expect(cellJ?.headerText).toBe('NaN status note')
+    } finally {
+      loadSpy.mockRestore()
+    }
+  })
+
   it.each([
     ['ArrayBuffer', async (bytes: Uint8Array) => bytes.slice().buffer as ArrayBuffer],
     ['Blob', async (bytes: Uint8Array) => new Blob([bytes.slice().buffer as ArrayBuffer])],
