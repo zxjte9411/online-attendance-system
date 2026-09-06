@@ -529,6 +529,59 @@ describe('Domain: Export Preflight & Formula Guidance (Issue #46)', () => {
     })
 
     describe('Blocker 1: Bounded Preview Evidence Observability', () => {
+      it('overview mode without targetMonth: row-truncated preview (rowCount > 200) returns not_verified for formula target and isFullyVerified === false', () => {
+        const truncatedRows = Array.from({ length: 200 }, (_, i) => ({
+          rowNumber: i + 1,
+          isHidden: false,
+          cells: [
+            {
+              column: 'A',
+              rowNumber: i + 1,
+              text: i < 30 ? `2026-08-${String(i + 1).padStart(2, '0')}` : '',
+              structureType: 'ordinary' as const,
+            },
+            {
+              column: 'C',
+              rowNumber: i + 1,
+              text: '09:00',
+              structureType: 'ordinary' as const,
+            },
+          ],
+        }))
+
+        const truncatedWs: WorkbookWorksheetPreview = {
+          name: '8月',
+          isHidden: false,
+          isProtected: false,
+          hasImages: false,
+          rowCount: 250, // Real sheet has 250 rows, preview only has 200
+          columns: [
+            { column: 'A', isHidden: false },
+            { column: 'C', isHidden: false },
+          ],
+          rows: truncatedRows,
+        }
+
+        // Overview mode: no targetMonth, no report
+        const result = runExportPreflight({
+          monthWorksheetMapping: { '2026-08': '8月' },
+          rowMapping: [
+            { sourceField: 'date', targetColumn: 'A' },
+            { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+          ],
+          worksheetPreviews: [truncatedWs],
+        })
+
+        // Must NOT falsely claim formula-target-pass in overview mode when sheet is row-truncated
+        expect(result.canExport).toBe(true)
+        expect(result.hasErrors).toBe(false)
+        expect(result.isFullyVerified).toBe(false)
+
+        const formulaItem = result.items.find((i) => i.category === 'formula_target')
+        expect(formulaItem?.status).toBe('not_verified')
+        expect(formulaItem?.message).toContain('預覽範圍外')
+      })
+
       it('does NOT emit DATE_ROW_MISSING error when preview is row-truncated; returns not_verified', () => {
         // Create 200 rows where date 2026-08-31 is missing from preview due to 200 row limit
         const truncatedRows = Array.from({ length: 200 }, (_, i) => ({

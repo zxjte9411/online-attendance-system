@@ -544,6 +544,10 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
               allTargetsObservable = false
             }
           }
+        } else if (rowMapping.length > 0 && isWorksheetRowTruncated(ws)) {
+          // In overview mode (or when report is not provided), if worksheet is row-truncated,
+          // daily date rows might extend beyond the preview row limit, so we cannot claim formula-safe.
+          allTargetsObservable = false
         }
 
         // Check Static Mapping target cells observability
@@ -654,7 +658,8 @@ export function runExportPreflight(params: RunExportPreflightParams): PreflightR
             }
           } else if (
             !isWorksheetRowObservable(ws, parsed.rowNumber) ||
-            (activeDates && Array.from(activeDates).some((d) => !foundDates.has(d)))
+            (activeDates && Array.from(activeDates).some((d) => !foundDates.has(d))) ||
+            (!activeDates && isWorksheetRowTruncated(ws))
           ) {
             collisionObservable = false
           }

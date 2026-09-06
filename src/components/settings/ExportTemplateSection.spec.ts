@@ -7,6 +7,9 @@ import * as exportTemplatesApi from '../../lib/export-templates'
 import type { WorkbookPreview } from '../../lib/export-templates'
 
 vi.mock('../../lib/export-templates', () => ({
+  WORKBOOK_PREVIEW_MAX_ROWS: 200,
+  WORKBOOK_PREVIEW_MAX_COLUMNS: 50,
+  WORKBOOK_PREVIEW_TRAILING_COLUMNS: 2,
   getExportTemplate: vi.fn(),
   uploadExportTemplate: vi.fn(),
   saveExportTemplateMapping: vi.fn(),
@@ -2573,6 +2576,60 @@ describe('Component: ExportTemplateSection', () => {
       await flushPromises()
 
       const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
+      expect(preflightBadge.text()).toBe('設定基本檢查通過（未完整驗證）')
+    })
+
+    it('shows unverified badge when template preview is row-truncated in settings overview mode', async () => {
+      const mockTemplate: exportTemplatesApi.ExportTemplate = {
+        id: 'tpl-1',
+        user_id: 'user-1',
+        assignment_id: 'asg-1',
+        name: '出勤範本',
+        storage_path: 'user-1/asg-1/tpl-1/source.xlsx',
+        month_worksheet_mapping: { '2026-08': '8月' },
+        row_mapping: [
+          { sourceField: 'date', targetColumn: 'A' },
+          { sourceField: 'actual_clock_in_at', targetColumn: 'C' },
+        ],
+        static_cell_mapping: [],
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+      }
+      const truncatedPreview: WorkbookPreview = {
+        worksheets: [
+          {
+            name: '8月',
+            isHidden: false,
+            isProtected: false,
+            hasImages: false,
+            rowCount: 250, // Real sheet has 250 rows
+            columns: [
+              { column: 'A', isHidden: false },
+              { column: 'C', isHidden: false },
+            ],
+            rows: Array.from({ length: 200 }, (_, i) => ({
+              rowNumber: i + 1,
+              isHidden: false,
+              cells: [
+                { column: 'A', rowNumber: i + 1, text: i < 30 ? `2026-08-${String(i + 1).padStart(2, '0')}` : '', structureType: 'ordinary' as const },
+                { column: 'C', rowNumber: i + 1, text: '09:00', structureType: 'ordinary' as const },
+              ],
+            })),
+          },
+        ],
+      }
+      vi.mocked(exportTemplatesApi.getExportTemplate).mockResolvedValue(mockTemplate)
+      vi.mocked(exportTemplatesApi.downloadExportTemplateFile).mockResolvedValue(new ArrayBuffer(8))
+      vi.mocked(exportTemplatesApi.getWorkbookWorksheetNames).mockResolvedValue(['8月'])
+      vi.mocked(exportTemplatesApi.getWorkbookPreview).mockResolvedValue(truncatedPreview)
+
+      const wrapper = mount(ExportTemplateSection, {
+        props: { userId: 'user-1', assignmentId: 'asg-1', assignmentName: '測試派駐' },
+      })
+      await flushPromises()
+
+      const preflightBadge = wrapper.find('[data-test="preflight-badge"]')
+      // Must NOT be "設定已完整驗證"
       expect(preflightBadge.text()).toBe('設定基本檢查通過（未完整驗證）')
     })
 
