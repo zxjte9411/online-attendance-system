@@ -43,6 +43,22 @@ Judgement-call smells alone do not require speculative refactoring.
 
 Review completion is a delivery gate, not the end of the implementation workflow.
 
+## Review feedback response
+
+When a reviewer leaves actionable feedback on an existing Pull Request, use `docs/agents/review-response.md` as the response contract.
+
+For every actionable finding:
+
+1. Fetch the latest review thread/comment and preserve the reviewer’s finding identifier or short title.
+2. Make the focused correction on the same implementation branch.
+3. Run the affected repository verification that is actually available.
+4. Commit and push the correction before replying to the reviewer.
+5. Reply on the original review thread when possible. The response must state the change, actual verification, pushed commit, and a concrete `Re-review focus`; include pending manual or external verification only when applicable.
+6. Read the submitted response back and verify its formatting, commit reference, and that every actionable finding received an auditable response.
+7. Re-run review against the updated branch. If a blocking finding remains or a new one is raised, repeat the loop.
+
+A generic acknowledgement such as “已修正” or “all comments addressed” is not review evidence. Multiple findings remain independently auditable and must not be collapsed into one undifferentiated status.
+
 ## Pull request delivery
 
 After `/code-review` passes, continue directly to delivery:
