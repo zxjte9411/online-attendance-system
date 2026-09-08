@@ -4,6 +4,14 @@ When a reviewer leaves actionable feedback on a Pull Request and the implementat
 
 The response exists to make re-review cheap: the reviewer should be able to tell what changed, what was actually verified, which commit contains the change, and what specific behavior or risk still needs to be checked.
 
+## Format source
+
+Use `.github/review_response_template.md` as the single source of truth for review-reply formatting.
+
+- Use its **Standard** form for review summaries or findings that need explanation.
+- Use its **Compact inline** form only when the original inline thread already provides enough context.
+- Do not redefine or duplicate the response format in workflow documents. Workflow documents define behavior; the `.github` template defines presentation.
+
 ## Response location
 
 - Reply on the original review thread/comment when GitHub supports it.
@@ -15,49 +23,6 @@ The response exists to make re-review cheap: the reviewer should be able to tell
 Post the response only after the relevant change has been committed and pushed, and after the affected verification has been run as far as the current environment allows.
 
 A review finding is not ready for re-review until the response gives the reviewer enough evidence to inspect the result without reconstructing the agent’s work from the diff alone.
-
-## Canonical response template
-
-Use this shape for every actionable finding:
-
-```md
-### Review follow-up — <finding title or identifier>
-
-**Status:** Resolved | Partially resolved | No change
-
-**Change:**
-<Describe the behavioral / architectural / contract change that addresses the finding. Explain the important decision; do not merely list files.>
-
-**Verification:**
-- <check actually run and result>
-- <another check actually run and result>
-
-**Commit:** `<short-sha>`
-
-**Re-review focus:**
-<Tell the reviewer exactly what should be checked now: the behavior, contract, edge case, regression risk, or remaining concern that matters.>
-
-**Pending / external verification:**
-<Only include when something still requires browser/device/manual verification, deployment/preview confirmation, remote infrastructure, or another human-only check. State the concrete pending check.>
-```
-
-Omit `Pending / external verification` when there is genuinely nothing pending.
-
-## Inline-thread compact form
-
-For a narrow inline comment where the context is already obvious, the same contract may be compressed to:
-
-```md
-已處理。
-
-- **Change:** <what changed and why it addresses this comment>
-- **Verification:** <actual check and result>
-- **Commit:** `<short-sha>`
-- **Re-review:** <the exact behavior / edge case the reviewer should verify>
-- **Pending:** <only when applicable>
-```
-
-The compact form must still contain `Change`, `Verification`, `Commit`, and `Re-review`.
 
 ## Status semantics
 
@@ -71,7 +36,7 @@ Use when code has changed but part of the finding still depends on another ticke
 
 ### No change
 
-Use when the implementation is intentionally unchanged after investigation. Explain the evidence and rationale under `Change`, record any verification performed, and tell the reviewer what assumption or contract should be reconsidered. Do not use `No change` as a substitute for ignoring a finding.
+Use when the implementation is intentionally unchanged after investigation. Explain the evidence and rationale, record any verification performed, and tell the reviewer what assumption or contract should be reconsidered. `No change` is an auditable outcome, not a substitute for ignoring a finding.
 
 ## Evidence rules
 
@@ -83,21 +48,9 @@ Use when the implementation is intentionally unchanged after investigation. Expl
 
 ## Multiple findings
 
-When replying to a review summary that contains several findings, keep each one independently auditable:
+Keep each actionable finding independently auditable. Preserve the reviewer’s numbering or short title and give every finding its own status, change, verification, commit, and re-review focus using the `.github` template.
 
-```md
-## Review follow-up
-
-### 1. <original finding title>
-**Status:** Resolved
-...
-
-### 2. <original finding title>
-**Status:** Partially resolved
-...
-```
-
-Do not collapse several findings into a single sentence such as “all comments addressed”. Each actionable finding needs its own status and re-review focus.
+Do not collapse several findings into a single sentence such as `all comments addressed`.
 
 ## Review loop
 
