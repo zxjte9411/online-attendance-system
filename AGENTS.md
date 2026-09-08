@@ -38,3 +38,5 @@ This repo uses a single-context layout. See `docs/agents/domain.md`.
 ## Development workflow
 
 Implementation work follows the repository branch-to-PR workflow. Before modifying code for an issue or ticket, read `docs/agents/development-workflow.md` and follow it through Pull Request delivery.
+
+When correcting actionable Pull Request review feedback, read `docs/agents/review-response.md`. After the correction is verified, committed, and pushed, reply on the original review thread with the change, actual verification, pushed commit, and mandatory re-review focus; include pending manual/external checks only when applicable, then read the submitted response back before requesting re-review.
